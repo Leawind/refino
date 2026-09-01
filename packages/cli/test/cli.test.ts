@@ -99,9 +99,11 @@ describe("refino cli", () => {
   it("show prints the full record", async () => {
     const { code, out } = await run(["--root", validRoot, "show", "E5F6G7H8"]);
     expect(code).toBe(0);
-    expect(out).toContain("id:      E5F6G7H8");
-    expect(out).toContain("grounds: 1A2B3C4D, D4E5F6G7");
+    expect(out).toContain("constraints(id=E5F6G7H8, grounds=[1A2B3C4D, D4E5F6G7])");
     expect(out).toContain("不使用 extension X，改用手写 SQL。");
+
+    const premiseView = await run(["--root", validRoot, "show", "1A2B3C4D"]);
+    expect(premiseView.out).toContain("premises(id=1A2B3C4D)");
   });
 
   it("grounds prints resolved grounds in declared order", async () => {

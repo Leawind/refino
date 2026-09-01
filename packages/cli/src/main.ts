@@ -120,19 +120,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
               ...(node.confirmed !== undefined && { confirmed: node.confirmed }),
             });
           } else {
-            io.stdout.write(
-              [
-                `id:      ${node.id}`,
-                `type:    ${node.type}`,
-                `file:    ${node.file}`,
-                ...(node.type === "constraint"
-                  ? [`grounds: ${(node.grounds ?? []).join(", ") || "(none)"}`]
-                  : []),
-                "",
-                node.body,
-                "",
-              ].join("\n"),
-            );
+            io.stdout.write(`${renderNodeHeading(node)}\n\n${node.body}\n`);
           }
           return 0;
         }),
@@ -307,6 +295,13 @@ function emitDepths(
 function nodeJson(node: RefinoNode): Record<string, unknown> {
   const base = { id: node.id, type: node.type, file: node.file, summary: node.summary };
   return node.type === "constraint" ? { ...base, grounds: node.grounds ?? [] } : base;
+}
+
+/** Compact single-line identity, e.g. `constraints(id=E5F6G7H8, grounds=[...])`. */
+function renderNodeHeading(node: RefinoNode): string {
+  const parts = [`id=${node.id}`];
+  if (node.type === "constraint") parts.push(`grounds=[${(node.grounds ?? []).join(", ")}]`);
+  return `${node.type}s(${parts.join(", ")})`;
 }
 
 function emit(io: CliIo, payload: unknown): void {
