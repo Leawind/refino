@@ -198,6 +198,56 @@ describe("refino cli", () => {
     }
   });
 
+  it("new premise --now stamps the current UTC time and validates", async () => {
+    const emptyRoot = await createRefino({});
+    try {
+      const { code } = await run([
+        "--root",
+        emptyRoot,
+        "new",
+        "premise",
+        "--body",
+        "Fact.",
+        "--now",
+      ]);
+      expect(code).toBe(0);
+
+      const validate = await run(["--root", emptyRoot, "--json", "validate"]);
+      expect(validate.code).toBe(0);
+      const payload = JSON.parse(validate.out) as { ok: boolean };
+      expect(payload.ok).toBe(true);
+
+      const list = await run(["--root", emptyRoot, "--json", "list", "--type", "premise"]);
+      const nodes = JSON.parse(list.out) as Array<{ id: string }>;
+      const show = await run(["--root", emptyRoot, "--json", "show", nodes[0]!.id]);
+      const node = JSON.parse(show.out) as { confirmed?: string };
+      expect(node.confirmed).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/);
+    } finally {
+      await removeRefino(emptyRoot);
+    }
+  });
+
+  it("new premise rejects --now together with --confirmed", async () => {
+    const emptyRoot = await createRefino({});
+    try {
+      const { code, err } = await run([
+        "--root",
+        emptyRoot,
+        "new",
+        "premise",
+        "--body",
+        "Fact.",
+        "--now",
+        "--confirmed",
+        "2026-05-01T00:00:00Z",
+      ]);
+      expect(code).toBe(1);
+      expect(err).toContain("mutually exclusive");
+    } finally {
+      await removeRefino(emptyRoot);
+    }
+  });
+
   it("new emits JSON with --json", async () => {
     const emptyRoot = await createRefino({});
     try {

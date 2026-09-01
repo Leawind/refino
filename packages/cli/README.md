@@ -19,7 +19,7 @@ refino new premise --body "PostgreSQL 16 is in use." --confirmed 2026-05-01T00:0
 refino new constraint --body "数据访问必须通过 Repository 层。" --grounds 01ABCDEF,1A2B3C4D --rationale "业务层不得直接依赖数据库。"
 ```
 
-- `refino new premise`：`--body <text>`（必填），`--confirmed <timestamp>`（RFC 3339，需带时区偏移）。
+- `refino new premise`：`--body <text>`（必填），`--confirmed <timestamp>`（RFC 3339，需带时区偏移）或 `--now`（以当前 UTC 时间作为确认时间，二者互斥）。
 - `refino new constraint`：`--body <text>`（必填），`--grounds <ids>`（逗号分隔的 ground id），`--rationale <text>`。
 
 ID 由引擎生成并保证不与现有节点冲突。`--json` 时输出 `{ "id": ..., "file": ... }`。

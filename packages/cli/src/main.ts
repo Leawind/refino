@@ -113,7 +113,12 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
         withGraph(io, opts, (graph) => {
           const node = requireNode(graph, id);
           if (opts.json) {
-            emit(io, { ...nodeJson(node), body: node.body });
+            emit(io, {
+              ...nodeJson(node),
+              body: node.body,
+              ...(node.rationale !== undefined && { rationale: node.rationale }),
+              ...(node.confirmed !== undefined && { confirmed: node.confirmed }),
+            });
           } else {
             io.stdout.write(
               [
@@ -181,10 +186,22 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
         .description("create a premise node")
         .requiredOption("--body <text>", "fact content (markdown body)")
         .option("--confirmed <timestamp>", "RFC 3339 timestamp with an explicit UTC offset")
+        .option("--now", 'confirm now: use the current UTC time as "confirmed"')
         .action((_opts, cmd) =>
           run(cmd, async (opts) => {
-            const { body, confirmed } = cmd.opts() as { body: string; confirmed?: string };
-            const id = await createPremise(refinoDir(opts), { body, confirmed });
+            const { body, confirmed, now } = cmd.opts() as {
+              body: string;
+              confirmed?: string;
+              now?: boolean;
+            };
+            if (now && confirmed !== undefined) {
+              io.stderr.write("error: --now and --confirmed are mutually exclusive\n");
+              return 1;
+            }
+            const id = await createPremise(refinoDir(opts), {
+              body,
+              confirmed: now ? new Date().toISOString() : confirmed,
+            });
             emitCreated(io, opts, id, "premises");
             return 0;
           }),
