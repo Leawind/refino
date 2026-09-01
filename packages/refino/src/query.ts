@@ -50,9 +50,6 @@ export function getDependents(graph: Graph, id: string): NodeWithDepth[] {
   return breadthFirst(graph, id, (node) => graph.dependents.get(node.id) ?? []);
 }
 
-/** Alias of `getDependents`: the impact set of a node. */
-export const getImpact = getDependents;
-
 function breadthFirst(
   graph: Graph,
   start: string,

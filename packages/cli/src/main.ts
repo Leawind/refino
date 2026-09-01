@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CommanderError, Command, Option } from "commander";
 import {
+  createConstraint,
+  createPremise,
   getAncestors,
   getDependents,
   getGrounds,
@@ -160,7 +162,6 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
 
   program
     .command("dependents")
-    .alias("deps")
     .description("constraints whose grounds directly or indirectly contain the node")
     .argument("<id>", "node id")
     .action((id: string, _opts, cmd) =>
@@ -173,16 +174,48 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
     );
 
   program
-    .command("impact")
-    .description("impact set of a node: all constraints directly or indirectly depending on it")
-    .argument("<id>", "node id")
-    .action((id: string, _opts, cmd) =>
-      run(cmd, async (opts) =>
-        withGraph(io, opts, (graph) => {
-          emitDepths(io, opts, getDependents(graph, id));
-          return 0;
-        }),
-      ),
+    .command("new")
+    .description("create a new node file in .refino/")
+    .addCommand(
+      new Command("premise")
+        .description("create a premise node")
+        .requiredOption("--body <text>", "fact content (markdown body)")
+        .option("--confirmed <timestamp>", "RFC 3339 timestamp with an explicit UTC offset")
+        .action((_opts, cmd) =>
+          run(cmd, async (opts) => {
+            const { body, confirmed } = cmd.opts() as { body: string; confirmed?: string };
+            const id = await createPremise(refinoDir(opts), { body, confirmed });
+            emitCreated(io, opts, id, "premises");
+            return 0;
+          }),
+        ),
+    )
+    .addCommand(
+      new Command("constraint")
+        .description("create a constraint node")
+        .requiredOption("--body <text>", "decision content (markdown body)")
+        .option("--grounds <ids>", "comma-separated ground node ids")
+        .option("--rationale <text>", "why the decision was made")
+        .action((_opts, cmd) =>
+          run(cmd, async (opts) => {
+            const { body, grounds, rationale } = cmd.opts() as {
+              body: string;
+              grounds?: string;
+              rationale?: string;
+            };
+            const groundIds = (grounds ?? "")
+              .split(",")
+              .map((s) => s.trim())
+              .filter((s) => s.length > 0);
+            const id = await createConstraint(refinoDir(opts), {
+              body,
+              grounds: groundIds.length > 0 ? groundIds : undefined,
+              rationale,
+            });
+            emitCreated(io, opts, id, "constraints");
+            return 0;
+          }),
+        ),
     );
 
   try {
@@ -219,6 +252,12 @@ function reportBlockingIssues(io: CliIo, opts: GlobalOptions, issues: RefinoIssu
   if (opts.json) emit(io, { ok: false, issues });
   else io.stdout.write(`${renderIssues(issues)}\n`);
   return 1;
+}
+
+function emitCreated(io: CliIo, opts: GlobalOptions, id: string, dirName: string): void {
+  const file = `${dirName}/${id}.md`;
+  if (opts.json) emit(io, { id, file });
+  else io.stdout.write(`created ${id} (${join(".refino", file)})\n`);
 }
 
 function emitNodes(io: CliIo, opts: GlobalOptions, nodes: RefinoNode[]): void {

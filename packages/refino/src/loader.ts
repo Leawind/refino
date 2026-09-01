@@ -11,8 +11,7 @@ const STORAGE_DIRS: ReadonlyArray<readonly [string, NodeType]> = [
 
 /**
  * Read every node file under a `.refino` directory and build the in-memory
- * graph. This is the only filesystem access the engine performs; no runtime
- * state is ever written back.
+ * graph. Loading is read-only; the only write path is `writer.ts`.
  *
  * Parse-level issues (including duplicate ids) are collected in `issues`;
  * nodes that could not be identified are skipped. Structural validation

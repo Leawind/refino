@@ -12,7 +12,7 @@ export type NodeType = "premise" | "constraint";
 export interface RefinoNode {
   id: string;
   type: NodeType;
-  /** Path relative to the `.refino` directory, e.g. `constraints/C-019.md`. */
+  /** Path relative to the `.refino` directory, e.g. `constraints/019ABCDE.md`. */
   file: string;
   /** First paragraph of the markdown body; used for quick relevance checks. */
   summary: string;
@@ -20,6 +20,10 @@ export interface RefinoNode {
   body: string;
   /** Constraint nodes only: ground ids, deduplicated, in declared order. */
   grounds?: string[];
+  /** Constraint nodes only: why the decision was made; independent and optional. */
+  rationale?: string;
+  /** Premise nodes only: RFC 3339 timestamp with an explicit UTC offset. */
+  confirmed?: string;
 }
 
 export interface Graph {
@@ -32,15 +36,11 @@ export interface Graph {
 }
 
 export type IssueCode =
-  | "MISSING_FRONTMATTER"
   | "INVALID_FRONTMATTER"
-  | "MISSING_ID"
   | "INVALID_ID"
-  | "MISSING_TYPE"
-  | "INVALID_TYPE"
-  | "TYPE_DIR_MISMATCH"
   | "PREMISE_WITH_GROUNDS"
   | "INVALID_GROUNDS"
+  | "INVALID_CONFIRMED"
   | "DUPLICATE_ID"
   | "UNKNOWN_GROUND"
   | "CYCLE"
@@ -56,7 +56,7 @@ export interface RefinoIssue {
   nodeId?: string;
   /** For UNKNOWN_GROUND: the referenced id that does not exist. */
   groundId?: string;
-  /** For CYCLE: the closed path, e.g. ["C-001","C-002","C-001"]. */
+  /** For CYCLE: the closed path, e.g. ["01ABCDEF","02ABCDEF","01ABCDEF"]. */
   cycle?: string[];
 }
 

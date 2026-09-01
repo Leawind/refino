@@ -1,7 +1,10 @@
 export * from "./types.js";
-export { parseNodeSource } from "./parser.js";
+export { parseNodeSource, extractSummary, SUMMARY_MAX_LENGTH } from "./parser.js";
 export type { ParseResult } from "./parser.js";
 export { loadGraph } from "./loader.js";
 export { validateGraph } from "./validate.js";
-export { requireNode, getGrounds, getAncestors, getDependents, getImpact } from "./query.js";
+export { createPremise, createConstraint } from "./writer.js";
+export type { CreateOptions, CreatePremiseOptions, CreateConstraintOptions } from "./writer.js";
+export { generateId, ID_RE } from "./id.js";
+export { requireNode, getGrounds, getAncestors, getDependents } from "./query.js";
 export type { NodeWithDepth } from "./query.js";

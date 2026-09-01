@@ -1,12 +1,16 @@
 import type { Graph, RefinoIssue, RefinoNode } from "./types.js";
 
+/** RFC 3339 timestamp; the UTC offset (Z or ±HH:MM) is mandatory. */
+const CONFIRMED_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
+
 /**
  * Structural validation of a loaded graph:
- * 1. every `grounds` reference resolves to an existing node;
- * 2. constraint -> constraint paths are acyclic.
+ * 1. premise `confirmed` timestamps are RFC 3339 with an explicit UTC offset;
+ * 2. every `grounds` reference resolves to an existing node;
+ * 3. constraint -> constraint paths are acyclic.
  *
- * (Parse-level rules — unique ids, no `grounds` on premises, type/directory
- * agreement — are checked while loading; see `loadGraph`.)
+ * (Parse-level rules — unique ids, valid file-name ids, no `grounds` on
+ * premises — are checked while loading; see `loadGraph`.)
  *
  * Cycle reporting is deterministic: each distinct cycle is reported once,
  * rotated so its smallest id comes first.
@@ -15,6 +19,14 @@ export function validateGraph(graph: Graph): RefinoIssue[] {
   const issues: RefinoIssue[] = [];
 
   for (const node of sortedValues(graph.nodes)) {
+    if (node.confirmed !== undefined && !CONFIRMED_RE.test(node.confirmed)) {
+      issues.push({
+        code: "INVALID_CONFIRMED",
+        message: `"confirmed" must be an RFC 3339 timestamp with an explicit UTC offset (Z or ±HH:MM), got "${node.confirmed}".`,
+        file: node.file,
+        nodeId: node.id,
+      });
+    }
     for (const ground of node.grounds ?? []) {
       if (!graph.nodes.has(ground)) {
         issues.push({

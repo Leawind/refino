@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-/** Keys are `.refino`-relative paths, e.g. `constraints/C-001.md`.
+/** Keys are `.refino`-relative paths, e.g. `constraints/01ABCDEF.md`.
  *  Returns the project root; the storage directory is `<root>/.refino`. */
 export async function createRefino(files: Record<string, string>): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "refino-test-"));
@@ -18,15 +18,25 @@ export async function removeRefino(root: string): Promise<void> {
   await rm(root, { recursive: true, force: true });
 }
 
-export function premise(id: string, body = `${id} body.`): string {
-  return `---\nid: ${id}\ntype: premise\n---\n\n${body}\n`;
+/** A premise node file body; the id lives in the file name, not the frontmatter. */
+export function premise(_id: string, body = "body."): string {
+  return `${body}\n`;
 }
 
+/** A constraint node file body; the id lives in the file name, not the frontmatter. */
 export function constraint(
-  id: string,
+  _id: string,
   grounds: readonly string[] | undefined,
-  body = `${id} body.`,
+  body = "body.",
+  rationale?: string,
 ): string {
-  const groundsLine = grounds === undefined ? "" : `grounds: [${grounds.join(", ")}]\n`;
-  return `---\nid: ${id}\ntype: constraint\n${groundsLine}---\n\n${body}\n`;
+  const lines: string[] = [];
+  if (grounds !== undefined || rationale !== undefined) {
+    lines.push("---");
+    if (grounds !== undefined) lines.push(`grounds: [${grounds.join(", ")}]`);
+    if (rationale !== undefined) lines.push(`rationale: ${JSON.stringify(rationale)}`);
+    lines.push("---", "");
+  }
+  lines.push(`${body}\n`);
+  return lines.join("\n");
 }

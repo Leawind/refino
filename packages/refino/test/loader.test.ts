@@ -5,19 +5,25 @@ import { constraint, createRefino, premise, removeRefino } from "./helpers.js";
 describe("loadGraph", () => {
   it("builds the graph and the dependents index from a .refino directory", async () => {
     const root = await createRefino({
-      "premises/P-003.md": premise("P-003"),
-      "constraints/C-001.md": constraint("C-001", undefined),
-      "constraints/C-007.md": constraint("C-007", ["C-001"]),
-      "constraints/C-019.md": constraint("C-019", ["P-003", "C-007"]),
+      "premises/1A2B3C4D.md": premise("1A2B3C4D"),
+      "constraints/A1B2C3D4.md": constraint("A1B2C3D4", undefined),
+      "constraints/D4E5F6G7.md": constraint("D4E5F6G7", ["A1B2C3D4"]),
+      "constraints/E5F6G7H8.md": constraint("E5F6G7H8", ["1A2B3C4D", "D4E5F6G7"]),
     });
     try {
       const { graph, issues } = await loadGraph(`${root}/.refino`);
       expect(issues).toEqual([]);
-      expect([...graph.nodes.keys()].sort()).toEqual(["C-001", "C-007", "C-019", "P-003"]);
-      expect(graph.dependents.get("C-001")).toEqual(["C-007"]);
-      expect(graph.dependents.get("C-007")).toEqual(["C-019"]);
-      expect(graph.dependents.get("P-003")).toEqual(["C-019"]);
-      expect(graph.nodes.get("C-019")?.file).toBe("constraints/C-019.md");
+      expect([...graph.nodes.keys()].sort()).toEqual([
+        "1A2B3C4D",
+        "A1B2C3D4",
+        "D4E5F6G7",
+        "E5F6G7H8",
+      ]);
+      expect(graph.dependents.get("A1B2C3D4")).toEqual(["D4E5F6G7"]);
+      expect(graph.dependents.get("D4E5F6G7")).toEqual(["E5F6G7H8"]);
+      expect(graph.dependents.get("1A2B3C4D")).toEqual(["E5F6G7H8"]);
+      expect(graph.nodes.get("E5F6G7H8")?.file).toBe("constraints/E5F6G7H8.md");
+      expect(graph.nodes.get("1A2B3C4D")?.confirmed).toBeUndefined();
     } finally {
       await removeRefino(root);
     }
@@ -25,14 +31,28 @@ describe("loadGraph", () => {
 
   it("reports duplicate ids across directories and keeps the first node", async () => {
     const root = await createRefino({
-      "premises/C-001.md": premise("C-001"),
-      "constraints/C-001.md": constraint("C-001", undefined),
+      "premises/A1B2C3D4.md": premise("A1B2C3D4"),
+      "constraints/A1B2C3D4.md": constraint("A1B2C3D4", undefined),
     });
     try {
       const { graph, issues } = await loadGraph(`${root}/.refino`);
       expect(graph.nodes.size).toBe(1);
       expect(issues.map((i) => i.code)).toEqual(["DUPLICATE_ID"]);
-      expect(issues[0]?.nodeId).toBe("C-001");
+      expect(issues[0]?.nodeId).toBe("A1B2C3D4");
+    } finally {
+      await removeRefino(root);
+    }
+  });
+
+  it("rejects file names that are not valid ids", async () => {
+    const root = await createRefino({
+      "constraints/C-001.md": constraint("C-001", undefined),
+      "constraints/TOOLONG1.md": constraint("TOOLONG1", undefined),
+    });
+    try {
+      const { graph, issues } = await loadGraph(`${root}/.refino`);
+      expect(graph.nodes.size).toBe(0);
+      expect(issues.map((i) => i.code)).toEqual(["INVALID_ID", "INVALID_ID"]);
     } finally {
       await removeRefino(root);
     }
@@ -40,14 +60,14 @@ describe("loadGraph", () => {
 
   it("ignores non-markdown files and nested directories", async () => {
     const root = await createRefino({
-      "constraints/C-001.md": constraint("C-001", undefined),
+      "constraints/A1B2C3D4.md": constraint("A1B2C3D4", undefined),
       "constraints/notes.txt": "ignored",
-      "constraints/nested/C-002.md": constraint("C-002", undefined),
+      "constraints/nested/B2C3D4E5.md": constraint("B2C3D4E5", undefined),
     });
     try {
       const { graph, issues } = await loadGraph(`${root}/.refino`);
       expect(issues).toEqual([]);
-      expect([...graph.nodes.keys()]).toEqual(["C-001"]);
+      expect([...graph.nodes.keys()]).toEqual(["A1B2C3D4"]);
     } finally {
       await removeRefino(root);
     }
@@ -55,7 +75,7 @@ describe("loadGraph", () => {
 
   it("tolerates missing subdirectories", async () => {
     const root = await createRefino({
-      "constraints/C-001.md": constraint("C-001", undefined),
+      "constraints/A1B2C3D4.md": constraint("A1B2C3D4", undefined),
     });
     try {
       const { graph, issues } = await loadGraph(`${root}/.refino`);
