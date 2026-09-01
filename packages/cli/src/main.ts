@@ -1,0 +1,291 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { CommanderError, Command, Option } from "commander";
+import {
+  getAncestors,
+  getDependents,
+  getGrounds,
+  loadGraph,
+  RefinoError,
+  requireNode,
+  validateGraph,
+} from "refino";
+import type { Graph, RefinoIssue, RefinoNode } from "refino";
+import { processIo, renderIssues, renderNodeTable } from "./format.js";
+import type { CliIo } from "./format.js";
+
+export interface GlobalOptions {
+  root: string;
+  json: boolean;
+}
+
+/**
+ * Entry point. Returns the process exit code instead of calling
+ * `process.exit` so it can be exercised in tests.
+ */
+export async function main(argv: string[], io: CliIo = processIo): Promise<number> {
+  let exitCode = 0;
+
+  const program = new Command();
+  program
+    .name("refino")
+    .description("Parse, validate and query a Constraint Refinement Graph stored in .refino/.")
+    .version(readVersion())
+    .option("--root <dir>", "project root directory containing .refino/", process.cwd())
+    .option("--json", "emit machine-readable JSON on stdout", false)
+    .configureOutput({
+      writeOut: (text) => void io.stdout.write(text),
+      writeErr: (text) => void io.stderr.write(text),
+    })
+    .exitOverride();
+
+  /** Run an action with merged global options and capture its exit code. */
+  const run = (cmd: Command, action: (opts: GlobalOptions) => Promise<number>): Promise<void> => {
+    const opts = cmd.optsWithGlobals() as GlobalOptions;
+    return action(opts).then(
+      (code) => {
+        exitCode = code;
+      },
+      (error: unknown) => {
+        exitCode = fail(io, error);
+      },
+    );
+  };
+
+  program
+    .command("validate")
+    .description("build the graph and report all validation issues")
+    .action((_opts, cmd) =>
+      run(cmd, async (opts) => {
+        const { graph, issues } = await loadGraph(refinoDir(opts));
+        issues.push(...validateGraph(graph));
+        const counts = countNodes(graph);
+        if (opts.json) {
+          emit(io, { ok: issues.length === 0, refinoDir: graph.refinoDir, counts, issues });
+        } else if (issues.length > 0) {
+          io.stdout.write(`${renderIssues(issues)}\n`);
+        } else {
+          io.stdout.write(
+            `valid: ${counts.constraints} constraints, ${counts.premises} premises (${graph.refinoDir})\n`,
+          );
+        }
+        return issues.length > 0 ? 1 : 0;
+      }),
+    );
+
+  program
+    .command("list")
+    .description("list all nodes (id, type, summary)")
+    .addOption(
+      new Option("--type <type>", "only list nodes of this type").choices([
+        "premise",
+        "constraint",
+      ]),
+    )
+    .action((_opts, cmd) =>
+      run(cmd, async (opts) => {
+        const typeFilter = (cmd.opts() as { type?: string }).type as
+          "premise" | "constraint" | undefined;
+        const { graph, issues } = await loadGraph(refinoDir(opts));
+        if (issues.length > 0) return reportBlockingIssues(io, opts, issues);
+        let nodes = sortNodes(graph);
+        if (typeFilter) nodes = nodes.filter((n) => n.type === typeFilter);
+        if (opts.json) {
+          emit(io, nodes.map(nodeJson));
+        } else if (nodes.length === 0) {
+          io.stdout.write("(no nodes)\n");
+        } else {
+          io.stdout.write(`${renderNodeTable(nodes)}\n`);
+        }
+        return 0;
+      }),
+    );
+
+  program
+    .command("show")
+    .description("print the full record of one node")
+    .argument("<id>", "node id")
+    .action((id: string, _opts, cmd) =>
+      run(cmd, async (opts) =>
+        withGraph(io, opts, (graph) => {
+          const node = requireNode(graph, id);
+          if (opts.json) {
+            emit(io, { ...nodeJson(node), body: node.body });
+          } else {
+            io.stdout.write(
+              [
+                `id:      ${node.id}`,
+                `type:    ${node.type}`,
+                `file:    ${node.file}`,
+                ...(node.type === "constraint"
+                  ? [`grounds: ${(node.grounds ?? []).join(", ") || "(none)"}`]
+                  : []),
+                "",
+                node.body,
+                "",
+              ].join("\n"),
+            );
+          }
+          return 0;
+        }),
+      ),
+    );
+
+  program
+    .command("grounds")
+    .description("direct grounds of a node")
+    .argument("<id>", "node id")
+    .action((id: string, _opts, cmd) =>
+      run(cmd, async (opts) =>
+        withGraph(io, opts, (graph) => {
+          emitNodes(io, opts, getGrounds(graph, id));
+          return 0;
+        }),
+      ),
+    );
+
+  program
+    .command("ancestors")
+    .description("all nodes reachable by recursively following grounds")
+    .argument("<id>", "node id")
+    .action((id: string, _opts, cmd) =>
+      run(cmd, async (opts) =>
+        withGraph(io, opts, (graph) => {
+          emitDepths(io, opts, getAncestors(graph, id));
+          return 0;
+        }),
+      ),
+    );
+
+  program
+    .command("dependents")
+    .alias("deps")
+    .description("constraints whose grounds directly or indirectly contain the node")
+    .argument("<id>", "node id")
+    .action((id: string, _opts, cmd) =>
+      run(cmd, async (opts) =>
+        withGraph(io, opts, (graph) => {
+          emitDepths(io, opts, getDependents(graph, id));
+          return 0;
+        }),
+      ),
+    );
+
+  program
+    .command("impact")
+    .description("impact set of a node: all constraints directly or indirectly depending on it")
+    .argument("<id>", "node id")
+    .action((id: string, _opts, cmd) =>
+      run(cmd, async (opts) =>
+        withGraph(io, opts, (graph) => {
+          emitDepths(io, opts, getDependents(graph, id));
+          return 0;
+        }),
+      ),
+    );
+
+  try {
+    await program.parseAsync(argv, { from: "user" });
+  } catch (error) {
+    if (error instanceof CommanderError) return error.exitCode;
+    if (error instanceof RefinoError) {
+      io.stderr.write(`error: ${error.message}\n`);
+      return 1;
+    }
+    throw error;
+  }
+  return exitCode;
+}
+
+/** Load and structurally validate the graph, then run a query against it. */
+async function withGraph(
+  io: CliIo,
+  opts: GlobalOptions,
+  query: (graph: Graph) => number,
+): Promise<number> {
+  try {
+    const { graph, issues } = await loadGraph(refinoDir(opts));
+    issues.push(...validateGraph(graph));
+    if (issues.length > 0) return reportBlockingIssues(io, opts, issues);
+    return query(graph);
+  } catch (error) {
+    return fail(io, error);
+  }
+}
+
+/** Graph issues make query results ambiguous, so queries refuse to run. */
+function reportBlockingIssues(io: CliIo, opts: GlobalOptions, issues: RefinoIssue[]): number {
+  if (opts.json) emit(io, { ok: false, issues });
+  else io.stdout.write(`${renderIssues(issues)}\n`);
+  return 1;
+}
+
+function emitNodes(io: CliIo, opts: GlobalOptions, nodes: RefinoNode[]): void {
+  if (opts.json) {
+    emit(io, nodes.map(nodeJson));
+  } else if (nodes.length === 0) {
+    io.stdout.write("(empty)\n");
+  } else {
+    io.stdout.write(`${renderNodeTable(nodes)}\n`);
+  }
+}
+
+function emitDepths(
+  io: CliIo,
+  opts: GlobalOptions,
+  results: ReadonlyArray<{ node: RefinoNode; depth: number }>,
+): void {
+  if (opts.json) {
+    emit(
+      io,
+      results.map((r) => ({ ...nodeJson(r.node), depth: r.depth })),
+    );
+  } else if (results.length === 0) {
+    io.stdout.write("(empty)\n");
+  } else {
+    io.stdout.write(`${renderNodeTable(results.map((r) => r.node))}\n`);
+  }
+}
+
+function nodeJson(node: RefinoNode): Record<string, unknown> {
+  const base = { id: node.id, type: node.type, file: node.file, summary: node.summary };
+  return node.type === "constraint" ? { ...base, grounds: node.grounds ?? [] } : base;
+}
+
+function emit(io: CliIo, payload: unknown): void {
+  io.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
+}
+
+function fail(io: CliIo, error: unknown): number {
+  io.stderr.write(`error: ${error instanceof Error ? error.message : String(error)}\n`);
+  return 1;
+}
+
+function refinoDir(opts: GlobalOptions): string {
+  return join(opts.root, ".refino");
+}
+
+function sortNodes(graph: Graph): RefinoNode[] {
+  return [...graph.nodes.values()].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
+function countNodes(graph: Graph): { premises: number; constraints: number } {
+  const counts = { premises: 0, constraints: 0 };
+  for (const node of graph.nodes.values()) {
+    if (node.type === "premise") counts.premises++;
+    else counts.constraints++;
+  }
+  return counts;
+}
+
+function readVersion(): string {
+  try {
+    const packageJson = JSON.parse(
+      readFileSync(join(fileURLToPath(import.meta.url), "../../package.json"), "utf8"),
+    ) as { version?: string };
+    return packageJson.version ?? "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}

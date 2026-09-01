@@ -1,0 +1,24 @@
+{
+  "name": "@refino/cli",
+  "version": "0.1.0",
+  "description": "Command line interface for querying Constraint Refinement Graphs (CRG).",
+  "type": "module",
+  "bin": {
+    "refino": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "clean": "node -e \"fs.rmSync('dist',{recursive:true,force:true})\""
+  },
+  "engines": {
+    "node": ">=18.17"
+  },
+  "dependencies": {
+    "refino": "workspace:*",
+    "commander": "^15.0.0"
+  }
+}
