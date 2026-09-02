@@ -187,13 +187,15 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
         .description("create a premise node")
         .option("--id <text>", "explicit node id (8-character Crockford base32)")
         .requiredOption("--body <text>", "fact content (markdown body)")
+        .option("--summary <text>", "short summary for relevance checks (stored in frontmatter)")
         .option("--confirmed <timestamp>", "RFC 3339 timestamp with an explicit UTC offset")
         .option("--now", 'confirm now: use the current UTC time as "confirmed"')
         .action((_opts, cmd) =>
           run(cmd, async (opts) => {
-            const { id, body, confirmed, now } = cmd.opts() as {
+            const { id, body, summary, confirmed, now } = cmd.opts() as {
               id?: string;
               body: string;
+              summary?: string;
               confirmed?: string;
               now?: boolean;
             };
@@ -204,6 +206,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
             const newId = await createPremise(refinoDir(opts), {
               id,
               body,
+              summary,
               confirmed: now ? new Date().toISOString() : confirmed,
             });
             emitCreated(io, opts, newId, "premise");
@@ -218,13 +221,15 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
         .requiredOption("--body <text>", "decision content (markdown body)")
         .option("--grounds <ids>", "comma-separated ground node ids")
         .option("--rationale <text>", "why the decision was made")
+        .option("--summary <text>", "short summary for relevance checks (stored in frontmatter)")
         .action((_opts, cmd) =>
           run(cmd, async (opts) => {
-            const { id, body, grounds, rationale } = cmd.opts() as {
+            const { id, body, grounds, rationale, summary } = cmd.opts() as {
               id?: string;
               body: string;
               grounds?: string;
               rationale?: string;
+              summary?: string;
             };
             const groundIds = (grounds ?? "")
               .split(",")
@@ -242,6 +247,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
               body,
               grounds: groundIds.length > 0 ? groundIds : undefined,
               rationale,
+              summary,
             });
             emitCreated(io, opts, newId, "constraint");
             return 0;

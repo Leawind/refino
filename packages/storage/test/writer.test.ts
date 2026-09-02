@@ -203,4 +203,39 @@ describe("writer", () => {
       await removeRefino(root);
     }
   });
+
+  it("createConstraint serializes an explicit summary into frontmatter", async () => {
+    const root = await createRefino({});
+    try {
+      const id = await createConstraint(`${root}/.refino`, {
+        body: "Full decision body.".repeat(20),
+        summary: "Short relevance summary.",
+      });
+      const source = await readFile(
+        `${root}/.refino/nodes/${id.slice(0, 2)}/${id.slice(2)}.constraint.md`,
+        "utf8",
+      );
+      expect(source).toContain("summary: Short relevance summary.");
+      const { graph, issues } = await loadGraph(`${root}/.refino`);
+      expect(issues).toEqual([]);
+      expect(graph.nodes.get(id)?.summary).toBe("Short relevance summary.");
+    } finally {
+      await removeRefino(root);
+    }
+  });
+
+  it("createPremise serializes an explicit summary into frontmatter", async () => {
+    const root = await createRefino({});
+    try {
+      const id = await createPremise(`${root}/.refino`, {
+        body: "Long fact body.",
+        summary: "Fact summary.",
+      });
+      const { graph, issues } = await loadGraph(`${root}/.refino`);
+      expect(issues).toEqual([]);
+      expect(graph.nodes.get(id)?.summary).toBe("Fact summary.");
+    } finally {
+      await removeRefino(root);
+    }
+  });
 });

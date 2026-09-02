@@ -450,4 +450,26 @@ describe("refino cli", () => {
       await removeRefino(emptyRoot);
     }
   });
+
+  it("new --summary stores an explicit summary in frontmatter", async () => {
+    const emptyRoot = await createRefino({});
+    try {
+      const { code } = await run([
+        "--root",
+        emptyRoot,
+        "new",
+        "constraint",
+        "--body",
+        "Very long decision body.",
+        "--summary",
+        "Short summary.",
+      ]);
+      expect(code).toBe(0);
+      const list = await run(["--root", emptyRoot, "--json", "list"]);
+      const [node] = JSON.parse(list.out) as Array<{ id: string; summary: string }>;
+      expect(node.summary).toBe("Short summary.");
+    } finally {
+      await removeRefino(emptyRoot);
+    }
+  });
 });

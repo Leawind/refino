@@ -35,10 +35,10 @@ CRG 文件系统存储格式的权威定义与实现，也是 `.refino/` 目录�
 
 每个节点文件是可选 YAML frontmatter 加 Markdown 正文：
 
-- frontmatter 字段：约束节点可用 `grounds`（依据 ID 列表）与 `rationale`（理由）；前提节点可用 `confirmed`（RFC 3339 带显式 UTC 偏移的确认时间）。
+- frontmatter 字段：约束节点可用 `grounds`（依据 ID 列表）与 `rationale`（理由）；前提节点可用 `confirmed`（RFC 3339 带显式 UTC 偏移的确认时间）；两类节点均可用 `summary`（独立摘要属性）。
 - ID 与类型都不出现在文件内容中（类型由文件名表达）。
 - frontmatter 中的未知字段一律忽略，不作错误处理。
 
-## 摘要提取规则
+## 摘要规则
 
-节点的 `summary` 取正文首段，折叠内部空白为单行；超过 100 字符时截断并追加 `...`。
+摘要是独立于正文的属性（见 crg.md）：frontmatter 声明 `summary` 字段时直接采用；未声明时回退为正文首段，折叠内部空白为单行，超过 100 字符时截断并追加 `...`。截断仅发生在回退路径上，显式 `summary` 字段与正文本身不限制字数。

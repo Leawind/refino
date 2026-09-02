@@ -130,6 +130,41 @@ describe("parseNodeSource", () => {
     expect(node?.summary).toBe("Line one. Line two continues.");
   });
 
+  it("prefers an explicit summary frontmatter field over the first paragraph", () => {
+    const { node, issues } = parseNodeSource(
+      "A1B2C3D4",
+      "nodes/A1/B2C3D4.constraint.md",
+      "constraint",
+      '---\nsummary: "Short relevance summary."\n---\n\nFirst paragraph that is not the summary.\n',
+    );
+    expect(issues).toEqual([]);
+    expect(node?.summary).toBe("Short relevance summary.");
+    expect(node?.body).toBe("First paragraph that is not the summary.");
+  });
+
+  it("accepts a summary frontmatter field on premise nodes", () => {
+    const { node, issues } = parseNodeSource(
+      "1A2B3C4D",
+      "nodes/1A/2B3C4D.premise.md",
+      "premise",
+      '---\nsummary: "PostgreSQL version fact."\n---\n\nLong fact body.\n',
+    );
+    expect(issues).toEqual([]);
+    expect(node?.summary).toBe("PostgreSQL version fact.");
+  });
+
+  it("reports an issue and falls back for a non-string summary field", () => {
+    const { node, issues } = parseNodeSource(
+      "A1B2C3D4",
+      "nodes/A1/B2C3D4.constraint.md",
+      "constraint",
+      "---\nsummary: 42\n---\n\nFallback paragraph.\n",
+    );
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toMatchObject({ code: "INVALID_FRONTMATTER" });
+    expect(node?.summary).toBe("Fallback paragraph.");
+  });
+
   it("truncates long summaries with an ellipsis", () => {
     const longParagraph = "x".repeat(SUMMARY_MAX_LENGTH + 10);
     const { node } = parseNodeSource(

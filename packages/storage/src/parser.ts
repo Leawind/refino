@@ -18,8 +18,8 @@ export interface ParseResult {
  * `id` is derived by the loader from the file path (path is identity); `file`
  * is the `.refino`-relative path in either separator style, always stored in
  * the canonical forward-slash form. A file without frontmatter is a valid
- * node with no fields. The summary is the first paragraph of the body,
- * extracted by `extractSummary`.
+ * node with no fields. The summary comes from the "summary" frontmatter
+ * field, falling back to the first paragraph of the body via `extractSummary`.
  */
 export function parseNodeSource(
   id: string,
@@ -40,9 +40,26 @@ export function parseNodeSource(
   }
 
   const body = match ? normalized.slice(match[0].length).trim() : normalized.trim();
-  const summary = extractSummary(body);
 
-  const node: RefinoNode = { id, type: expectedType, file: canonicalFile, summary, body };
+  const node: RefinoNode = { id, type: expectedType, file: canonicalFile, summary: "", body };
+
+  // The summary is an independent attribute (docs/crg.md). A "summary"
+  // frontmatter field takes precedence; the first-paragraph fallback keeps
+  // summary-less files readable.
+  const summaryField = fields["summary"];
+  if (summaryField === undefined || summaryField === null) {
+    node.summary = extractSummary(body);
+  } else if (typeof summaryField === "string" && summaryField.trim() !== "") {
+    node.summary = summaryField;
+  } else {
+    issues.push({
+      code: "INVALID_FRONTMATTER",
+      message: '"summary" must be a non-empty string.',
+      file: canonicalFile,
+      nodeId: id,
+    });
+    node.summary = extractSummary(body);
+  }
 
   if (expectedType === "premise") {
     if (fields["grounds"] !== undefined && fields["grounds"] !== null) {
@@ -148,9 +165,10 @@ function parseGrounds(
 }
 
 /**
- * Summary extraction rule: first paragraph of the body, whitespace-collapsed
- * to a single line. Truncated with an ellipsis when longer than
- * `SUMMARY_MAX_LENGTH`.
+ * Fallback summary rule: first paragraph of the body, whitespace-collapsed to
+ * a single line, truncated with an ellipsis when longer than
+ * `SUMMARY_MAX_LENGTH`. The truncation applies to the fallback only; explicit
+ * "summary" fields and node bodies are never length-limited.
  */
 export function extractSummary(body: string): string {
   const firstBlock = body.split(/\n[ \t]*\n/, 1)[0] ?? "";

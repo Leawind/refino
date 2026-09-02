@@ -20,6 +20,11 @@ export interface CreateOptions {
   body: string;
   /** Explicit node id (8-character Crockford base32); generated when omitted. */
   id?: string;
+  /**
+   * Independent summary attribute; stored as a "summary" frontmatter field.
+   * When omitted, readers fall back to the first paragraph of the body.
+   */
+  summary?: string;
 }
 
 export interface CreatePremiseOptions extends CreateOptions {
@@ -39,7 +44,7 @@ export async function createPremise(
   refinoDir: string,
   opts: CreatePremiseOptions,
 ): Promise<string> {
-  const fields: Record<string, unknown> = { confirmed: opts.confirmed };
+  const fields: Record<string, unknown> = { confirmed: opts.confirmed, summary: opts.summary };
   return createNode(refinoDir, "premise", fields, opts.body, opts.id);
 }
 
@@ -51,6 +56,7 @@ export async function createConstraint(
   const fields: Record<string, unknown> = {
     grounds: opts.grounds,
     rationale: opts.rationale,
+    summary: opts.summary,
   };
   return createNode(refinoDir, "constraint", fields, opts.body, opts.id);
 }

@@ -14,7 +14,7 @@ export interface RefinoNode {
   type: NodeType;
   /** Path relative to the `.refino` directory, with `/` as the separator regardless of platform, e.g. `nodes/01/9ABCDE.constraint.md`. */
   file: string;
-  /** First paragraph of the markdown body; used for quick relevance checks. */
+  /** Independent summary attribute for quick relevance checks; the storage layer may derive it from the body's first paragraph when the file declares none. */
   summary: string;
   /** Full markdown body (trimmed), excluding frontmatter fields like rationale. */
   body: string;
