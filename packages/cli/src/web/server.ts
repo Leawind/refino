@@ -1,4 +1,8 @@
+import { existsSync, readFileSync } from "node:fs";
+import { serveStatic } from "@hono/node-server/serve-static";
 import { serve, type ServerType } from "@hono/node-server";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 import { Hono } from "hono";
 
 export interface WebServerOptions {
@@ -9,6 +13,15 @@ export interface WebServerOptions {
 export interface RunningWebServer {
   server: ServerType;
   url: string;
+}
+
+export interface WebAppOptions {
+  /**
+   * Absolute path of the directory holding the built `@refino/ui` assets.
+   * `null` disables static hosting (placeholder page only); when omitted the
+   * installed `@refino/ui` package is located and used if it has been built.
+   */
+  staticRoot?: string | null;
 }
 
 /** Placeholder page shown until the real web UI exists. */
@@ -31,12 +44,44 @@ function placeholderPage(): string {
 `;
 }
 
+/**
+ * Locate the built assets of the installed `@refino/ui` package, or return
+ * `undefined` when the package is absent or has not been built yet.
+ */
+export function resolveUiStaticRoot(from: string): string | undefined {
+  try {
+    const pkg = createRequire(from).resolve("@refino/ui/package.json");
+    const dist = join(dirname(pkg), "dist");
+    return existsSync(dist) ? dist : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Build the web application. Pure object, no listening socket — easy to test. */
-export function createWebApp(): Hono {
+export function createWebApp(options: WebAppOptions = {}): Hono {
   const app = new Hono();
-  app.get("/", (c) => c.html(placeholderPage()));
   app.get("/api/health", (c) => c.json({ ok: true }));
+
+  const staticRoot =
+    options.staticRoot === undefined
+      ? resolveUiStaticRoot(import.meta.url)
+      : (options.staticRoot ?? undefined);
+
+  if (staticRoot === undefined) {
+    app.get("/", (c) => c.html(placeholderPage()));
+  } else {
+    app.use("*", serveStatic({ root: staticRoot }));
+    // SPA fallback: unmatched GET requests get the app shell.
+    app.get("*", (c) => c.html(readIndexHtml(staticRoot)));
+  }
   return app;
+}
+
+function readIndexHtml(staticRoot: string): string {
+  const index = join(staticRoot, "index.html");
+  if (existsSync(index)) return readFileSync(index, "utf8");
+  return placeholderPage();
 }
 
 /** Start the HTTP server; resolve only when the socket is accepting. */

@@ -29,6 +29,7 @@
   "dependencies": {
     "@hono/node-server": "^2.1.1",
     "@refino/storage": "workspace:^",
+    "@refino/ui": "workspace:^",
     "commander": "^15.0.0",
     "hono": "^4.13.5",
     "refino": "workspace:^"
