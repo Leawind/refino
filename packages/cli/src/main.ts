@@ -7,6 +7,7 @@ import { getAncestors, getDependents, getGrounds, ID_RE, RefinoError, validateGr
 import type { Graph, RefinoIssue, RefinoNode } from "refino";
 import { processIo, renderIssues, renderNodeTable } from "./format.js";
 import type { CliIo } from "./format.js";
+import { startWebServer } from "./web/server.js";
 
 export interface GlobalOptions {
   root: string;
@@ -253,6 +254,31 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
             return 0;
           }),
         ),
+    );
+
+  program
+    .command("web")
+    .description("start the web UI server")
+    .option("--host <ip>", "IP address to bind", "127.0.0.1")
+    .option("--port <n>", "port to listen on", "5649")
+    .action((_opts, cmd) =>
+      run(cmd, async () => {
+        const { host, port } = cmd.opts() as { host: string; port: string };
+        const portNumber = Number(port);
+        if (!Number.isInteger(portNumber) || portNumber < 0 || portNumber > 65535) {
+          io.stderr.write(`error: invalid port "${port}"\n`);
+          return 1;
+        }
+        const { server, url } = await startWebServer({ host, port: portNumber });
+        io.stdout.write(`listening on ${url}\n`);
+        return new Promise<number>((resolve) => {
+          const shutdown = (): void => {
+            server.close(() => resolve(0));
+          };
+          process.once("SIGINT", shutdown);
+          process.once("SIGTERM", shutdown);
+        });
+      }),
     );
 
   try {

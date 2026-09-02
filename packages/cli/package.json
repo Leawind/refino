@@ -27,9 +27,11 @@
     "access": "public"
   },
   "dependencies": {
-    "refino": "workspace:^",
+    "@hono/node-server": "^2.1.1",
     "@refino/storage": "workspace:^",
-    "commander": "^15.0.0"
+    "commander": "^15.0.0",
+    "hono": "^4.13.5",
+    "refino": "workspace:^"
   },
   "devDependencies": {
     "@refino/testkit": "workspace:*"

@@ -20,6 +20,9 @@ refino show <id>...
 refino new premise --body "..." --now
 refino new constraint --body "..." --grounds <ids>
 refino new premise --id <id> --body "..."
+
+# 启动 Web 界面服务（默认 127.0.0.1:5649）
+refino web --host 127.0.0.1 --port 5649
 ```
 
 完整命令列表与参数说明请运行 `refino --help`。
