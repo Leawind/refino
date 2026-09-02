@@ -66,6 +66,14 @@ describe("queries", () => {
     expect(graph.dependents.get("A1B2C3D4")).toEqual(["D4E5F6G7"]);
   });
 
+  it("buildGraph leaves unknown grounds out of the dependents index", () => {
+    const dangling = graphOf({
+      "constraints/A1B2C3D4.md": constraint("A1B2C3D4", ["Z9Y8X7W6"]),
+    });
+    expect(dangling.dependents.has("Z9Y8X7W6")).toBe(false);
+    expect(dangling.dependents.size).toBe(0);
+  });
+
   it("queries on unknown nodes throw NODE_NOT_FOUND", () => {
     for (const query of [
       () => getGrounds(graph, "9M8N7P6Q"),

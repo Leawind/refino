@@ -16,7 +16,7 @@ export interface RefinoNode {
   file: string;
   /** First paragraph of the markdown body; used for quick relevance checks. */
   summary: string;
-  /** Full markdown body (trimmed), i.e. content plus rationale. */
+  /** Full markdown body (trimmed), excluding frontmatter fields like rationale. */
   body: string;
   /** Constraint nodes only: ground ids, deduplicated, in declared order. */
   grounds?: string[];

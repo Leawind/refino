@@ -20,6 +20,8 @@ function buildDependentsIndex(nodes: Graph["nodes"]): Graph["dependents"] {
   for (const node of nodes.values()) {
     if (node.type !== "constraint") continue;
     for (const ground of node.grounds ?? []) {
+      // Unknown grounds stay out of the index; validateGraph reports them.
+      if (!nodes.has(ground)) continue;
       const list = dependents.get(ground);
       if (list) {
         if (!list.includes(node.id)) list.push(node.id);
