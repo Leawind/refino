@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createConstraint, createPremise, loadGraph } from "@refino/node";
+import { createConstraint, createPremise, loadGraph } from "@refino/storage";
 import { CommanderError, Command, Option } from "commander";
 import {
   getAncestors,

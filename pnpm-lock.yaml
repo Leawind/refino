@@ -35,22 +35,12 @@ importers:
 
   packages/cli:
     dependencies:
-      '@refino/node':
+      '@refino/storage':
         specifier: workspace:^
-        version: link:../node
+        version: link:../storage
       commander:
         specifier: ^15.0.0
         version: 15.0.0
-      refino:
-        specifier: workspace:^
-        version: link:../refino
-    devDependencies:
-      '@refino/testkit':
-        specifier: workspace:*
-        version: link:../testkit
-
-  packages/node:
-    dependencies:
       refino:
         specifier: workspace:^
         version: link:../refino
@@ -64,6 +54,16 @@ importers:
       yaml:
         specifier: ^2.9.0
         version: 2.9.0
+    devDependencies:
+      '@refino/testkit':
+        specifier: workspace:*
+        version: link:../testkit
+
+  packages/storage:
+    dependencies:
+      refino:
+        specifier: workspace:^
+        version: link:../refino
     devDependencies:
       '@refino/testkit':
         specifier: workspace:*

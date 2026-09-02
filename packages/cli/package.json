@@ -24,7 +24,7 @@
   },
   "dependencies": {
     "refino": "workspace:^",
-    "@refino/node": "workspace:^",
+    "@refino/storage": "workspace:^",
     "commander": "^15.0.0"
   },
   "devDependencies": {

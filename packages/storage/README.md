@@ -1,4 +1,4 @@
-# @refino/node
+# @refino/storage
 
 `refino` 引擎的 Node.js 存储适配器，是 `.refino/` 目录存储格式的唯一读写入口。
 
