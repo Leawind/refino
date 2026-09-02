@@ -16,9 +16,10 @@ refino list
 # 查看某个节点的完整内容
 refino show <id>
 
-# 创建节点
+# 创建节点（--id 可显式指定节点 ID，省略时自动生成）
 refino new premise --body "..." --now
 refino new constraint --body "..." --grounds <ids>
+refino new premise --id <id> --body "..."
 ```
 
 完整命令列表与参数说明请运行 `refino --help`。

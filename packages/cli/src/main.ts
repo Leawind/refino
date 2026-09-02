@@ -170,12 +170,14 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
     .addCommand(
       new Command("premise")
         .description("create a premise node")
+        .option("--id <text>", "explicit node id (8-character Crockford base32)")
         .requiredOption("--body <text>", "fact content (markdown body)")
         .option("--confirmed <timestamp>", "RFC 3339 timestamp with an explicit UTC offset")
         .option("--now", 'confirm now: use the current UTC time as "confirmed"')
         .action((_opts, cmd) =>
           run(cmd, async (opts) => {
-            const { body, confirmed, now } = cmd.opts() as {
+            const { id, body, confirmed, now } = cmd.opts() as {
+              id?: string;
               body: string;
               confirmed?: string;
               now?: boolean;
@@ -184,11 +186,12 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
               io.stderr.write("error: --now and --confirmed are mutually exclusive\n");
               return 1;
             }
-            const id = await createPremise(refinoDir(opts), {
+            const newId = await createPremise(refinoDir(opts), {
+              id,
               body,
               confirmed: now ? new Date().toISOString() : confirmed,
             });
-            emitCreated(io, opts, id, "premises");
+            emitCreated(io, opts, newId, "premises");
             return 0;
           }),
         ),
@@ -196,12 +199,14 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
     .addCommand(
       new Command("constraint")
         .description("create a constraint node")
+        .option("--id <text>", "explicit node id (8-character Crockford base32)")
         .requiredOption("--body <text>", "decision content (markdown body)")
         .option("--grounds <ids>", "comma-separated ground node ids")
         .option("--rationale <text>", "why the decision was made")
         .action((_opts, cmd) =>
           run(cmd, async (opts) => {
-            const { body, grounds, rationale } = cmd.opts() as {
+            const { id, body, grounds, rationale } = cmd.opts() as {
+              id?: string;
               body: string;
               grounds?: string;
               rationale?: string;
@@ -210,12 +215,13 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
               .split(",")
               .map((s) => s.trim())
               .filter((s) => s.length > 0);
-            const id = await createConstraint(refinoDir(opts), {
+            const newId = await createConstraint(refinoDir(opts), {
+              id,
               body,
               grounds: groundIds.length > 0 ? groundIds : undefined,
               rationale,
             });
-            emitCreated(io, opts, id, "constraints");
+            emitCreated(io, opts, newId, "constraints");
             return 0;
           }),
         ),

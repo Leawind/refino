@@ -1,15 +1,18 @@
-import { mkdir, readdir, writeFile } from "node:fs/promises";
+import { mkdir, readdir, writeFile, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { generateId, ID_RE, serializeNode } from "refino";
+import { generateId, ID_RE, RefinoError, serializeNode } from "refino";
 
 /**
  * Node creation. This is the storage adapter's write path; everything else
- * stays read-only. Ids are generated internally and guaranteed not to
- * collide with existing node files in the target directory.
+ * stays read-only. Ids are either given explicitly (must match `ID_RE` and
+ * not collide with an existing node file) or generated internally with the
+ * same collision guarantee.
  */
 
 export interface CreateOptions {
   body: string;
+  /** Explicit node id (8-character Crockford base32); generated when omitted. */
+  id?: string;
 }
 
 export interface CreatePremiseOptions extends CreateOptions {
@@ -30,7 +33,7 @@ export async function createPremise(
   opts: CreatePremiseOptions,
 ): Promise<string> {
   const fields: Record<string, unknown> = { confirmed: opts.confirmed };
-  return createNode(refinoDir, "premises", fields, opts.body);
+  return createNode(refinoDir, "premises", fields, opts.body, opts.id);
 }
 
 /** Create a constraint node file under `<refinoDir>/constraints/`; returns the new id. */
@@ -42,7 +45,7 @@ export async function createConstraint(
     grounds: opts.grounds,
     rationale: opts.rationale,
   };
-  return createNode(refinoDir, "constraints", fields, opts.body);
+  return createNode(refinoDir, "constraints", fields, opts.body, opts.id);
 }
 
 async function createNode(
@@ -50,16 +53,39 @@ async function createNode(
   dirName: "premises" | "constraints",
   fields: Record<string, unknown>,
   body: string,
+  explicitId?: string,
 ): Promise<string> {
   const dir = join(refinoDir, dirName);
   await mkdir(dir, { recursive: true });
-  const existingIds = await readExistingIds(dir);
   let id: string;
-  do {
-    id = generateId();
-  } while (existingIds.has(id));
+  if (explicitId !== undefined) {
+    if (!ID_RE.test(explicitId)) {
+      throw new RefinoError(
+        "INVALID_ID",
+        `Node id must be an 8-character Crockford base32 id (0-9, A-Z minus I, L, O, U), got "${explicitId}".`,
+      );
+    }
+    if (await fileExists(join(dir, `${explicitId}.md`))) {
+      throw new RefinoError("DUPLICATE_ID", `Node "${explicitId}" already exists in ${dirName}/.`);
+    }
+    id = explicitId;
+  } else {
+    const existingIds = await readExistingIds(dir);
+    do {
+      id = generateId();
+    } while (existingIds.has(id));
+  }
   await writeFile(join(dir, `${id}.md`), serializeNode(fields, body), "utf8");
   return id;
+}
+
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function readExistingIds(dir: string): Promise<Set<string>> {

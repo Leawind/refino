@@ -280,4 +280,44 @@ describe("refino cli", () => {
     expect(impact.code).toBe(1);
     expect(impact.err).toContain("unknown command");
   });
+
+  it("new premise --id creates the node under the given id", async () => {
+    const emptyRoot = await createRefino({});
+    try {
+      const { code, out } = await run([
+        "--root",
+        emptyRoot,
+        "new",
+        "premise",
+        "--id",
+        "A1B2C3D4",
+        "--body",
+        "Fact.",
+      ]);
+      expect(code).toBe(0);
+      expect(out).toContain("created A1B2C3D4 (.refino/premises/A1B2C3D4.md)");
+    } finally {
+      await removeRefino(emptyRoot);
+    }
+  });
+
+  it("new rejects an invalid --id with exit code 1", async () => {
+    const emptyRoot = await createRefino({});
+    try {
+      const { code, err } = await run([
+        "--root",
+        emptyRoot,
+        "new",
+        "constraint",
+        "--id",
+        "ILOU2345",
+        "--body",
+        "Decision.",
+      ]);
+      expect(code).toBe(1);
+      expect(err).toContain("Node id must be an 8-character Crockford base32 id");
+    } finally {
+      await removeRefino(emptyRoot);
+    }
+  });
 });
