@@ -14,10 +14,12 @@
   "files": [
     "dist"
   ],
+  "license": "MIT",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "clean": "node -e \"fs.rmSync('dist',{recursive:true,force:true})\""
+    "clean": "node -e \"fs.rmSync('dist',{recursive:true,force:true})\"",
+    "prepublishOnly": "pnpm run build"
   },
   "engines": {
     "node": ">=18.17"
