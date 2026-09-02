@@ -1,12 +1,11 @@
 import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { stringify as stringifyYaml } from "yaml";
-import { generateId, ID_RE } from "./id.js";
+import { generateId, ID_RE, serializeNode } from "refino";
 
 /**
- * Node creation. This is the engine's write path; everything else stays
- * read-only. Ids are generated internally and guaranteed not to collide with
- * existing node files in the target directory.
+ * Node creation. This is the storage adapter's write path; everything else
+ * stays read-only. Ids are generated internally and guaranteed not to
+ * collide with existing node files in the target directory.
  */
 
 export interface CreateOptions {
@@ -71,16 +70,4 @@ async function readExistingIds(dir: string): Promise<Set<string>> {
     if (ID_RE.test(id)) ids.add(id);
   }
   return ids;
-}
-
-/**
- * Serialize a node file. When none of the fields are present the frontmatter
- * block is omitted entirely; a body-only file is a valid node.
- */
-function serializeNode(fields: Record<string, unknown>, body: string): string {
-  const present = Object.entries(fields).filter(([, v]) => v !== undefined);
-  const trimmedBody = `${body.trimEnd()}\n`;
-  if (present.length === 0) return trimmedBody;
-  const data = Object.fromEntries(present);
-  return `---\n${stringifyYaml(data).trimEnd()}\n---\n\n${trimmedBody}`;
 }

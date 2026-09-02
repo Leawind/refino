@@ -1,8 +1,7 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { parseNodeSource } from "./parser.js";
-import { RefinoError } from "./types.js";
-import type { Graph, LoadResult, NodeType, RefinoIssue, RefinoNode } from "./types.js";
+import { buildGraph, parseNodeSource, RefinoError } from "refino";
+import type { LoadResult, NodeType, RefinoIssue, RefinoNode } from "refino";
 
 const STORAGE_DIRS: ReadonlyArray<readonly [string, NodeType]> = [
   ["premises", "premise"],
@@ -28,8 +27,9 @@ export async function loadGraph(refinoDir: string): Promise<LoadResult> {
     throw new RefinoError("REFINO_DIR_NOT_FOUND", `${refinoDir} is not a directory`);
   }
 
-  const nodes = new Map<string, RefinoNode>();
+  const nodes: RefinoNode[] = [];
   const issues: RefinoIssue[] = [];
+  const seenIds = new Map<string, string>();
 
   for (const [dirName, expectedType] of STORAGE_DIRS) {
     let entries;
@@ -52,39 +52,22 @@ export async function loadGraph(refinoDir: string): Promise<LoadResult> {
       const { node, issues: parseIssues } = parseNodeSource(file, expectedType, source);
       issues.push(...parseIssues);
       if (!node) continue;
-      const existing = nodes.get(node.id);
-      if (existing) {
+      const existingFile = seenIds.get(node.id);
+      if (existingFile) {
         issues.push({
           code: "DUPLICATE_ID",
-          message: `Duplicate node id "${node.id}" (already defined in ${existing.file}).`,
+          message: `Duplicate node id "${node.id}" (already defined in ${existingFile}).`,
           file: node.file,
           nodeId: node.id,
         });
         continue;
       }
-      nodes.set(node.id, node);
+      seenIds.set(node.id, node.file);
+      nodes.push(node);
     }
   }
 
-  const graph: Graph = { refinoDir, nodes, dependents: buildDependentsIndex(nodes) };
-  return { graph, issues };
-}
-
-function buildDependentsIndex(nodes: Graph["nodes"]): Graph["dependents"] {
-  const dependents = new Map<string, string[]>();
-  for (const node of nodes.values()) {
-    if (node.type !== "constraint") continue;
-    for (const ground of node.grounds ?? []) {
-      const list = dependents.get(ground);
-      if (list) {
-        if (!list.includes(node.id)) list.push(node.id);
-      } else {
-        dependents.set(ground, [node.id]);
-      }
-    }
-  }
-  for (const list of dependents.values()) list.sort();
-  return dependents;
+  return { graph: buildGraph(refinoDir, nodes), issues };
 }
 
 function byName(a: { name: string }, b: { name: string }): number {

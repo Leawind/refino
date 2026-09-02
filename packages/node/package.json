@@ -1,10 +1,15 @@
 {
-  "name": "@refino/cli",
+  "name": "@refino/node",
   "version": "0.1.0",
-  "description": "Command line interface for querying Constraint Refinement Graphs (CRG).",
+  "description": "Node.js storage adapter for Constraint Refinement Graphs (CRG): the sole reader and writer of the .refino/ directory.",
   "type": "module",
-  "bin": {
-    "refino": "./dist/index.js"
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
   },
   "files": [
     "dist"
@@ -23,9 +28,7 @@
     "access": "public"
   },
   "dependencies": {
-    "refino": "workspace:^",
-    "@refino/node": "workspace:^",
-    "commander": "^15.0.0"
+    "refino": "workspace:^"
   },
   "devDependencies": {
     "@refino/testkit": "workspace:*"

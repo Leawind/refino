@@ -1,7 +1,7 @@
 {
   "name": "refino",
   "version": "0.1.0",
-  "description": "Core engine for parsing, validating and querying Constraint Refinement Graphs (CRG).",
+  "description": "Pure engine for parsing, validating, querying and serializing Constraint Refinement Graphs (CRG).",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -22,9 +22,12 @@
     "prepublishOnly": "pnpm run build"
   },
   "engines": {
-    "node": ">=18.17"
+    "node": ">=20"
   },
   "dependencies": {
     "yaml": "^2.9.0"
+  },
+  "devDependencies": {
+    "@refino/testkit": "workspace:*"
   }
 }

@@ -27,7 +27,7 @@ export interface RefinoNode {
 }
 
 export interface Graph {
-  /** Absolute path of the `.refino` directory the graph was loaded from. */
+  /** Path of the `.refino` directory the graph was built from. */
   refinoDir: string;
   /** All nodes indexed by id. Node identity is the `id`, never the file path. */
   nodes: Map<string, RefinoNode>;

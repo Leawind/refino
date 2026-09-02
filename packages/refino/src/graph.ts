@@ -1,0 +1,33 @@
+import type { Graph, RefinoNode } from "./types.js";
+
+/**
+ * Graph assembly from parsed nodes. Pure and filesystem-free so the engine
+ * can build graphs from any source; @refino/node feeds it from `.refino/`.
+ */
+
+/**
+ * Assemble a graph from parsed nodes: index them by id and build the
+ * dependents index. Rejecting duplicate ids is the caller's responsibility.
+ */
+export function buildGraph(refinoDir: string, nodes: Iterable<RefinoNode>): Graph {
+  const byId = new Map<string, RefinoNode>();
+  for (const node of nodes) byId.set(node.id, node);
+  return { refinoDir, nodes: byId, dependents: buildDependentsIndex(byId) };
+}
+
+function buildDependentsIndex(nodes: Graph["nodes"]): Graph["dependents"] {
+  const dependents = new Map<string, string[]>();
+  for (const node of nodes.values()) {
+    if (node.type !== "constraint") continue;
+    for (const ground of node.grounds ?? []) {
+      const list = dependents.get(ground);
+      if (list) {
+        if (!list.includes(node.id)) list.push(node.id);
+      } else {
+        dependents.set(ground, [node.id]);
+      }
+    }
+  }
+  for (const list of dependents.values()) list.sort();
+  return dependents;
+}

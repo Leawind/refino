@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { loadGraph } from "../src/loader.js";
-import { constraint, createRefino, premise, removeRefino } from "./helpers.js";
+import { constraint, createRefino, premise, removeRefino } from "@refino/testkit";
 
 describe("loadGraph", () => {
   it("builds the graph and the dependents index from a .refino directory", async () => {

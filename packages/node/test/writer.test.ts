@@ -1,17 +1,11 @@
 import { readFile, readdir } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import { createConstraint, createPremise, ID_RE } from "../src/index.js";
+import { ID_RE } from "refino";
 import { loadGraph } from "../src/loader.js";
-import { createRefino, removeRefino } from "./helpers.js";
+import { createConstraint, createPremise } from "../src/writer.js";
+import { createRefino, removeRefino } from "@refino/testkit";
 
 describe("writer", () => {
-  it("generateId produces valid Crockford base32 ids", () => {
-    expect(ID_RE.test("01234567")).toBe(true);
-    expect(ID_RE.test("ABCDEFGH")).toBe(true);
-    expect(ID_RE.test("ILOU2345")).toBe(false);
-    expect(ID_RE.test("short")).toBe(false);
-  });
-
   it("createPremise writes a body-only file when no fields are given", async () => {
     const root = await createRefino({});
     try {

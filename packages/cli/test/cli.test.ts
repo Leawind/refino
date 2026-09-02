@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { main } from "../src/main.js";
 import type { CliIo } from "../src/format.js";
-import { constraint, createRefino, premise, removeRefino } from "../../refino/test/helpers.js";
+import { constraint, createRefino, premise, removeRefino } from "@refino/testkit";
 
 let validRoot: string;
 let invalidRoot: string;

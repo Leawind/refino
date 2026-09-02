@@ -1,4 +1,3 @@
-import { basename } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { ID_RE } from "./id.js";
 import type { NodeType, RefinoIssue, RefinoNode } from "./types.js";
@@ -26,7 +25,8 @@ export function parseNodeSource(file: string, expectedType: NodeType, source: st
   const issues: RefinoIssue[] = [];
   const normalized = source.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
 
-  const id = basename(file).replace(/\.md$/, "");
+  // `file` is a `.refino`-relative POSIX path; the id is its base name.
+  const id = file.slice(file.lastIndexOf("/") + 1).replace(/\.md$/, "");
   if (!ID_RE.test(id)) {
     issues.push({
       code: "INVALID_ID",

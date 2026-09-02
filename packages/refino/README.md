@@ -1,6 +1,6 @@
 # refino
 
-Constraint Refinement Graph (CRG) 引擎。负责 CRG 数据模型的解析、校验、查询与修改，是读写 `.refino/` 存储格式的唯一入口。
+Constraint Refinement Graph (CRG) 纯引擎：负责 CRG 数据模型的解析、校验、查询、序列化与 ID 生成。不依赖任何 Node API，可在浏览器、Web Worker 等任意提供 Web Crypto（`globalThis.crypto`）的 JS 环境运行（Node >= 20）。
 
 概念模型与完整规则见 [docs/crg.md](../../docs/crg.md)。本包当前实现其中第 1 章（决策资产层）。
 
@@ -8,14 +8,15 @@ Constraint Refinement Graph (CRG) 引擎。负责 CRG 数据模型的解析、�
 
 本包提供：
 
-- 从 `.refino/` 目录加载图结构
-- 节点文件的解析与格式校验
-- 图结构的完整性校验（引用解析、环路检测）
+- 节点文件的解析与格式校验（`.refino/` 存储格式的定义）
+- 图结构的组装与完整性校验（引用解析、环路检测）
 - 按 ID 查询节点、遍历依据链与依赖链
-- 创建前提节点与约束节点
+- 节点序列化（内存对象 → Markdown 文本）
+- 随机 ID 生成（Crockford base32）
 
 本包不提供：
 
+- 文件系统读写（由 [@refino/node](../node/README.md) 提供，它是 `.refino/` 存储的唯一读写入口）
 - 任务界定（作用域锚点、修改边界、授权上下文）
 - 冲突检测与越界升级
 - 可视化或编辑界面
@@ -33,4 +34,4 @@ Constraint Refinement Graph (CRG) 引擎。负责 CRG 数据模型的解析、�
 └── constraints/   # 约束节点
 ```
 
-节点类型由其所在目录决定。每个节点是一个 Markdown 文件，文件名即节点 ID。
+节点类型由其所在目录决定。每个节点是一个 Markdown 文件，文件名即节点 ID。本包只定义该格式的解析与序列化；目录的读写由 `@refino/node` 承担。
