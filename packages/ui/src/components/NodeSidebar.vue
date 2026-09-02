@@ -89,7 +89,7 @@ function titleOf(summary: string): string {
   display: flex;
   gap: 6px;
   padding: 0 10px 10px;
-  border-bottom: 1px solid rgba(128, 128, 128, 0.2);
+  border-bottom: 1px solid var(--refino-border);
 }
 
 .list {

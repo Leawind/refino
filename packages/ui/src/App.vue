@@ -5,6 +5,7 @@ import { useI18n } from "vue-i18n";
 import {
   NAlert,
   NConfigProvider,
+  NGlobalStyle,
   NLayoutFooter,
   NLayoutHeader,
   NMessageProvider,
@@ -48,8 +49,9 @@ function refresh(): void {
     :theme-overrides="{ common: { primaryColor: '#18a058' } }"
   >
     <NMessageProvider>
+      <NGlobalStyle />
       <!-- Own flex shell: naive's NLayout boxes carry no layout of their own. -->
-      <div class="shell">
+      <div class="shell" :class="{ dark: store.state.theme === 'dark' }">
         <NLayoutHeader class="header" bordered>
           <AppHeader v-model:direction="direction" @refresh="refresh" />
         </NLayoutHeader>
@@ -84,10 +86,30 @@ function refresh(): void {
 </template>
 
 <style scoped>
+/* Theme-aware tokens consumed by the plain (non-naive) panes and the SVG
+ * graph, which do not receive naive's theme variables. */
+.shell {
+  --refino-pane-bg: #ffffff;
+  --refino-border: rgba(0, 0, 0, 0.1);
+  --refino-node-bg: rgba(128, 128, 128, 0.08);
+  --refino-node-border: rgba(128, 128, 128, 0.4);
+  --refino-edge: rgba(128, 128, 128, 0.5);
+}
+
+.shell.dark {
+  --refino-pane-bg: rgb(24, 24, 28);
+  --refino-border: rgba(255, 255, 255, 0.12);
+  --refino-node-bg: rgba(255, 255, 255, 0.06);
+  --refino-node-border: rgba(255, 255, 255, 0.28);
+  --refino-edge: rgba(255, 255, 255, 0.3);
+}
+
 .shell {
   height: 100vh;
   display: flex;
   flex-direction: column;
+  /* Panes stay transparent: NGlobalStyle colors the body per theme, and
+   * header/footer carry naive's own themed background. */
 }
 
 .header {
@@ -115,13 +137,13 @@ function refresh(): void {
 
 .sidebar-pane,
 .detail-pane {
-  border-right: 1px solid rgba(128, 128, 128, 0.2);
+  border-right: 1px solid var(--refino-border);
   overflow: hidden;
 }
 
 .detail-pane {
   border-right: none;
-  border-left: 1px solid rgba(128, 128, 128, 0.2);
+  border-left: 1px solid var(--refino-border);
 }
 
 .graph-pane {

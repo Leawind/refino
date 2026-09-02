@@ -75,13 +75,13 @@ function nodeType(id: string): string | undefined {
 
 .edge {
   fill: none;
-  stroke: rgba(128, 128, 128, 0.5);
+  stroke: var(--refino-edge);
   stroke-width: 1.4;
 }
 
 .node rect {
-  fill: rgba(128, 128, 128, 0.08);
-  stroke: rgba(128, 128, 128, 0.4);
+  fill: var(--refino-node-bg);
+  stroke: var(--refino-node-border);
   stroke-width: 1.2;
   cursor: pointer;
 }

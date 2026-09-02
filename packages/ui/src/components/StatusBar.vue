@@ -32,7 +32,7 @@ const premises = computed(() => store.state.nodes.filter((n) => n.type === "prem
   padding: 0 12px;
   font-size: 12px;
   height: 100%;
-  border-top: 1px solid rgba(128, 128, 128, 0.2);
+  border-top: 1px solid var(--refino-border);
   opacity: 0.85;
 }
 

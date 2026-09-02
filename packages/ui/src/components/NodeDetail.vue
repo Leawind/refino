@@ -319,7 +319,7 @@ h2 {
 
 .markdown {
   font-size: 13px;
-  border-top: 1px solid rgba(128, 128, 128, 0.2);
+  border-top: 1px solid var(--refino-border);
   padding-top: 6px;
 }
 </style>
