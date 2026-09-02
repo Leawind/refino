@@ -1,8 +1,8 @@
 import { stringify as stringifyYaml } from "yaml";
 
 /**
- * Node serialization (in-memory fields -> markdown text), the engine's write
- * side. Filesystem writes live in @refino/node.
+ * Node serialization (in-memory fields -> markdown text), the storage
+ * format's write side. Filesystem writes live in loader/writer.
  */
 
 /**

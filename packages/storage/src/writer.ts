@@ -86,10 +86,6 @@ async function createNode(
 }
 
 /** Canonical `.refino`-relative path of a node: `<type>/<2 chars>/<6 chars>.md`. */
-function nodeFilePath(
-  refinoDir: string,
-  dirName: "premises" | "constraints",
-  id: string,
-): string {
+function nodeFilePath(refinoDir: string, dirName: "premises" | "constraints", id: string): string {
   return join(refinoDir, dirName, id.slice(0, 2), `${id.slice(2)}.md`);
 }
