@@ -1,0 +1,20 @@
+/* Host-provided container sizing: the UI fills whatever element mounts it,
+ * it never assumes it owns the whole viewport. */
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+/* naive-ui providers render wrapper divs between #app and the shell; stretch
+ * them so percentage heights keep working through the chain. */
+#app {
+  display: flex;
+  flex-direction: column;
+}
+
+#app > * {
+  flex: 1 1 auto;
+  min-height: 0;
+}

@@ -77,7 +77,6 @@ function refresh(): void {
           <div class="workbench">
             <NodeListPanel type="constraint" side="left" />
             <div class="center-pane">
-              <div class="graph-title">{{ t("app.graph") }}</div>
               <DecisionGraph :direction="direction" />
               <div class="graph-actions">
                 <NPopselect v-model:value="direction" :options="directionOptions" trigger="click">
@@ -131,7 +130,9 @@ function refresh(): void {
 }
 
 .shell {
-  height: 100vh;
+  /* Fill the host element, whatever size the embedding page gives it. */
+  height: 100%;
+  width: 100%;
   display: flex;
   flex-direction: column;
   /* Panes stay transparent: NGlobalStyle colors the body per theme, and
@@ -158,6 +159,7 @@ function refresh(): void {
   display: flex;
   flex: 1;
   min-height: 0;
+  position: relative;
 }
 
 .center-pane {
@@ -165,17 +167,6 @@ function refresh(): void {
   flex: 1;
   min-width: 0;
   overflow: auto;
-}
-
-.graph-title {
-  position: absolute;
-  top: 10px;
-  left: 12px;
-  z-index: 5;
-  font-size: 12px;
-  font-weight: 600;
-  opacity: 0.65;
-  pointer-events: none;
 }
 
 .graph-actions {

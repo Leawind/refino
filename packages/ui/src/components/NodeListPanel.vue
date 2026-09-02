@@ -1,8 +1,9 @@
 <script setup lang="ts">
 // Sidebar listing one node type only (constraints on the left, premises on
-// the right). Resizable by dragging its inner edge; collapsible to a narrow
-// strip.
-import { computed, ref } from "vue";
+// the right). Width is a percentage of the whole interface; dragging it
+// below the minimum collapses the panel to a floating expand button. The
+// panel can dock (push the graph aside) or float over the graph.
+import { computed, onBeforeUnmount, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { NButton, NInput, NTag } from "naive-ui";
 import { store } from "../store";
@@ -12,13 +13,40 @@ const props = defineProps<{ type: NodeType; side: "left" | "right" }>();
 
 const { t } = useI18n();
 
-const MIN_WIDTH = 180;
-const MAX_WIDTH = 520;
-const COLLAPSED_WIDTH = 20;
+const MIN_PERCENT = 10;
+const MAX_PERCENT = 40;
 
-const width = ref(280);
+const rootEl = ref<HTMLElement | null>(null);
+const widthPercent = ref(20);
 const collapsed = ref(false);
+const floating = ref(false);
 const query = ref("");
+
+const widthStyle = computed(() => ({ width: `${widthPercent.value}%` }));
+
+const panelStyle = computed(() => {
+  if (collapsed.value) {
+    // No strip: just a floating expand button over the graph.
+    return {
+      position: "absolute" as const,
+      top: "50%",
+      transform: "translateY(-50%)",
+      [props.side]: "8px",
+      zIndex: 10,
+    };
+  }
+  if (floating.value) {
+    return {
+      position: "absolute" as const,
+      top: 0,
+      bottom: 0,
+      [props.side]: 0,
+      zIndex: 15,
+      ...widthStyle.value,
+    };
+  }
+  return widthStyle.value;
+});
 
 const filtered = computed(() => {
   const q = query.value.trim().toLowerCase();
@@ -37,11 +65,11 @@ function toggleCollapsed(): void {
 }
 
 let startX = 0;
-let startWidth = 0;
+let startPercent = 0;
 
 function onResizeStart(event: MouseEvent): void {
   startX = event.clientX;
-  startWidth = width.value;
+  startPercent = widthPercent.value;
   document.addEventListener("mousemove", onResizeMove);
   document.addEventListener("mouseup", onResizeEnd);
 }
@@ -49,27 +77,56 @@ function onResizeStart(event: MouseEvent): void {
 function onResizeMove(event: MouseEvent): void {
   const delta = event.clientX - startX;
   const signed = props.side === "left" ? delta : -delta;
-  width.value = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startWidth + signed));
+  const base = rootEl.value?.parentElement?.clientWidth ?? 1;
+  const percent = startPercent + (signed / base) * 100;
+  if (percent < MIN_PERCENT) {
+    // Dragging far enough inward collapses the panel directly.
+    collapsed.value = true;
+    onResizeEnd();
+    return;
+  }
+  widthPercent.value = Math.min(MAX_PERCENT, percent);
 }
 
 function onResizeEnd(): void {
   document.removeEventListener("mousemove", onResizeMove);
   document.removeEventListener("mouseup", onResizeEnd);
 }
+
+onBeforeUnmount(() => onResizeEnd());
+
+/** Double click opens the detail window; single click only selects. */
+function open(nodeId: string): void {
+  store.select(nodeId);
+  store.openDetail();
+}
 </script>
 
 <template>
-  <aside
-    class="panel"
-    :class="[side, { collapsed }]"
-    :style="{ width: collapsed ? COLLAPSED_WIDTH + 'px' : width + 'px' }"
-  >
+  <aside ref="rootEl" class="panel" :class="[side, { collapsed, floating }]" :style="panelStyle">
     <template v-if="!collapsed">
       <div class="head">
         <span class="title">{{ t(`sidebar.${type}s`) }}</span>
-        <NButton quaternary circle size="tiny" :title="t('app.collapse')" @click="toggleCollapsed">
-          {{ side === "left" ? "«" : "»" }}
-        </NButton>
+        <span class="head-actions">
+          <NButton
+            quaternary
+            circle
+            size="tiny"
+            :title="floating ? t('app.dock') : t('app.float')"
+            @click="floating = !floating"
+          >
+            ⧉
+          </NButton>
+          <NButton
+            quaternary
+            circle
+            size="tiny"
+            :title="t('app.collapse')"
+            @click="toggleCollapsed"
+          >
+            {{ side === "left" ? "«" : "»" }}
+          </NButton>
+        </span>
       </div>
       <div class="search">
         <NInput v-model:value="query" size="small" clearable :placeholder="placeholder" />
@@ -81,6 +138,7 @@ function onResizeEnd(): void {
           class="item"
           :class="{ selected: node.id === store.state.selectedId }"
           @click="store.select(node.id)"
+          @dblclick="open(node.id)"
         >
           <div class="item-head">
             <span class="id">{{ node.id }}</span>
@@ -99,14 +157,7 @@ function onResizeEnd(): void {
       </ul>
     </template>
     <template v-else>
-      <NButton
-        quaternary
-        circle
-        size="tiny"
-        class="expand"
-        :title="t('app.expand')"
-        @click="toggleCollapsed"
-      >
+      <NButton circle size="small" class="expand" :title="t('app.expand')" @click="toggleCollapsed">
         {{ side === "left" ? "»" : "«" }}
       </NButton>
     </template>
@@ -121,6 +172,7 @@ function onResizeEnd(): void {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
   border-right: 1px solid var(--refino-border);
   box-sizing: border-box;
 }
@@ -130,13 +182,19 @@ function onResizeEnd(): void {
   border-left: 1px solid var(--refino-border);
 }
 
+.panel.floating {
+  background: var(--refino-surface);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.25);
+}
+
 .panel.collapsed {
-  align-items: center;
-  padding-top: 8px;
+  display: block;
+  border: none;
+  background: transparent;
 }
 
 .expand {
-  align-self: center;
+  display: block;
 }
 
 .head {
@@ -144,6 +202,12 @@ function onResizeEnd(): void {
   align-items: center;
   justify-content: space-between;
   padding: 8px 8px 0;
+}
+
+.head-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
 
 .title {

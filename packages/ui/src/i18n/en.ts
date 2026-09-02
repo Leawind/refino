@@ -12,7 +12,9 @@ export default {
     graph: "Decision Graph",
     direction: "Direction",
     collapse: "Collapse",
-    expand: "Expand",
+    expand: "Expand sidebar",
+    float: "Switch to floating sidebar",
+    dock: "Switch to docked sidebar",
   },
   sidebar: {
     constraints: "Constraints",

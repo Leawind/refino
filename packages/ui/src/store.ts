@@ -18,6 +18,8 @@ interface State {
   issues: GraphRecord["issues"];
   nodes: NodeRecord[];
   selectedId: string | null;
+  /** Whether the floating detail window is shown. */
+  detailOpen: boolean;
   /** null while creating a new node of the given type. */
   creatingType: "premise" | "constraint" | null;
   theme: Theme;
@@ -48,6 +50,7 @@ const state = reactive<State>({
   issues: [],
   nodes: [],
   selectedId: null,
+  detailOpen: false,
   creatingType: null,
   theme: readPreference<Theme>("refino.theme", "light"),
   locale: readPreference<Locale>("refino.locale", "zh"),
@@ -80,12 +83,23 @@ export const store = {
     state.selectedId = id;
     state.creatingType = null;
   },
+  /** Single click selects; the detail window opens on double click. */
+  openDetail(): void {
+    state.detailOpen = true;
+  },
+  /** Closing the window keeps the selection. */
+  closeDetail(): void {
+    state.detailOpen = false;
+    state.creatingType = null;
+  },
   startCreate(type: "premise" | "constraint"): void {
     state.creatingType = type;
     state.selectedId = null;
+    state.detailOpen = true;
   },
   cancelCreate(): void {
     state.creatingType = null;
+    state.detailOpen = false;
   },
   reload,
 
@@ -105,7 +119,10 @@ export const store = {
   async remove(id: string): Promise<void> {
     await deleteNode(id);
     await reload();
-    if (state.selectedId === id) state.selectedId = null;
+    if (state.selectedId === id) {
+      state.selectedId = null;
+      state.detailOpen = false;
+    }
   },
 
   setTheme(theme: Theme): void {

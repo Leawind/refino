@@ -11,8 +11,10 @@ export default {
     loadError: "加载失败",
     graph: "决策图",
     direction: "方向",
-    collapse: "折叠",
-    expand: "展开",
+    collapse: "收起",
+    expand: "展开侧栏",
+    float: "切换为浮动侧栏",
+    dock: "切换为嵌入侧栏",
   },
   sidebar: {
     constraints: "约束",

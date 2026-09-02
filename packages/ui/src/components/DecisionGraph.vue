@@ -46,6 +46,7 @@ function nodeType(id: string): string | undefined {
         class="node"
         :class="[nodeType(node.id), { selected: node.id === store.state.selectedId }]"
         @click="store.select(node.id)"
+        @dblclick="store.openDetail()"
       >
         <rect :x="node.x" :y="node.y" :width="node.width" :height="node.height" rx="8" />
         <text class="id" :x="node.x + 10" :y="node.y + 17">{{ node.id }}</text>

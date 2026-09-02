@@ -1,7 +1,9 @@
 <script setup lang="ts">
 // Floating detail window over the decision graph: details of the selected
-// node, with edit/create forms. Clicking the dimmed backdrop closes it.
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+// node, with edit/create forms. Opens on double click; closing keeps the
+// selection. Clicking the dimmed backdrop or pressing Esc closes it, and
+// expanding to near-fullscreen animates via an inset transition.
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { marked } from "marked";
 import {
@@ -23,22 +25,66 @@ const message = useMessage();
 
 const selected = computed(() => store.selected);
 const creating = computed(() => store.state.creatingType !== null);
-const visible = computed(() => creating.value || selected.value !== null);
+const visible = computed(
+  () => store.state.detailOpen && (creating.value || selected.value !== null),
+);
 
 const expanded = ref(false);
+const backdropEl = ref<HTMLElement | null>(null);
+
+/**
+ * The window is always fixed so the expand/shrink inset change can animate.
+ * Normal mode insets mirror the graph pane's on-screen rect, measured when
+ * the window opens (the backdrop blocks pane scrolling while it is open).
+ */
+const inset = ref({ top: 0, right: 0, bottom: 0, left: 0 });
+
+function measure(): void {
+  const rect = backdropEl.value?.getBoundingClientRect();
+  if (rect === undefined) return;
+  inset.value = {
+    top: rect.top,
+    right: window.innerWidth - rect.right,
+    bottom: window.innerHeight - rect.bottom,
+    left: rect.left,
+  };
+}
+
+const windowStyle = computed(() => ({
+  inset: expanded.value
+    ? "24px"
+    : `${inset.value.top}px ${inset.value.right}px ${inset.value.bottom}px ${inset.value.left}px`,
+}));
+
+watch(visible, (value) => {
+  if (value) {
+    expanded.value = false;
+    void nextTick(measure);
+  }
+});
+
+function onResize(): void {
+  if (visible.value) measure();
+}
 
 function close(): void {
   expanded.value = false;
-  store.select(null);
-  store.cancelCreate();
+  // Closing keeps the node selected.
+  store.closeDetail();
 }
 
 function onKeydown(event: KeyboardEvent): void {
   if (event.key === "Escape" && visible.value) close();
 }
 
-onMounted(() => document.addEventListener("keydown", onKeydown));
-onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
+onMounted(() => {
+  document.addEventListener("keydown", onKeydown);
+  window.addEventListener("resize", onResize);
+});
+onBeforeUnmount(() => {
+  document.removeEventListener("keydown", onKeydown);
+  window.removeEventListener("resize", onResize);
+});
 
 interface FormState {
   summary: string;
@@ -131,8 +177,8 @@ function nodeLabel(id: string): string {
 
 <template>
   <template v-if="visible">
-    <div class="backdrop" :class="{ expanded }" @click="close" />
-    <section class="window" :class="{ expanded }" @click.stop>
+    <div ref="backdropEl" class="backdrop" :class="{ expanded }" @click="close" />
+    <section class="window" :class="{ expanded }" :style="windowStyle" @click.stop>
       <div class="window-actions">
         <NButton
           quaternary
@@ -313,9 +359,10 @@ function nodeLabel(id: string): string {
 }
 
 .window {
-  position: absolute;
-  /* Slightly smaller than the graph pane, centered. */
-  inset: 3.5%;
+  position: fixed;
+  /* Insets come from the measured pane rect; the expand/shrink switch
+   * animates between them. */
+  transition: inset 0.25s ease;
   display: flex;
   flex-direction: column;
   background: var(--refino-surface);
@@ -327,8 +374,6 @@ function nodeLabel(id: string): string {
 }
 
 .window.expanded {
-  position: fixed;
-  inset: 24px;
   z-index: 91;
 }
 
