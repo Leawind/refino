@@ -42,5 +42,5 @@ jobs:
         run: |
           pnpm --filter refino --filter "@refino/storage" --filter "@refino/cli" pack
           for pkg in packages/refino packages/storage packages/cli; do
-            npm publish "$pkg"/*.tgz --access public --provenance
+            pnpm publish "$pkg"/*.tgz --access public --provenance
           done
