@@ -271,6 +271,43 @@ describe("refino cli", () => {
     }
   });
 
+  it("new constraint rejects malformed --grounds ids before creating", async () => {
+    const root = await createRefino({ "premises/1A2B3C4D.md": premise("1A2B3C4D") });
+    try {
+      const { code, err } = await run([
+        "--root",
+        root,
+        "new",
+        "constraint",
+        "--body",
+        "Decision.",
+        "--grounds",
+        "ILOU2345",
+      ]);
+      expect(code).toBe(1);
+      expect(err).toContain('invalid ground id "ILOU2345"');
+
+      const list = await run(["--root", root, "--json", "list"]);
+      const nodes = JSON.parse(list.out) as Array<{ id: string }>;
+      expect(nodes.map((n) => n.id)).toEqual(["1A2B3C4D"]);
+    } finally {
+      await removeRefino(root);
+    }
+  });
+
+  it("human-readable ancestors/dependents output includes the depth column", async () => {
+    const ancestors = await run(["--root", validRoot, "ancestors", "E5F6G7H8"]);
+    expect(ancestors.code).toBe(0);
+    const lines = ancestors.out.trimEnd().split("\n");
+    expect(lines).toHaveLength(3);
+    expect(lines[0]).toMatch(/^1A2B3C4D\s+premise\s+1\s+/);
+    expect(lines[1]).toMatch(/^D4E5F6G7\s+constraint\s+1\s+/);
+    expect(lines[2]).toMatch(/^A1B2C3D4\s+constraint\s+2\s+/);
+
+    const list = await run(["--root", validRoot, "list"]);
+    expect(list.out).toMatch(/1A2B3C4D\s+premise\s+/); // no depth column without depths
+  });
+
   it("deps alias and impact command are removed", async () => {
     const deps = await run(["--root", validRoot, "deps", "A1B2C3D4"]);
     expect(deps.code).toBe(1);

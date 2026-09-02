@@ -7,6 +7,7 @@ import {
   getAncestors,
   getDependents,
   getGrounds,
+  ID_RE,
   RefinoError,
   requireNode,
   validateGraph,
@@ -215,6 +216,13 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
               .split(",")
               .map((s) => s.trim())
               .filter((s) => s.length > 0);
+            const invalidGround = groundIds.find((g) => !ID_RE.test(g));
+            if (invalidGround !== undefined) {
+              io.stderr.write(
+                `error: invalid ground id "${invalidGround}" (must be an 8-character Crockford base32 id)\n`,
+              );
+              return 1;
+            }
             const newId = await createConstraint(refinoDir(opts), {
               id,
               body,
@@ -292,7 +300,7 @@ function emitDepths(
   } else if (results.length === 0) {
     io.stdout.write("(empty)\n");
   } else {
-    io.stdout.write(`${renderNodeTable(results.map((r) => r.node))}\n`);
+    io.stdout.write(`${renderNodeTable(results.map((r) => ({ ...r.node, depth: r.depth })))}\n`);
   }
 }
 
