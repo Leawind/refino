@@ -3,12 +3,10 @@
 import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import {
+  NAlert,
   NConfigProvider,
-  NLayout,
-  NLayoutContent,
   NLayoutFooter,
   NLayoutHeader,
-  NLayoutSider,
   NMessageProvider,
   darkTheme,
   zhCN,
@@ -50,11 +48,21 @@ function refresh(): void {
     :theme-overrides="{ common: { primaryColor: '#18a058' } }"
   >
     <NMessageProvider>
-      <NLayout class="shell">
+      <!-- Own flex shell: naive's NLayout boxes carry no layout of their own. -->
+      <div class="shell">
         <NLayoutHeader class="header" bordered>
           <AppHeader v-model:direction="direction" @refresh="refresh" />
         </NLayoutHeader>
-        <NLayoutContent class="content" :native-scrollbar="false">
+        <div class="content">
+          <NAlert
+            v-if="store.state.loadError !== null"
+            class="load-error"
+            type="error"
+            :show-icon="true"
+            closable
+          >
+            {{ t("app.loadError") }}: {{ store.state.loadError }}
+          </NAlert>
           <div class="workbench">
             <div class="sidebar-pane">
               <NodeSidebar />
@@ -66,11 +74,11 @@ function refresh(): void {
               <NodeDetail />
             </div>
           </div>
-        </NLayoutContent>
+        </div>
         <NLayoutFooter class="footer" bordered>
           <StatusBar />
         </NLayoutFooter>
-      </NLayout>
+      </div>
     </NMessageProvider>
   </NConfigProvider>
 </template>
@@ -78,20 +86,31 @@ function refresh(): void {
 <style scoped>
 .shell {
   height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 
 .header {
+  flex: none;
   height: 48px;
 }
 
 .content {
-  height: calc(100vh - 48px - 28px);
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.load-error {
+  margin: 12px 12px 0;
 }
 
 .workbench {
   display: grid;
   grid-template-columns: 280px 1fr 340px;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
 }
 
 .sidebar-pane,
@@ -110,6 +129,7 @@ function refresh(): void {
 }
 
 .footer {
+  flex: none;
   height: 28px;
 }
 </style>
