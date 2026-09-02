@@ -262,14 +262,18 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
     .option("--host <ip>", "IP address to bind", "127.0.0.1")
     .option("--port <n>", "port to listen on", "5649")
     .action((_opts, cmd) =>
-      run(cmd, async () => {
+      run(cmd, async (opts) => {
         const { host, port } = cmd.opts() as { host: string; port: string };
         const portNumber = Number(port);
         if (!Number.isInteger(portNumber) || portNumber < 0 || portNumber > 65535) {
           io.stderr.write(`error: invalid port "${port}"\n`);
           return 1;
         }
-        const { server, url } = await startWebServer({ host, port: portNumber });
+        const { server, url } = await startWebServer({
+          host,
+          port: portNumber,
+          refinoDir: refinoDir(opts),
+        });
         io.stdout.write(`listening on ${url}\n`);
         return new Promise<number>((resolve) => {
           const shutdown = (): void => {
