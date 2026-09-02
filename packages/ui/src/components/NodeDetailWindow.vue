@@ -5,7 +5,6 @@
 // expanding to near-fullscreen animates via an inset transition.
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { marked } from "marked";
 import {
   NButton,
   NForm,
@@ -135,7 +134,25 @@ const groundOptions = computed(() =>
 
 const dependentCount = computed(() => selected.value?.dependents.length ?? 0);
 
-const renderedBody = computed(() => marked.parse(selected.value?.body ?? "", { async: false }));
+/**
+ * Save is only meaningful when something actually changed (or when a new
+ * node has the required content), so the button stays disabled otherwise.
+ */
+const dirty = computed(() => {
+  const node = selected.value;
+  if (node === null) return form.body.trim() !== "";
+  return (
+    form.summary !== node.summary ||
+    form.body !== node.body ||
+    form.rationale !== (node.rationale ?? "") ||
+    JSON.stringify(form.grounds) !== JSON.stringify(node.grounds ?? []) ||
+    form.confirmed !== (node.confirmed ?? "")
+  );
+});
+
+const canSave = computed(() =>
+  creating.value ? form.body.trim() !== "" : dirty.value && form.body.trim() !== "",
+);
 
 function payload(): NodePayload {
   return {
@@ -238,12 +255,7 @@ function nodeLabel(id: string): string {
               </NFormItem>
             </template>
             <div class="actions">
-              <NButton
-                size="small"
-                type="primary"
-                :disabled="form.body.trim() === ''"
-                @click="save"
-              >
+              <NButton size="small" type="primary" :disabled="!canSave" @click="save">
                 {{ t("node.save") }}
               </NButton>
               <NButton size="small" @click="close">{{ t("node.cancel") }}</NButton>
@@ -299,7 +311,9 @@ function nodeLabel(id: string): string {
               <NInput v-model:value="form.confirmed" placeholder="RFC 3339" />
             </NFormItem>
             <div class="actions">
-              <NButton size="small" type="primary" @click="save">{{ t("node.save") }}</NButton>
+              <NButton size="small" type="primary" :disabled="!canSave" @click="save">
+                {{ t("node.save") }}
+              </NButton>
               <NTooltip :disabled="dependentCount === 0">
                 <template #trigger>
                   <NPopconfirm @positive-click="remove">
@@ -316,28 +330,16 @@ function nodeLabel(id: string): string {
             </div>
           </NForm>
 
-          <dl class="meta">
-            <dt>{{ t("node.file") }}</dt>
-            <dd class="mono">{{ selected.file }}</dd>
-            <dt>{{ t("node.dependents") }}</dt>
-            <dd>
-              <template v-if="selected.dependents.length === 0">—</template>
-              <ul v-else class="links">
-                <li v-for="id in selected.dependents" :key="id">
-                  <a @click="store.select(id)">{{ nodeLabel(id) }}</a>
-                </li>
-              </ul>
-            </dd>
-            <template v-if="selected.type === 'premise' && selected.confirmed !== undefined">
-              <dt>{{ t("node.confirmed") }}</dt>
-              <dd>{{ selected.confirmed }}</dd>
-            </template>
-          </dl>
-
-          <section class="preview">
-            <h3>{{ t("node.body") }}</h3>
-            <!-- The body is user-authored markdown rendered locally. -->
-            <div class="markdown" v-html="renderedBody" />
+          <!-- Dependents are derived from the graph, not stored attributes:
+               only surfaced in the expanded view. -->
+          <section v-if="expanded" class="meta">
+            <h3>{{ t("node.dependents") }}</h3>
+            <template v-if="selected.dependents.length === 0">—</template>
+            <ul v-else class="links">
+              <li v-for="id in selected.dependents" :key="id">
+                <a @click="store.select(id)">{{ nodeLabel(id) }}</a>
+              </li>
+            </ul>
           </section>
         </template>
       </div>
@@ -444,15 +446,9 @@ h2 {
   color: var(--refino-primary, #18a058);
 }
 
-.preview h3 {
+.meta h3 {
   font-size: 12px;
   opacity: 0.6;
   margin: 16px 0 4px;
-}
-
-.markdown {
-  font-size: 13px;
-  border-top: 1px solid var(--refino-border);
-  padding-top: 6px;
 }
 </style>

@@ -38,7 +38,6 @@ export default {
     grounds: "依据",
     dependents: "下游约束",
     confirmed: "确认时间",
-    file: "文件",
     type: "类型",
     save: "保存",
     cancel: "取消",

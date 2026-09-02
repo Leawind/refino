@@ -38,7 +38,6 @@ export default {
     grounds: "Grounds",
     dependents: "Dependents",
     confirmed: "Confirmed",
-    file: "File",
     type: "Type",
     save: "Save",
     cancel: "Cancel",

@@ -82,20 +82,6 @@ function refresh(): void {
                 <NPopselect v-model:value="direction" :options="directionOptions" trigger="click">
                   <NButton circle :title="t('app.direction')">{{ direction }}</NButton>
                 </NPopselect>
-                <NButton
-                  size="small"
-                  :title="t('node.createPremise')"
-                  @click="store.startCreate('premise')"
-                >
-                  +{{ t("node.premise") }}
-                </NButton>
-                <NButton
-                  size="small"
-                  :title="t('node.createConstraint')"
-                  @click="store.startCreate('constraint')"
-                >
-                  +{{ t("node.constraint") }}
-                </NButton>
               </div>
               <NodeDetailWindow />
             </div>

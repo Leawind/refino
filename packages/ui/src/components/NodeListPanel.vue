@@ -8,6 +8,7 @@ import { computed, onBeforeUnmount, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { NButton, NIcon, NInput } from "naive-ui";
 import {
+  AddOutline,
   ChevronBackOutline,
   ChevronForwardOutline,
   OpenOutline,
@@ -116,6 +117,15 @@ function open(nodeId: string): void {
             quaternary
             circle
             size="tiny"
+            :title="type === 'constraint' ? t('node.createConstraint') : t('node.createPremise')"
+            @click="store.startCreate(type)"
+          >
+            <NIcon :component="AddOutline" />
+          </NButton>
+          <NButton
+            quaternary
+            circle
+            size="tiny"
             :title="floating ? t('app.dock') : t('app.float')"
             @click="floating = !floating"
           >
@@ -185,35 +195,42 @@ function open(nodeId: string): void {
 }
 
 .panel.collapsed {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border: none;
   background: transparent;
 }
 
 /* Same size and height as the in-panel collapse button, but opaque. */
 .expand {
-  display: block;
   background: var(--refino-surface) !important;
   box-shadow: 0 1px 6px rgba(0, 0, 0, 0.2);
 }
 
 .head {
+  position: relative;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  /* Left panel: cluster on the right; right panel: cluster on the left. */
+  justify-content: flex-end;
   padding: 8px 8px 0;
+}
+
+.panel.right .head {
+  justify-content: flex-start;
+}
+
+.title {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
 }
 
 .head-actions {
   display: flex;
   align-items: center;
   gap: 2px;
-}
-
-.title {
-  font-size: 12px;
-  font-weight: 600;
-  opacity: 0.75;
 }
 
 .search {
