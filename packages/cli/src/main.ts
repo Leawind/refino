@@ -154,7 +154,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
 
   program
     .command("dependents")
-    .description("constraints whose grounds directly or indirectly contain the node")
+    .description("constraints potentially affected if this node changes")
     .argument("<id>", "node id")
     .action((id: string, _opts, cmd) =>
       run(cmd, async (opts) =>
