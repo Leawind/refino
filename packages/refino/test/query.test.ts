@@ -1,18 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { buildGraph } from "../src/graph.js";
-import { parseNodeSource } from "../src/parser.js";
 import { getAncestors, getDependents, getGrounds, RefinoError } from "../src/index.js";
 import type { Graph, NodeType, RefinoNode } from "../src/index.js";
-import { constraint, premise } from "@refino/testkit";
 
-/** Build a graph in memory, mirroring the storage layout's dir-to-type rule. */
-function graphOf(files: Record<string, string>): Graph {
-  const nodes: RefinoNode[] = [];
-  for (const [file, source] of Object.entries(files)) {
-    const expectedType: NodeType = file.startsWith("premises/") ? "premise" : "constraint";
-    const { node } = parseNodeSource(file, expectedType, source);
-    if (node) nodes.push(node);
-  }
+/** Test factory: build a node directly, bypassing any file parsing. */
+function node(id: string, type: NodeType, grounds?: string[]): RefinoNode {
+  return {
+    id,
+    type,
+    file: `${type}s/${id.slice(0, 2)}/${id.slice(2)}.md`,
+    summary: "Body.",
+    body: "Body.",
+    ...(grounds !== undefined && { grounds }),
+  };
+}
+
+function graphOf(...nodes: RefinoNode[]): Graph {
   return buildGraph("/.refino", nodes);
 }
 
@@ -21,12 +24,12 @@ function graphOf(files: Record<string, string>): Graph {
  *   1A2B3C4D ──┐
  *   A1B2C3D4 ──┴→ D4E5F6G7 → E5F6G7H8
  */
-const graph = graphOf({
-  "premises/1A2B3C4D.md": premise("1A2B3C4D"),
-  "constraints/A1B2C3D4.md": constraint("A1B2C3D4", undefined),
-  "constraints/D4E5F6G7.md": constraint("D4E5F6G7", ["A1B2C3D4"]),
-  "constraints/E5F6G7H8.md": constraint("E5F6G7H8", ["1A2B3C4D", "D4E5F6G7"]),
-});
+const graph = graphOf(
+  node("1A2B3C4D", "premise"),
+  node("A1B2C3D4", "constraint"),
+  node("D4E5F6G7", "constraint", ["A1B2C3D4"]),
+  node("E5F6G7H8", "constraint", ["1A2B3C4D", "D4E5F6G7"]),
+);
 
 function ids(results: ReadonlyArray<{ id: string; node?: { id: string } }>): string[] {
   return results.map((r) => r.node?.id ?? r.id);
@@ -67,9 +70,7 @@ describe("queries", () => {
   });
 
   it("buildGraph leaves unknown grounds out of the dependents index", () => {
-    const dangling = graphOf({
-      "constraints/A1B2C3D4.md": constraint("A1B2C3D4", ["Z9Y8X7W6"]),
-    });
+    const dangling = graphOf(node("A1B2C3D4", "constraint", ["Z9Y8X7W6"]));
     expect(dangling.dependents.has("Z9Y8X7W6")).toBe(false);
     expect(dangling.dependents.size).toBe(0);
   });

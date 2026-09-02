@@ -1,6 +1,5 @@
 import { parse as parseYaml } from "yaml";
-import { ID_RE } from "./id.js";
-import type { NodeType, RefinoIssue, RefinoNode } from "./types.js";
+import type { NodeType, RefinoIssue, RefinoNode } from "refino";
 
 const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---(?:\n|$)/;
 const EMPTY_FRONTMATTER_RE = /^---\n---(?:\n|$)/;
@@ -8,37 +7,29 @@ const EMPTY_FRONTMATTER_RE = /^---\n---(?:\n|$)/;
 export const SUMMARY_MAX_LENGTH = 100;
 
 export interface ParseResult {
-  /** The parsed node, or null when the id could not be established. */
+  /** The parsed node, or null when the frontmatter could not be parsed. */
   node: RefinoNode | null;
   issues: RefinoIssue[];
 }
 
 /**
- * Parse one node file from its markdown source.
+ * Parse one node file into a node object.
  *
- * `expectedType` comes from the storage layout: files under `.refino/premises/`
- * are premises, `.refino/constraints/` constraints. The node id is the file
- * name without the `.md` suffix and must be 8-character Crockford base32.
- * A file without frontmatter is a valid node with no fields.
- *
- * `file` is a `.refino`-relative path in either separator style; the parsed
- * node always carries the canonical forward-slash form.
+ * `id` is derived by the loader from the file path (path is identity); `file`
+ * is the `.refino`-relative path in either separator style, always stored in
+ * the canonical forward-slash form. A file without frontmatter is a valid
+ * node with no fields. The summary is the first paragraph of the body,
+ * extracted by `extractSummary`.
  */
-export function parseNodeSource(file: string, expectedType: NodeType, source: string): ParseResult {
+export function parseNodeSource(
+  id: string,
+  file: string,
+  expectedType: NodeType,
+  source: string,
+): ParseResult {
   const issues: RefinoIssue[] = [];
   const normalized = source.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
-
-  // `file` is a `.refino`-relative path; the id is its base name.
   const canonicalFile = file.replace(/\\/g, "/");
-  const id = canonicalFile.slice(canonicalFile.lastIndexOf("/") + 1).replace(/\.md$/, "");
-  if (!ID_RE.test(id)) {
-    issues.push({
-      code: "INVALID_ID",
-      message: `File name must be an 8-character Crockford base32 id (0-9, A-Z minus I, L, O, U), got "${id}".`,
-      file: canonicalFile,
-    });
-    return { node: null, issues };
-  }
 
   let fields: Record<string, unknown> = {};
   const match = FRONTMATTER_RE.exec(normalized) ?? EMPTY_FRONTMATTER_RE.exec(normalized);
@@ -157,8 +148,9 @@ function parseGrounds(
 }
 
 /**
- * First paragraph of the body, whitespace-collapsed to a single line.
- * Truncated with an ellipsis when longer than `SUMMARY_MAX_LENGTH`.
+ * Summary extraction rule: first paragraph of the body, whitespace-collapsed
+ * to a single line. Truncated with an ellipsis when longer than
+ * `SUMMARY_MAX_LENGTH`.
  */
 export function extractSummary(body: string): string {
   const firstBlock = body.split(/\n[ \t]*\n/, 1)[0] ?? "";

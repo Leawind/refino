@@ -1,6 +1,7 @@
 import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { generateId, ID_RE, RefinoError, serializeNode } from "refino";
+import { generateId, ID_RE, RefinoError } from "refino";
+import { serializeNode } from "./serialize.js";
 
 /**
  * Node creation. This is the storage adapter's write path; everything else

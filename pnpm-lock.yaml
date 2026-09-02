@@ -50,10 +50,6 @@ importers:
         version: link:../testkit
 
   packages/refino:
-    dependencies:
-      yaml:
-        specifier: ^2.9.0
-        version: 2.9.0
     devDependencies:
       '@refino/testkit':
         specifier: workspace:*
@@ -64,6 +60,9 @@ importers:
       refino:
         specifier: workspace:^
         version: link:../refino
+      yaml:
+        specifier: ^2.9.0
+        version: 2.9.0
     devDependencies:
       '@refino/testkit':
         specifier: workspace:*

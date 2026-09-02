@@ -1,20 +1,29 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { buildGraph, parseNodeSource, RefinoError } from "refino";
-import type { LoadResult, NodeType, RefinoIssue, RefinoNode } from "refino";
+import { buildGraph, ID_RE, RefinoError } from "refino";
+import { parseNodeSource } from "./parser.js";
+import type { Graph, NodeType, RefinoIssue, RefinoNode } from "refino";
 
 const STORAGE_DIRS: ReadonlyArray<readonly [string, NodeType]> = [
   ["premises", "premise"],
   ["constraints", "constraint"],
 ];
 
+export interface LoadResult {
+  graph: Graph;
+  /** Issues found while reading and parsing node files (including duplicate ids). */
+  issues: RefinoIssue[];
+}
+
 /**
  * Read every node file under a `.refino` directory and build the in-memory
  * graph. Loading is read-only; the only write path is `writer.ts`.
  *
- * Parse-level issues (including duplicate ids) are collected in `issues`;
- * nodes that could not be identified are skipped. Structural validation
- * (unknown grounds, cycles) is a separate step: `validateGraph`.
+ * Node ids are derived from the file path (path is identity); id shapes are
+ * validated here before parsing. Parse-level issues (including duplicate
+ * ids) are collected in `issues`; nodes that could not be identified are
+ * skipped. Structural validation (unknown grounds, cycles) is a separate
+ * step: `validateGraph`.
  */
 export async function loadGraph(refinoDir: string): Promise<LoadResult> {
   let dirStat;
@@ -49,7 +58,16 @@ export async function loadGraph(refinoDir: string): Promise<LoadResult> {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; // changed mid-scan
         throw error;
       }
-      const { node, issues: parseIssues } = parseNodeSource(file, expectedType, source);
+      const id = entry.name.slice(0, -".md".length);
+      if (!ID_RE.test(id)) {
+        issues.push({
+          code: "INVALID_ID",
+          message: `File name must be an 8-character Crockford base32 id (0-9, A-Z minus I, L, O, U), got "${id}".`,
+          file,
+        });
+        continue;
+      }
+      const { node, issues: parseIssues } = parseNodeSource(id, file, expectedType, source);
       issues.push(...parseIssues);
       if (!node) continue;
       const existingFile = seenIds.get(node.id);

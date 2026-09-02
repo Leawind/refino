@@ -60,12 +60,6 @@ export interface RefinoIssue {
   cycle?: string[];
 }
 
-export interface LoadResult {
-  graph: Graph;
-  /** Issues found while reading and parsing node files (including duplicate ids). */
-  issues: RefinoIssue[];
-}
-
 export class RefinoError extends Error {
   readonly code: IssueCode;
 

@@ -28,7 +28,8 @@
     "access": "public"
   },
   "dependencies": {
-    "refino": "workspace:^"
+    "refino": "workspace:^",
+    "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@refino/testkit": "workspace:*"

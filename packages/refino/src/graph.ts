@@ -2,7 +2,7 @@ import type { Graph, RefinoNode } from "./types.js";
 
 /**
  * Graph assembly from parsed nodes. Pure and filesystem-free so the engine
- * can build graphs from any source; @refino/node feeds it from `.refino/`.
+ * can build graphs from any source.
  */
 
 /**
