@@ -9,6 +9,12 @@ const STORAGE_DIRS: ReadonlyArray<readonly [string, NodeType]> = [
   ["constraints", "constraint"],
 ];
 
+/** A shard directory name: the first 2 characters of a node id. */
+const SHARD_RE = /^[0-9A-HJKMNP-TV-Z]{2}$/;
+
+/** A node file name (without `.md`): the last 6 characters of a node id. */
+const SHARD_FILE_RE = /^[0-9A-HJKMNP-TV-Z]{6}$/;
+
 export interface LoadResult {
   graph: Graph;
   /** Issues found while reading and parsing node files (including duplicate ids). */
@@ -19,11 +25,12 @@ export interface LoadResult {
  * Read every node file under a `.refino` directory and build the in-memory
  * graph. Loading is read-only; the only write path is `writer.ts`.
  *
- * Node ids are derived from the file path (path is identity); id shapes are
- * validated here before parsing. Parse-level issues (including duplicate
- * ids) are collected in `issues`; nodes that could not be identified are
- * skipped. Structural validation (unknown grounds, cycles) is a separate
- * step: `validateGraph`.
+ * Layout: `<type>/<2-char shard>/<6-char id>.md`. The node id is derived
+ * from the file path (path is identity), so shard and file name always
+ * combine into a valid id. Top-level directories that are not valid shards
+ * and non-markdown files are silently ignored; stray top-level node files
+ * (old layout leftovers) are reported as INVALID_NODE_PATH. Structural
+ * validation (unknown grounds, cycles) is a separate step: `validateGraph`.
  */
 export async function loadGraph(refinoDir: string): Promise<LoadResult> {
   let dirStat;
@@ -41,51 +48,103 @@ export async function loadGraph(refinoDir: string): Promise<LoadResult> {
   const seenIds = new Map<string, string>();
 
   for (const [dirName, expectedType] of STORAGE_DIRS) {
-    let entries;
+    let shards;
     try {
-      entries = await readdir(join(refinoDir, dirName), { withFileTypes: true });
+      shards = await readdir(join(refinoDir, dirName), { withFileTypes: true });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; // subdir optional
       throw error;
     }
-    for (const entry of entries.sort(byName)) {
-      if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
-      const file = `${dirName}/${entry.name}`;
-      let source: string;
-      try {
-        source = await readFile(join(refinoDir, file), "utf8");
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; // changed mid-scan
-        throw error;
-      }
-      const id = entry.name.slice(0, -".md".length);
-      if (!ID_RE.test(id)) {
+    for (const shard of shards.sort(byName)) {
+      if (shard.isFile() && shard.name.endsWith(".md")) {
+        const file = `${dirName}/${shard.name}`;
         issues.push({
-          code: "INVALID_ID",
-          message: `File name must be an 8-character Crockford base32 id (0-9, A-Z minus I, L, O, U), got "${id}".`,
+          code: "INVALID_NODE_PATH",
+          message: `Node files must live at <type>/<shard>/<id>.md, e.g. ${dirName}/01/9ABCDE.md; got "${file}".`,
           file,
         });
         continue;
       }
-      const { node, issues: parseIssues } = parseNodeSource(id, file, expectedType, source);
-      issues.push(...parseIssues);
-      if (!node) continue;
-      const existingFile = seenIds.get(node.id);
-      if (existingFile) {
-        issues.push({
-          code: "DUPLICATE_ID",
-          message: `Duplicate node id "${node.id}" (already defined in ${existingFile}).`,
-          file: node.file,
-          nodeId: node.id,
-        });
-        continue;
+      if (!shard.isDirectory() || !SHARD_RE.test(shard.name)) continue; // silently ignored
+      let files;
+      try {
+        files = await readdir(join(refinoDir, dirName, shard.name), { withFileTypes: true });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; // changed mid-scan
+        throw error;
       }
-      seenIds.set(node.id, node.file);
-      nodes.push(node);
+      for (const entry of files.sort(byName)) {
+        // Deeper directories and non-markdown files are silently ignored.
+        if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
+        const file = `${dirName}/${shard.name}/${entry.name}`;
+        let source: string;
+        try {
+          source = await readFile(join(refinoDir, file), "utf8");
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; // changed mid-scan
+          throw error;
+        }
+        const baseName = entry.name.slice(0, -".md".length);
+        if (!SHARD_FILE_RE.test(baseName)) {
+          issues.push({
+            code: "INVALID_ID",
+            message: `Node file name must be 6 Crockford base32 characters (the id is shard + file name), got "${baseName}".`,
+            file,
+          });
+          continue;
+        }
+        const id = shard.name + baseName;
+        const { node, issues: parseIssues } = parseNodeSource(id, file, expectedType, source);
+        issues.push(...parseIssues);
+        if (!node) continue;
+        const existingFile = seenIds.get(node.id);
+        if (existingFile) {
+          issues.push({
+            code: "DUPLICATE_ID",
+            message: `Duplicate node id "${node.id}" (already defined in ${existingFile}).`,
+            file: node.file,
+            nodeId: node.id,
+          });
+          continue;
+        }
+        seenIds.set(node.id, node.file);
+        nodes.push(node);
+      }
     }
   }
 
   return { graph: buildGraph(refinoDir, nodes), issues };
+}
+
+/** All ids of existing node files across both storage directory trees. */
+export async function readAllExistingIds(refinoDir: string): Promise<Set<string>> {
+  const ids = new Set<string>();
+  for (const [dirName] of STORAGE_DIRS) {
+    let shards;
+    try {
+      shards = await readdir(join(refinoDir, dirName), { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; // subdir optional
+      throw error;
+    }
+    for (const shard of shards.sort(byName)) {
+      if (!shard.isDirectory() || !SHARD_RE.test(shard.name)) continue;
+      let files;
+      try {
+        files = await readdir(join(refinoDir, dirName, shard.name));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+        throw error;
+      }
+      for (const entry of files) {
+        if (!entry.endsWith(".md")) continue;
+        const baseName = entry.slice(0, -".md".length);
+        const id = shard.name + baseName;
+        if (ID_RE.test(id)) ids.add(id);
+      }
+    }
+  }
+  return ids;
 }
 
 function byName(a: { name: string }, b: { name: string }): number {

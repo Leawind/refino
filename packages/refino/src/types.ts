@@ -12,7 +12,7 @@ export type NodeType = "premise" | "constraint";
 export interface RefinoNode {
   id: string;
   type: NodeType;
-  /** Path relative to the `.refino` directory, with `/` as the separator regardless of platform, e.g. `constraints/019ABCDE.md`. */
+  /** Path relative to the `.refino` directory, with `/` as the separator regardless of platform, e.g. `constraints/01/9ABCDE.md`. */
   file: string;
   /** First paragraph of the markdown body; used for quick relevance checks. */
   summary: string;
@@ -38,6 +38,7 @@ export interface Graph {
 export type IssueCode =
   | "INVALID_FRONTMATTER"
   | "INVALID_ID"
+  | "INVALID_NODE_PATH"
   | "PREMISE_WITH_GROUNDS"
   | "INVALID_GROUNDS"
   | "INVALID_CONFIRMED"

@@ -1,16 +1,15 @@
-import { mkdir, readdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { generateId, ID_RE, RefinoError } from "refino";
+import { readAllExistingIds } from "./loader.js";
 import { serializeNode } from "./serialize.js";
 
 /**
  * Node creation. This is the storage adapter's write path; everything else
- * stays read-only. Node ids are unique across the whole `.refino` directory:
- * explicitly given ids must match `ID_RE` and not collide with any existing
- * node file in either storage directory; generated ids guarantee the same.
+ * stays read-only. Node ids are unique across the whole `.refino` directory
+ * and map to exactly one file path (path is identity):
+ * `<type>/<first 2 id chars>/<last 6 id chars>.md`.
  */
-
-const STORAGE_DIRS = ["premises", "constraints"] as const;
 
 export interface CreateOptions {
   body: string;
@@ -58,7 +57,6 @@ async function createNode(
   body: string,
   explicitId?: string,
 ): Promise<string> {
-  const existingIds = await readAllExistingIds(refinoDir);
   let id: string;
   if (explicitId !== undefined) {
     if (!ID_RE.test(explicitId)) {
@@ -67,37 +65,31 @@ async function createNode(
         `Node id must be an 8-character Crockford base32 id (0-9, A-Z minus I, L, O, U), got "${explicitId}".`,
       );
     }
+    // Node ids are globally unique; checking the whole store (not just the
+    // unique derived path) keeps cross-directory duplicates out on write.
+    const existingIds = await readAllExistingIds(refinoDir);
     if (existingIds.has(explicitId)) {
       throw new RefinoError("DUPLICATE_ID", `Node id "${explicitId}" is already in use.`);
     }
     id = explicitId;
   } else {
+    // Generated ids must avoid every existing node file in both trees.
+    const existingIds = await readAllExistingIds(refinoDir);
     do {
       id = generateId();
     } while (existingIds.has(id));
   }
-  const dir = join(refinoDir, dirName);
-  await mkdir(dir, { recursive: true });
-  await writeFile(join(dir, `${id}.md`), serializeNode(fields, body), "utf8");
+  const file = nodeFilePath(refinoDir, dirName, id);
+  await mkdir(dirname(file), { recursive: true });
+  await writeFile(file, serializeNode(fields, body), "utf8");
   return id;
 }
 
-/** All ids of existing node files across both storage directories. */
-async function readAllExistingIds(refinoDir: string): Promise<Set<string>> {
-  const ids = new Set<string>();
-  for (const dirName of STORAGE_DIRS) {
-    let entries: string[];
-    try {
-      entries = await readdir(join(refinoDir, dirName));
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; // subdir optional
-      throw error;
-    }
-    for (const entry of entries) {
-      if (!entry.endsWith(".md")) continue;
-      const id = entry.slice(0, -".md".length);
-      if (ID_RE.test(id)) ids.add(id);
-    }
-  }
-  return ids;
+/** Canonical `.refino`-relative path of a node: `<type>/<2 chars>/<6 chars>.md`. */
+function nodeFilePath(
+  refinoDir: string,
+  dirName: "premises" | "constraints",
+  id: string,
+): string {
+  return join(refinoDir, dirName, id.slice(0, 2), `${id.slice(2)}.md`);
 }

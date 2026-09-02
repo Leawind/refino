@@ -272,7 +272,7 @@ function reportBlockingIssues(io: CliIo, opts: GlobalOptions, issues: RefinoIssu
 }
 
 function emitCreated(io: CliIo, opts: GlobalOptions, id: string, dirName: string): void {
-  const file = `${dirName}/${id}.md`;
+  const file = `${dirName}/${id.slice(0, 2)}/${id.slice(2)}.md`;
   if (opts.json) emit(io, { id, file });
   else io.stdout.write(`created ${id} (${join(".refino", file)})\n`);
 }
