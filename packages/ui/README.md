@@ -4,6 +4,34 @@ Constraint Refinement Graph（CRG）的可视化组件库与可嵌入编辑器�
 
 宿主（CLI 的 `refino web` 服务、工具插件、桌面应用、VSCode webview）负责提供容器与数据通道；本包只关注界面本身。当前处于脚手架阶段，仅包含占位页面。
 
+界面定位与后端 API 契约等跨包设计见 [docs/design.md](../../docs/design.md)。
+
+## 界面设计（`refino web`）
+
+组件库 Naive UI，图标用内联 SVG，不引外部字体；所有资源本地打包，完全离线可用。
+
+### 通用能力
+
+- **国际化**：界面文案全部经过 i18n，目前支持中文与 English。
+- **主题**：支持明暗主题切换，基于 Naive UI 的亮/暗主题与 `themeOverrides`。
+
+### 布局
+
+- **顶部导航栏**：项目 logo、标题、刷新按钮、设置按钮等全局操作。
+- **左侧边栏**：搜索框与节点列表；点击节点即在中间视图与右侧详情中定位。
+- **中间**：CRG 可视化视图（核心区域）。
+  - 显示方向可自由选择，默认从左到右，可选从上到下、从右到左、从下到上。
+  - 布局方式可扩展，将来可加入其他布局（如从中心向四周扩散）。
+  - 视图内部的具体交互逻辑暂不设计。
+- **右侧**：当前选中节点的详情，可编辑。
+- **底部状态栏**：约束节点数、前提节点数、当前选中节点的 ID。
+
+### 编辑功能
+
+- 创建 premise：body、summary、confirmed（默认当前时间）。
+- 创建 constraint：body、summary、rationale、grounds（多选节点，支持搜索）。
+- 编辑节点：summary、body、rationale、grounds；类型与 id 不可修改。
+
 ## 开发
 
 启动带热更新的开发服务（保存源码后浏览器实时刷新）：
@@ -19,7 +47,7 @@ refino web                       # 终端 1：启动后端
 pnpm --filter @refino/ui dev     # 终端 2：启动开发服务
 ```
 
-构建产物为 `dist/` 下的纯本地静态资源（无外部 CDN 依赖，可完全离线运行），由 `refino web` 托管：
+构建产物为 `dist/` 下的纯本地静态资源（可完全离线运行），由 `refino web` 托管：
 
 ```sh
 pnpm --filter @refino/ui build

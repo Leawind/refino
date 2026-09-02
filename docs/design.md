@@ -7,17 +7,17 @@
 
 ## 包结构
 
-| 包                      | 职责                                                                                                                                              | 状态                           |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
-| `refino`                | 纯引擎：类型定义、图组装、结构校验、查询、ID 生成                                                                                                 | 已有                           |
-| `@refino/storage`       | CRG 文件系统存储格式（目录结构、节点文件格式、解析与序列化、摘要提取规则）的定义与实现；Node 存储适配器                                           | 已有                           |
-| `@refino/cli`           | `refino` 引擎的命令行薄封装                                                                                                                       | 已有                           |
-| `@refino/testkit`       | 各包测试共用的夹具与工具函数                                                                                                                      | 已有                           |
-| `@refino/ui`            | CRG 可视化编辑组件库（Vue 3）                                                                                                                     | 开始实现第一个可视化界面时建立 |
-| `@refino/harness`       | 任务界定层（作用域锚点、修改边界、冻结区、授权上下文、冲突检测与越界升级）与 vibe coding 工具插件的公共逻辑（上下文增量生成、模型技能、注入协议） | 已有                           |
-| `@refino/<tool>-plugin` | 各 vibe coding 工具的插件，如 `@refino/dsh-plugin`（dsh 适配，接入形态待定）                                                                      | 设计中                         |
-| `@refino/desktop`       | 桌面应用                                                                                                                                          | 未来                           |
-| `@refino/vscode`        | VSCode 插件                                                                                                                                       | 未来                           |
+| 包                      | 职责                                                                                                                                              | 状态           |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
+| `refino`                | 纯引擎：类型定义、图组装、结构校验、查询、ID 生成                                                                                                 | 已有           |
+| `@refino/storage`       | CRG 文件系统存储格式（目录结构、节点文件格式、解析与序列化、摘要提取规则）的定义与实现；Node 存储适配器                                           | 已有           |
+| `@refino/cli`           | `refino` 引擎的命令行薄封装                                                                                                                       | 已有           |
+| `@refino/testkit`       | 各包测试共用的夹具与工具函数                                                                                                                      | 已有           |
+| `@refino/ui`            | CRG 可视化编辑组件库（Vue 3）                                                                                                                     | 已有（脚手架） |
+| `@refino/harness`       | 任务界定层（作用域锚点、修改边界、冻结区、授权上下文、冲突检测与越界升级）与 vibe coding 工具插件的公共逻辑（上下文增量生成、模型技能、注入协议） | 已有           |
+| `@refino/<tool>-plugin` | 各 vibe coding 工具的插件，如 `@refino/dsh-plugin`（dsh 适配，接入形态待定）                                                                      | 设计中         |
+| `@refino/desktop`       | 桌面应用                                                                                                                                          | 未来           |
+| `@refino/vscode`        | VSCode 插件                                                                                                                                       | 未来           |
 
 在满足公共部分抽离的前提下，包的总数尽量少：只在确实出现第二个消费方时才抽公共包。
 
@@ -96,6 +96,26 @@ vibe coding 工具插件统一命名为 `@refino/<tool>-plugin`，`<tool>` 为�
 ## 前端技术栈
 
 可视化界面统一使用 Vue 3。`@refino/ui` 定位为"组件库 + 可嵌入的编辑器应用壳"，宿主（工具插件、桌面应用、VSCode webview）负责提供容器与数据通道。
+
+## Web 界面（`refino web`）
+
+`refino web` 是面向人类的 CRG 浏览与编辑工具：通过 CLI 启动本地 HTTP 服务，在浏览器中访问。它只提供对 CRG 本身的访问，与 agent 任务执行无关——作用域锚点选择、冻结区预览等任务界定功能属于工具插件宿主的交互组件，不在本界面范围内。
+
+跨包的设计决策与契约如下；界面结构、页面与交互细节见 `@refino/ui` 的 README。
+
+### 技术选型
+
+组件库选用 Naive UI：Element Plus 生态最大、文档最全，但主题定制依赖 SCSS 且包体偏大；Naive UI TypeScript 支持与 tree-shaking 最好、主题用 JS 配置对象即可完成、包体小。本项目是 TS strict monorepo，优先类型体验与体积。前端所有资源以本地依赖打包，不使用 CDN，保持完全离线可用。
+
+### 后端 API 契约（v1，由 `@refino/cli` 的 web 服务实现，`@refino/ui` 消费）
+
+- `GET /api/graph`：全量节点、边与校验 issues。CRG 数据量小，单请求拉取后由前端持有，编辑后局部刷新。
+- `POST /api/nodes/premise`、`POST /api/nodes/constraint`：创建，复用 `createPremise`/`createConstraint`。
+- `PUT /api/nodes/:id`：更新节点。
+- `DELETE /api/nodes/:id`：删除节点；存在下游约束时返回 409 并附受影响约束列表。
+- `GET /api/validate`：独立校验。
+
+编辑功能要求 `@refino/storage` 补充 update/delete 写 API（当前仅有 create），并对 grounds 引用做有效性校验。
 
 ## 测试工具
 
