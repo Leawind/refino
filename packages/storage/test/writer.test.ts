@@ -12,7 +12,7 @@ describe("writer", () => {
       const id = await createPremise(`${root}/.refino`, { body: "PostgreSQL 16.\n" });
       expect(id).toMatch(ID_RE);
       const source = await readFile(
-        `${root}/.refino/premises/${id.slice(0, 2)}/${id.slice(2)}.md`,
+        `${root}/.refino/nodes/${id.slice(0, 2)}/${id.slice(2)}.premise.md`,
         "utf8",
       );
       expect(source).toBe("PostgreSQL 16.\n");
@@ -32,7 +32,7 @@ describe("writer", () => {
         confirmed: "2026-05-01T00:00:00Z",
       });
       const source = await readFile(
-        `${root}/.refino/premises/${id.slice(0, 2)}/${id.slice(2)}.md`,
+        `${root}/.refino/nodes/${id.slice(0, 2)}/${id.slice(2)}.premise.md`,
         "utf8",
       );
       expect(source).toContain("confirmed:");
@@ -70,7 +70,7 @@ describe("writer", () => {
     try {
       const id = await createConstraint(`${root}/.refino`, { body: "Root decision." });
       const source = await readFile(
-        `${root}/.refino/constraints/${id.slice(0, 2)}/${id.slice(2)}.md`,
+        `${root}/.refino/nodes/${id.slice(0, 2)}/${id.slice(2)}.constraint.md`,
         "utf8",
       );
       expect(source).not.toContain("---");
@@ -102,7 +102,7 @@ describe("writer", () => {
         body: "Explicit id.",
       });
       expect(id).toBe("A1B2C3D4");
-      const source = await readFile(`${root}/.refino/constraints/A1/B2C3D4.md`, "utf8");
+      const source = await readFile(`${root}/.refino/nodes/A1/B2C3D4.constraint.md`, "utf8");
       expect(source).toBe("Explicit id.\n");
       const { graph, issues } = await loadGraph(`${root}/.refino`);
       expect(issues).toEqual([]);
@@ -141,7 +141,7 @@ describe("writer", () => {
     }
   });
 
-  it("rejects an explicit id that exists in the other directory as DUPLICATE_ID", async () => {
+  it("rejects an explicit id that exists as the other type as DUPLICATE_ID", async () => {
     const root = await createRefino({});
     try {
       await createPremise(`${root}/.refino`, { id: "A1B2C3D4", body: "Premise." });

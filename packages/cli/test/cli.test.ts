@@ -8,26 +8,26 @@ let invalidRoot: string;
 
 beforeAll(async () => {
   validRoot = await createRefino({
-    "premises/1A/2B3C4D.md": premise("1A2B3C4D", "当前 PostgreSQL 版本不支持 extension X。"),
-    "constraints/A1/B2C3D4.md": constraint(
+    "nodes/1A/2B3C4D.premise.md": premise("1A2B3C4D", "当前 PostgreSQL 版本不支持 extension X。"),
+    "nodes/A1/B2C3D4.constraint.md": constraint(
       "A1B2C3D4",
       undefined,
       "所有业务数据存储在 PostgreSQL。",
     ),
-    "constraints/D4/E5F6G7.md": constraint(
+    "nodes/D4/E5F6G7.constraint.md": constraint(
       "D4E5F6G7",
       ["A1B2C3D4"],
       "数据访问必须通过 Repository 层。",
     ),
-    "constraints/E5/F6G7H8.md": constraint(
+    "nodes/E5/F6G7H8.constraint.md": constraint(
       "E5F6G7H8",
       ["1A2B3C4D", "D4E5F6G7"],
       "不使用 extension X，改用手写 SQL。",
     ),
   });
   invalidRoot = await createRefino({
-    "constraints/A1/B2C3D4.md": constraint("A1B2C3D4", ["B2C3D4E5"]),
-    "constraints/B2/C3D4E5.md": constraint("B2C3D4E5", ["A1B2C3D4"]),
+    "nodes/A1/B2C3D4.constraint.md": constraint("A1B2C3D4", ["B2C3D4E5"]),
+    "nodes/B2/C3D4E5.constraint.md": constraint("B2C3D4E5", ["A1B2C3D4"]),
   });
 });
 
@@ -167,7 +167,7 @@ describe("refino cli", () => {
       const match = /created ([0-9A-HJKMNP-TV-Z]{8}) \(/.exec(out);
       expect(match).not.toBeNull();
       const id = match![1]!;
-      expect(out).toContain(`.refino/premises/${id.slice(0, 2)}/${id.slice(2)}.md`);
+      expect(out).toContain(`.refino/nodes/${id.slice(0, 2)}/${id.slice(2)}.premise.md`);
 
       const list = await run(["--root", emptyRoot, "--json", "list", "--type", "premise"]);
       const nodes = JSON.parse(list.out) as Array<{ id: string }>;
@@ -194,7 +194,7 @@ describe("refino cli", () => {
         "Keeps DB access testable.",
       ]);
       expect(code).toBe(0);
-      expect(out).toContain(".refino/constraints/");
+      expect(out).toContain(".refino/nodes/");
 
       const validate = await run(["--root", emptyRoot, "--json", "validate"]);
       // the grounds reference 1A2B3C4D does not exist -> reported as an issue
@@ -269,14 +269,16 @@ describe("refino cli", () => {
       expect(code).toBe(0);
       const payload = JSON.parse(out) as { id: string; file: string };
       expect(payload.id).toMatch(/^[0-9A-HJKMNP-TV-Z]{8}$/);
-      expect(payload.file).toBe(`constraints/${payload.id.slice(0, 2)}/${payload.id.slice(2)}.md`);
+      expect(payload.file).toBe(
+        `nodes/${payload.id.slice(0, 2)}/${payload.id.slice(2)}.constraint.md`,
+      );
     } finally {
       await removeRefino(emptyRoot);
     }
   });
 
   it("new constraint rejects malformed --grounds ids before creating", async () => {
-    const root = await createRefino({ "premises/1A/2B3C4D.md": premise("1A2B3C4D") });
+    const root = await createRefino({ "nodes/1A/2B3C4D.premise.md": premise("1A2B3C4D") });
     try {
       const { code, err } = await run([
         "--root",
@@ -336,7 +338,7 @@ describe("refino cli", () => {
         "Fact.",
       ]);
       expect(code).toBe(0);
-      expect(out).toContain("created A1B2C3D4 (.refino/premises/A1/B2C3D4.md)");
+      expect(out).toContain("created A1B2C3D4 (.refino/nodes/A1/B2C3D4.premise.md)");
     } finally {
       await removeRefino(emptyRoot);
     }

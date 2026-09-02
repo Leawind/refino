@@ -192,7 +192,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
               body,
               confirmed: now ? new Date().toISOString() : confirmed,
             });
-            emitCreated(io, opts, newId, "premises");
+            emitCreated(io, opts, newId, "premise");
             return 0;
           }),
         ),
@@ -229,7 +229,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
               grounds: groundIds.length > 0 ? groundIds : undefined,
               rationale,
             });
-            emitCreated(io, opts, newId, "constraints");
+            emitCreated(io, opts, newId, "constraint");
             return 0;
           }),
         ),
@@ -271,8 +271,13 @@ function reportBlockingIssues(io: CliIo, opts: GlobalOptions, issues: RefinoIssu
   return 1;
 }
 
-function emitCreated(io: CliIo, opts: GlobalOptions, id: string, dirName: string): void {
-  const file = `${dirName}/${id.slice(0, 2)}/${id.slice(2)}.md`;
+function emitCreated(
+  io: CliIo,
+  opts: GlobalOptions,
+  id: string,
+  type: "premise" | "constraint",
+): void {
+  const file = `nodes/${id.slice(0, 2)}/${id.slice(2)}.${type}.md`;
   if (opts.json) emit(io, { id, file });
   else io.stdout.write(`created ${id} (${join(".refino", file)})\n`);
 }
