@@ -1,5 +1,5 @@
 import { readFile, readdir } from "node:fs/promises";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ID_RE } from "refino";
 import { loadGraph } from "../src/loader.js";
 import { createConstraint, createPremise } from "../src/writer.js";
@@ -125,6 +125,55 @@ describe("writer", () => {
       ).rejects.toMatchObject({ name: "RefinoError", code: "DUPLICATE_ID" });
       const files = await readdir(`${root}/.refino/premises`);
       expect(files).toEqual(["A1B2C3D4.md"]);
+    } finally {
+      await removeRefino(root);
+    }
+  });
+
+  it("rejects an explicit id that exists in the other directory as DUPLICATE_ID", async () => {
+    const root = await createRefino({});
+    try {
+      await createPremise(`${root}/.refino`, { id: "A1B2C3D4", body: "Premise." });
+      await expect(
+        createConstraint(`${root}/.refino`, { id: "A1B2C3D4", body: "Constraint." }),
+      ).rejects.toMatchObject({ name: "RefinoError", code: "DUPLICATE_ID" });
+      const { graph, issues } = await loadGraph(`${root}/.refino`);
+      expect(issues).toEqual([]);
+      expect(graph.nodes.size).toBe(1);
+      expect(graph.nodes.get("A1B2C3D4")?.type).toBe("premise");
+    } finally {
+      await removeRefino(root);
+    }
+  });
+
+  it("generated ids avoid collisions across directories", async () => {
+    const root = await createRefino({});
+    try {
+      await createPremise(`${root}/.refino`, { id: "A1B2C3D4", body: "Fact." });
+      // Force the first generated candidate to clash with the premise id.
+      const alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+      const forced = [..."A1B2C3D4"].map((c) => alphabet.indexOf(c));
+      const realGetRandomValues = globalThis.crypto.getRandomValues.bind(globalThis.crypto);
+      let calls = 0;
+      vi.stubGlobal("crypto", {
+        getRandomValues(array: Uint8Array): Uint8Array {
+          if (calls++ === 0) {
+            array.set(forced);
+            return array;
+          }
+          return realGetRandomValues(array);
+        },
+      });
+      try {
+        const id = await createConstraint(`${root}/.refino`, { body: "Decision." });
+        expect(id).not.toBe("A1B2C3D4");
+        expect(id).toMatch(ID_RE);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+      const { graph, issues } = await loadGraph(`${root}/.refino`);
+      expect(issues).toEqual([]);
+      expect(graph.nodes.size).toBe(2);
     } finally {
       await removeRefino(root);
     }

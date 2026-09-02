@@ -1,13 +1,15 @@
-import { mkdir, readdir, writeFile, stat } from "node:fs/promises";
+import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { generateId, ID_RE, RefinoError, serializeNode } from "refino";
 
 /**
  * Node creation. This is the storage adapter's write path; everything else
- * stays read-only. Ids are either given explicitly (must match `ID_RE` and
- * not collide with an existing node file) or generated internally with the
- * same collision guarantee.
+ * stays read-only. Node ids are unique across the whole `.refino` directory:
+ * explicitly given ids must match `ID_RE` and not collide with any existing
+ * node file in either storage directory; generated ids guarantee the same.
  */
+
+const STORAGE_DIRS = ["premises", "constraints"] as const;
 
 export interface CreateOptions {
   body: string;
@@ -55,8 +57,7 @@ async function createNode(
   body: string,
   explicitId?: string,
 ): Promise<string> {
-  const dir = join(refinoDir, dirName);
-  await mkdir(dir, { recursive: true });
+  const existingIds = await readAllExistingIds(refinoDir);
   let id: string;
   if (explicitId !== undefined) {
     if (!ID_RE.test(explicitId)) {
@@ -65,35 +66,37 @@ async function createNode(
         `Node id must be an 8-character Crockford base32 id (0-9, A-Z minus I, L, O, U), got "${explicitId}".`,
       );
     }
-    if (await fileExists(join(dir, `${explicitId}.md`))) {
-      throw new RefinoError("DUPLICATE_ID", `Node "${explicitId}" already exists in ${dirName}/.`);
+    if (existingIds.has(explicitId)) {
+      throw new RefinoError("DUPLICATE_ID", `Node id "${explicitId}" is already in use.`);
     }
     id = explicitId;
   } else {
-    const existingIds = await readExistingIds(dir);
     do {
       id = generateId();
     } while (existingIds.has(id));
   }
+  const dir = join(refinoDir, dirName);
+  await mkdir(dir, { recursive: true });
   await writeFile(join(dir, `${id}.md`), serializeNode(fields, body), "utf8");
   return id;
 }
 
-async function fileExists(path: string): Promise<boolean> {
-  try {
-    await stat(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function readExistingIds(dir: string): Promise<Set<string>> {
+/** All ids of existing node files across both storage directories. */
+async function readAllExistingIds(refinoDir: string): Promise<Set<string>> {
   const ids = new Set<string>();
-  for (const entry of await readdir(dir)) {
-    if (!entry.endsWith(".md")) continue;
-    const id = entry.slice(0, -".md".length);
-    if (ID_RE.test(id)) ids.add(id);
+  for (const dirName of STORAGE_DIRS) {
+    let entries: string[];
+    try {
+      entries = await readdir(join(refinoDir, dirName));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; // subdir optional
+      throw error;
+    }
+    for (const entry of entries) {
+      if (!entry.endsWith(".md")) continue;
+      const id = entry.slice(0, -".md".length);
+      if (ID_RE.test(id)) ids.add(id);
+    }
   }
   return ids;
 }
