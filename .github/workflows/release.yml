@@ -21,7 +21,8 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # npm >= 11.5.1 (bundled with node 24) is required for trusted publishing
+          node-version: 24
           cache: pnpm
           registry-url: https://registry.npmjs.org
 
@@ -29,9 +30,17 @@ jobs:
 
       - run: pnpm check
 
-      # pnpm publishes in dependency (topological) order and runs each
-      # package's prepublishOnly build; workspace:^ deps are replaced
-      # with the real version range.
-      - run: pnpm --filter refino --filter "@refino/storage" --filter "@refino/cli" publish --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # Publish via npm trusted publishing (OIDC): no NPM_TOKEN needed.
+      # Requires each package to have a "Trusted Publisher" configured on
+      # npmjs.com pointing to this repo and this workflow file.
+      - name: Build packages
+        run: pnpm -r build
+
+      # pnpm pack replaces workspace:^ deps with real version ranges.
+      # Publish in dependency order.
+      - name: Pack and publish
+        run: |
+          pnpm --filter refino --filter "@refino/storage" --filter "@refino/cli" pack
+          for pkg in packages/refino packages/storage packages/cli; do
+            npm publish "$pkg"/*.tgz --access public --provenance
+          done
