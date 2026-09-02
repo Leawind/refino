@@ -1,8 +1,14 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
-import { ID_RE } from "refino";
+import { ID_RE, validateGraph } from "refino";
 import { loadGraph } from "../src/loader.js";
-import { createConstraint, createPremise } from "../src/writer.js";
+import {
+  createConstraint,
+  createPremise,
+  deleteNode,
+  updateConstraint,
+  updatePremise,
+} from "../src/writer.js";
 import { createRefino, removeRefino } from "@refino/testkit";
 
 describe("writer", () => {
@@ -234,6 +240,109 @@ describe("writer", () => {
       const { graph, issues } = await loadGraph(`${root}/.refino`);
       expect(issues).toEqual([]);
       expect(graph.nodes.get(id)?.summary).toBe("Fact summary.");
+    } finally {
+      await removeRefino(root);
+    }
+  });
+});
+
+describe("writer: update and delete", () => {
+  it("updatePremise replaces body and fields in place", async () => {
+    const root = await createRefino({});
+    try {
+      const id = await createPremise(`${root}/.refino`, {
+        body: "Old body.",
+        summary: "Old summary.",
+        confirmed: "2026-05-01T00:00:00Z",
+      });
+      await updatePremise(`${root}/.refino`, id, {
+        body: "New body.",
+        summary: "New summary.",
+      });
+      const source = await readFile(
+        `${root}/.refino/nodes/${id.slice(0, 2)}/${id.slice(2)}.premise.md`,
+        "utf8",
+      );
+      expect(source).toContain("New body.");
+      expect(source).toContain("summary: New summary.");
+      expect(source).not.toContain("confirmed");
+      const { graph, issues } = await loadGraph(`${root}/.refino`);
+      expect(issues).toEqual([]);
+      expect(graph.nodes.get(id)).toMatchObject({ type: "premise", body: "New body." });
+      expect(graph.nodes.get(id)?.confirmed).toBeUndefined();
+    } finally {
+      await removeRefino(root);
+    }
+  });
+
+  it("updateConstraint replaces grounds and rationale", async () => {
+    const root = await createRefino({});
+    try {
+      const ground = await createPremise(`${root}/.refino`, { body: "Fact." });
+      const id = await createConstraint(`${root}/.refino`, {
+        body: "Decision.",
+        grounds: [ground],
+        rationale: "Old rationale.",
+      });
+      await updateConstraint(`${root}/.refino`, id, {
+        body: "Decision v2.",
+        grounds: [],
+      });
+      const { graph, issues } = await loadGraph(`${root}/.refino`);
+      expect(issues).toEqual([]);
+      const node = graph.nodes.get(id);
+      expect(node).toMatchObject({ type: "constraint", body: "Decision v2." });
+      // An explicit empty array is serialized as `grounds: []`.
+      expect(node?.grounds).toEqual([]);
+      expect(node?.rationale).toBeUndefined();
+    } finally {
+      await removeRefino(root);
+    }
+  });
+
+  it.each([
+    ["updatePremise", (dir: string, id: string) => updatePremise(dir, id, { body: "B." })],
+    ["updateConstraint", (dir: string, id: string) => updateConstraint(dir, id, { body: "B." })],
+    ["deleteNode", (dir: string, id: string) => deleteNode(dir, id)],
+  ])("%s rejects a missing node as NODE_NOT_FOUND", async (_name, fn) => {
+    const root = await createRefino({});
+    try {
+      await expect(fn(`${root}/.refino`, "A1B2C3D4")).rejects.toMatchObject({
+        name: "RefinoError",
+        code: "NODE_NOT_FOUND",
+      });
+    } finally {
+      await removeRefino(root);
+    }
+  });
+
+  it.each(["short", "a1b2c3d4"])("%s rejects invalid ids as INVALID_ID", async (badId) => {
+    const root = await createRefino({});
+    try {
+      await expect(deleteNode(`${root}/.refino`, badId)).rejects.toMatchObject({
+        name: "RefinoError",
+        code: "INVALID_ID",
+      });
+    } finally {
+      await removeRefino(root);
+    }
+  });
+
+  it("deleteNode removes the file and leaves dangling grounds to validation", async () => {
+    const root = await createRefino({});
+    try {
+      const groundId = await createPremise(`${root}/.refino`, { id: "A1B2C3D4", body: "Fact." });
+      const id = await createConstraint(`${root}/.refino`, {
+        body: "Decision.",
+        grounds: [groundId],
+      });
+      await deleteNode(`${root}/.refino`, groundId);
+      const { graph, issues } = await loadGraph(`${root}/.refino`);
+      expect(graph.nodes.has(groundId)).toBe(false);
+      expect(graph.nodes.has(id)).toBe(true);
+      issues.push(...validateGraph(graph));
+      expect(issues).toHaveLength(1);
+      expect(issues[0]).toMatchObject({ code: "UNKNOWN_GROUND", nodeId: id, groundId });
     } finally {
       await removeRefino(root);
     }

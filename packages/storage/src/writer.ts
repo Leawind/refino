@@ -1,4 +1,4 @@
-import { mkdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, stat, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { generateId, ID_RE, RefinoError } from "refino";
 import type { NodeType } from "refino";
@@ -97,6 +97,101 @@ async function createNode(
  */
 function nodeFilePath(refinoDir: string, type: NodeType, id: string): string {
   return join(refinoDir, NODES_DIR, id.slice(0, 2), `${id.slice(2)}.${type}.md`);
+}
+
+/**
+ * Node update. Update semantics are PUT-like: the given fields fully replace
+ * the node's editable content (body and frontmatter fields); type and id are
+ * fixed by the existing file and cannot be changed. Omitted optional fields
+ * are removed from the file. Grounds reference validity is not checked here —
+ * it is a graph-level concern reported by the engine's validation.
+ */
+
+export interface UpdateOptions {
+  body: string;
+  /**
+   * Independent summary attribute; stored as a "summary" frontmatter field.
+   * When omitted, readers fall back to the first paragraph of the body.
+   */
+  summary?: string;
+}
+
+export interface UpdatePremiseOptions extends UpdateOptions {
+  /** RFC 3339 timestamp with an explicit UTC offset. */
+  confirmed?: string;
+}
+
+export interface UpdateConstraintOptions extends UpdateOptions {
+  /** Ids of upstream premise/constraint nodes. */
+  grounds?: string[];
+  /** Why the decision was made. */
+  rationale?: string;
+}
+
+/** Overwrite an existing premise node file; throws NODE_NOT_FOUND if absent. */
+export async function updatePremise(
+  refinoDir: string,
+  id: string,
+  opts: UpdatePremiseOptions,
+): Promise<void> {
+  const fields: Record<string, unknown> = { confirmed: opts.confirmed, summary: opts.summary };
+  await updateNode(refinoDir, "premise", id, fields, opts.body);
+}
+
+/** Overwrite an existing constraint node file; throws NODE_NOT_FOUND if absent. */
+export async function updateConstraint(
+  refinoDir: string,
+  id: string,
+  opts: UpdateConstraintOptions,
+): Promise<void> {
+  const fields: Record<string, unknown> = {
+    grounds: opts.grounds,
+    rationale: opts.rationale,
+    summary: opts.summary,
+  };
+  await updateNode(refinoDir, "constraint", id, fields, opts.body);
+}
+
+async function updateNode(
+  refinoDir: string,
+  type: NodeType,
+  id: string,
+  fields: Record<string, unknown>,
+  body: string,
+): Promise<void> {
+  assertValidId(id);
+  const file = nodeFilePath(refinoDir, type, id);
+  if (!(await fileExists(file))) {
+    throw new RefinoError("NODE_NOT_FOUND", `Node "${id}" does not exist.`);
+  }
+  await writeFile(file, serializeNode(fields, body), "utf8");
+}
+
+/**
+ * Delete a node file. Ids are globally unique across both candidate paths, so
+ * deleting removes whichever type-specific file exists; throws NODE_NOT_FOUND
+ * when neither does. Referencing nodes are left untouched — dangling grounds
+ * surface as UNKNOWN_GROUND issues on the next load.
+ */
+export async function deleteNode(refinoDir: string, id: string): Promise<void> {
+  assertValidId(id);
+  for (const type of NODE_TYPES) {
+    const file = nodeFilePath(refinoDir, type, id);
+    if (await fileExists(file)) {
+      await unlink(file);
+      return;
+    }
+  }
+  throw new RefinoError("NODE_NOT_FOUND", `Node "${id}" does not exist.`);
+}
+
+function assertValidId(id: string): void {
+  if (!ID_RE.test(id)) {
+    throw new RefinoError(
+      "INVALID_ID",
+      `Node id must be an 8-character Crockford base32 id (0-9, A-Z minus I, L, O, U), got "${id}".`,
+    );
+  }
 }
 
 /** Whether either candidate path of the id exists (ids are globally unique). */
