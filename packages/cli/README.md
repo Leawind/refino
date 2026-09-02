@@ -1,49 +1,38 @@
 # @refino/cli
 
-CRG 命令行工具。全局选项：
+`refino` 引擎的命令行接口。提供对 Constraint Refinement Graph 的查询、校验与节点创建能力。
 
-- `--root <dir>`：包含 `.refino/` 的项目根目录（默认当前目录）；
-- `--json`：在 stdout 输出机器可读 JSON。
+引擎本身不包含任何 CLI 逻辑；本包是 `refino` 的薄封装，所有图操作均委托给引擎完成。
 
-## 命令
-
-### `new`
-
-在 `.refino/` 中创建节点，成功后在 stdout 输出生成的 ID 和文件路径。
+## 快速开始
 
 ```sh
-# 创建前提节点
-refino new premise --body "PostgreSQL 16 is in use." --confirmed 2026-05-01T00:00:00Z
+# 校验当前目录下的 CRG
+refino validate
 
-# 创建约束节点
-refino new constraint --body "数据访问必须通过 Repository 层。" --grounds 01ABCDEF,1A2B3C4D --rationale "业务层不得直接依赖数据库。"
+# 列出所有节点
+refino list
+
+# 查看某个节点的完整内容
+refino show <id>
+
+# 创建节点
+refino new premise --body "..." --now
+refino new constraint --body "..." --grounds <ids>
 ```
 
-- `refino new premise`：`--body <text>`（必填），`--confirmed <timestamp>`（RFC 3339，需带时区偏移）或 `--now`（以当前 UTC 时间作为确认时间，二者互斥）。
-- `refino new constraint`：`--body <text>`（必填），`--grounds <ids>`（逗号分隔的 ground id），`--rationale <text>`。
+完整命令列表与参数说明请运行 `refino --help`。
 
-ID 由引擎生成并保证不与现有节点冲突。`--json` 时输出 `{ "id": ..., "file": ... }`。
+## 职责边界
 
-### `validate`
+本包提供：
 
-构建图并报告所有校验问题；有问题时退出码为 1。
+- 命令行参数解析与输出格式化
+- JSON 输出模式（`--json`）
+- 自定义项目根目录（`--root`）
 
-### `list`
+本包不提供：
 
-列出所有节点（id、类型、摘要）。`--type premise|constraint` 可按类型过滤。
-
-### `show <id>`
-
-打印节点的完整记录（正文全文）。
-
-### `grounds <id>`
-
-直接依据（按声明顺序解析）。
-
-### `ancestors <id>`
-
-沿 `grounds` 递归追溯的全部祖先（前提与上游约束），附带最小深度。
-
-### `dependents <id>`
-
-直接或间接依赖该节点的约束（传递闭包），附带最小深度。
+- 图结构解析、校验或查询逻辑（由 `refino` 引擎提供）
+- 可视化编辑界面
+- 任务界定或权限管理
