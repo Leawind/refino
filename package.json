@@ -4,6 +4,10 @@
   "private": true,
   "description": "Parse, validate and query Constraint Refinement Graphs (CRG).",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Leawind/refino.git"
+  },
   "packageManager": "pnpm@10.11.0",
   "engines": {
     "node": ">=20"

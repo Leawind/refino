@@ -1,8 +1,12 @@
 {
   "name": "@refino/storage",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "description": "Filesystem storage format for Constraint Refinement Graphs (CRG): the sole reader and writer of the .refino/ directory.",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Leawind/refino.git"
+  },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {

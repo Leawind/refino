@@ -1,8 +1,12 @@
 {
   "name": "@refino/cli",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "description": "Command line interface for querying Constraint Refinement Graphs (CRG).",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Leawind/refino.git"
+  },
   "bin": {
     "refino": "./dist/index.js"
   },

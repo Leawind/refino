@@ -1,8 +1,12 @@
 {
   "name": "refino",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "description": "Pure engine for parsing, validating, querying and serializing Constraint Refinement Graphs (CRG).",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Leawind/refino.git"
+  },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
