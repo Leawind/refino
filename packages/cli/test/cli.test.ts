@@ -187,10 +187,48 @@ describe("refino cli", () => {
     expect(out).toContain("[CYCLE]");
   });
 
-  it("reports unknown node ids on stderr with exit code 1", async () => {
-    const { code, err } = await run(["--root", validRoot, "show", "9M8N7P6Q"]);
+  it("reports unknown node ids inline and exits with code 1", async () => {
+    const { code, out, err } = await run(["--root", validRoot, "show", "9M8N7P6Q"]);
     expect(code).toBe(1);
-    expect(err).toContain('Node "9M8N7P6Q" not found');
+    expect(err).toBe("");
+    expect(out).toContain('error: Node "9M8N7P6Q" not found');
+
+    const asJson = await run(["--root", validRoot, "--json", "show", "9M8N7P6Q"]);
+    expect(asJson.code).toBe(1);
+    expect(JSON.parse(asJson.out)).toEqual([
+      { id: "9M8N7P6Q", error: 'Node "9M8N7P6Q" not found' },
+    ]);
+  });
+
+  it("batch queries still return results for the ids that exist", async () => {
+    const { code, out } = await run([
+      "--root",
+      validRoot,
+      "--json",
+      "dependents",
+      "A1B2C3D4",
+      "9M8N7P6Q",
+    ]);
+    expect(code).toBe(1);
+    const groups = JSON.parse(out) as Array<{
+      id: string;
+      results?: Array<{ id: string }>;
+      error?: string;
+    }>;
+    expect(groups).toHaveLength(2);
+    expect(groups[0]).toEqual({
+      id: "A1B2C3D4",
+      results: [
+        expect.objectContaining({ id: "D4E5F6G7" }),
+        expect.objectContaining({ id: "E5F6G7H8" }),
+      ],
+    });
+    expect(groups[1]).toEqual({ id: "9M8N7P6Q", error: 'Node "9M8N7P6Q" not found' });
+
+    const human = await run(["--root", validRoot, "dependents", "A1B2C3D4", "9M8N7P6Q"]);
+    expect(human.code).toBe(1);
+    expect(human.out).toContain("A1B2C3D4:");
+    expect(human.out).toContain('error: Node "9M8N7P6Q" not found');
   });
 
   it("returns usage errors with exit code 1", async () => {
