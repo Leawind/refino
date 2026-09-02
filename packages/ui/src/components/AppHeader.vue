@@ -4,7 +4,6 @@ import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 import { NButton, NIcon, NPopselect, NSwitch, NTooltip } from "naive-ui";
 import { store } from "../store";
-import type { LayoutDirection } from "../types";
 
 const { t, locale } = useI18n();
 
@@ -18,15 +17,6 @@ const themeChecked = computed({
 const localeOptions = computed(() => [
   { label: "中文", value: "zh" },
   { label: "English", value: "en" },
-]);
-
-const direction = defineModel<LayoutDirection>("direction", { default: "LR" });
-
-const directionOptions = computed(() => [
-  { label: "→", value: "LR" },
-  { label: "↓", value: "TB" },
-  { label: "←", value: "RL" },
-  { label: "↑", value: "BT" },
 ]);
 </script>
 
@@ -65,12 +55,6 @@ const directionOptions = computed(() => [
         </template>
         {{ t("app.refresh") }}
       </NTooltip>
-
-      <NPopselect v-model:value="direction" :options="directionOptions" trigger="click">
-        <NButton quaternary circle aria-label="direction">
-          <NIcon>{{ direction }}</NIcon>
-        </NButton>
-      </NPopselect>
 
       <div class="setting">
         <span class="setting-label">{{ t("app.theme") }}</span>

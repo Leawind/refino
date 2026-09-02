@@ -20,7 +20,8 @@ function labelOf(id: string): string {
 }
 
 function truncate(text: string): string {
-  return text.length > 26 ? `${text.slice(0, 25)}…` : text;
+  // Chinese summaries are wide; cap by display width, not char count.
+  return [...text].length > 12 ? `${[...text].slice(0, 11).join("")}…` : text;
 }
 
 function nodeType(id: string): string | undefined {
