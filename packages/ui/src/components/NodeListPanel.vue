@@ -1,11 +1,18 @@
 <script setup lang="ts">
 // Sidebar listing one node type only (constraints on the left, premises on
 // the right). Width is a percentage of the whole interface; dragging it
-// below the minimum collapses the panel to a floating expand button. The
-// panel can dock (push the graph aside) or float over the graph.
+// below the minimum collapses it to a floating round button, and dragging
+// back during the same gesture restores it. The panel can dock (push the
+// graph aside) or float over the graph.
 import { computed, onBeforeUnmount, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { NButton, NInput, NTag } from "naive-ui";
+import { NButton, NIcon, NInput } from "naive-ui";
+import {
+  ChevronBackOutline,
+  ChevronForwardOutline,
+  OpenOutline,
+  ScanOutline,
+} from "@vicons/ionicons5";
 import { store } from "../store";
 import type { NodeType } from "../types";
 
@@ -26,11 +33,11 @@ const widthStyle = computed(() => ({ width: `${widthPercent.value}%` }));
 
 const panelStyle = computed(() => {
   if (collapsed.value) {
-    // No strip: just a floating expand button over the graph.
+    // No strip: a single round expand button at the same height as the
+    // in-panel collapse button, floating over the graph.
     return {
       position: "absolute" as const,
-      top: "50%",
-      transform: "translateY(-50%)",
+      top: "10px",
       [props.side]: "8px",
       zIndex: 10,
     };
@@ -38,9 +45,9 @@ const panelStyle = computed(() => {
   if (floating.value) {
     return {
       position: "absolute" as const,
-      top: 0,
-      bottom: 0,
-      [props.side]: 0,
+      top: "8px",
+      bottom: "8px",
+      [props.side]: "8px",
       zIndex: 15,
       ...widthStyle.value,
     };
@@ -79,13 +86,10 @@ function onResizeMove(event: MouseEvent): void {
   const signed = props.side === "left" ? delta : -delta;
   const base = rootEl.value?.parentElement?.clientWidth ?? 1;
   const percent = startPercent + (signed / base) * 100;
-  if (percent < MIN_PERCENT) {
-    // Dragging far enough inward collapses the panel directly.
-    collapsed.value = true;
-    onResizeEnd();
-    return;
-  }
-  widthPercent.value = Math.min(MAX_PERCENT, percent);
+  // Dragging past the edge hides the panel but keeps the gesture alive:
+  // dragging back within the minimum restores it until the mouse is released.
+  collapsed.value = percent < MIN_PERCENT;
+  widthPercent.value = Math.min(MAX_PERCENT, Math.max(MIN_PERCENT, percent));
 }
 
 function onResizeEnd(): void {
@@ -115,7 +119,7 @@ function open(nodeId: string): void {
             :title="floating ? t('app.dock') : t('app.float')"
             @click="floating = !floating"
           >
-            ⧉
+            <NIcon :component="floating ? ScanOutline : OpenOutline" />
           </NButton>
           <NButton
             quaternary
@@ -124,7 +128,7 @@ function open(nodeId: string): void {
             :title="t('app.collapse')"
             @click="toggleCollapsed"
           >
-            {{ side === "left" ? "«" : "»" }}
+            <NIcon :component="side === 'left' ? ChevronBackOutline : ChevronForwardOutline" />
           </NButton>
         </span>
       </div>
@@ -140,25 +144,16 @@ function open(nodeId: string): void {
           @click="store.select(node.id)"
           @dblclick="open(node.id)"
         >
-          <div class="item-head">
-            <span class="id">{{ node.id }}</span>
-            <NTag
-              size="tiny"
-              :bordered="false"
-              :type="node.type === 'premise' ? 'default' : 'primary'"
-            >
-              {{ t(`node.${node.type}`) }}
-            </NTag>
-          </div>
           <div class="summary">
             {{ node.summary === "" ? t("node.untitled") : node.summary }}
           </div>
+          <div class="id">{{ node.id }}</div>
         </li>
       </ul>
     </template>
     <template v-else>
       <NButton circle size="small" class="expand" :title="t('app.expand')" @click="toggleCollapsed">
-        {{ side === "left" ? "»" : "«" }}
+        <NIcon :component="side === 'left' ? ChevronForwardOutline : ChevronBackOutline" />
       </NButton>
     </template>
     <div v-if="!collapsed" class="resize-handle" @mousedown.prevent="onResizeStart" />
@@ -185,6 +180,8 @@ function open(nodeId: string): void {
 .panel.floating {
   background: var(--refino-surface);
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.25);
+  border-radius: 10px;
+  border: 1px solid var(--refino-border);
 }
 
 .panel.collapsed {
@@ -193,8 +190,11 @@ function open(nodeId: string): void {
   background: transparent;
 }
 
+/* Same size and height as the in-panel collapse button, but opaque. */
 .expand {
   display: block;
+  background: var(--refino-surface) !important;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.2);
 }
 
 .head {
@@ -242,25 +242,20 @@ function open(nodeId: string): void {
   background: rgba(24, 160, 88, 0.15);
 }
 
-.item-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-}
-
-.id {
-  font-family: monospace;
-  font-size: 12px;
-  opacity: 0.75;
-}
-
 .summary {
   font-size: 13px;
-  margin-top: 2px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Ids are rarely used directly; keep them small, below the summary. */
+.id {
+  font-family: monospace;
+  font-size: 10px;
+  opacity: 0.55;
+  margin-top: 2px;
+  text-align: right;
 }
 
 .resize-handle {

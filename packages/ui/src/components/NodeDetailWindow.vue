@@ -17,6 +17,8 @@ import {
   NTooltip,
   useMessage,
 } from "naive-ui";
+import { NIcon } from "naive-ui";
+import { CloseOutline, ContractOutline, ExpandOutline } from "@vicons/ionicons5";
 import { store } from "../store";
 import type { NodePayload } from "../types";
 
@@ -187,10 +189,10 @@ function nodeLabel(id: string): string {
           :title="expanded ? t('window.restore') : t('window.expand')"
           @click="expanded = !expanded"
         >
-          {{ expanded ? "⤡" : "⤢" }}
+          <NIcon :component="expanded ? ContractOutline : ExpandOutline" />
         </NButton>
         <NButton quaternary circle size="tiny" :title="t('window.close')" @click="close">
-          ✕
+          <NIcon :component="CloseOutline" />
         </NButton>
       </div>
 

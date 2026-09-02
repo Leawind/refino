@@ -1,23 +1,42 @@
 <script setup lang="ts">
-// Top navigation bar: logo, title, refresh and global settings.
-import { computed } from "vue";
+// Top navigation bar: logo, title, refresh and global settings. Theme and
+// language follow the VitePress pattern: small icon buttons with dropdowns.
+import { computed, h } from "vue";
 import { useI18n } from "vue-i18n";
-import { NButton, NIcon, NPopselect, NSwitch, NTooltip } from "naive-ui";
+import { NButton, NDropdown, NIcon, NTooltip } from "naive-ui";
+import {
+  LanguageOutline,
+  MoonOutline,
+  SunnyOutline,
+  RefreshOutline,
+  ChevronDownOutline,
+  CheckmarkOutline,
+} from "@vicons/ionicons5";
 import { store } from "../store";
 
 const { t, locale } = useI18n();
 
 const emit = defineEmits<{ refresh: [] }>();
 
-const themeChecked = computed({
-  get: () => store.state.theme === "dark",
-  set: (dark: boolean) => store.setTheme(dark ? "dark" : "light"),
-});
+const isDark = computed(() => store.state.theme === "dark");
 
-const localeOptions = computed(() => [
-  { label: "中文", value: "zh" },
-  { label: "English", value: "en" },
-]);
+function toggleTheme(): void {
+  store.setTheme(isDark.value ? "light" : "dark");
+}
+
+const localeOptions = computed(() =>
+  (["zh", "en"] as const).map((value) => ({
+    key: value,
+    label: value === "zh" ? "中文" : "English (US)",
+    icon:
+      locale.value === value
+        ? () =>
+            h(NIcon, null, {
+              default: () => h(CheckmarkOutline),
+            })
+        : undefined,
+  })),
+);
 </script>
 
 <template>
@@ -43,47 +62,39 @@ const localeOptions = computed(() => [
       <NTooltip>
         <template #trigger>
           <NButton quaternary circle :aria-label="t('app.refresh')" @click="emit('refresh')">
-            <NIcon>
-              <svg viewBox="0 0 24 24">
-                <path
-                  d="M17.7 6.3A8 8 0 1 0 20 12h-2a6 6 0 1 1-1.8-4.2L13 11h7V4z"
-                  fill="currentColor"
-                />
-              </svg>
-            </NIcon>
+            <NIcon :component="RefreshOutline" />
           </NButton>
         </template>
         {{ t("app.refresh") }}
       </NTooltip>
 
-      <div class="setting">
-        <span class="setting-label">{{ t("app.theme") }}</span>
-        <NTooltip>
-          <template #trigger>
-            <NSwitch v-model:value="themeChecked" size="small">
-              <template #checked-icon>
-                <span class="theme-dot dark" />
-              </template>
-              <template #unchecked-icon>
-                <span class="theme-dot light" />
-              </template>
-            </NSwitch>
-          </template>
-          {{ themeChecked ? t("app.themeDark") : t("app.themeLight") }}
-        </NTooltip>
-      </div>
+      <NTooltip>
+        <template #trigger>
+          <NButton
+            quaternary
+            circle
+            :aria-label="isDark ? t('app.themeLight') : t('app.themeDark')"
+            @click="toggleTheme"
+          >
+            <NIcon :component="isDark ? SunnyOutline : MoonOutline" />
+          </NButton>
+        </template>
+        {{ isDark ? t("app.themeLight") : t("app.themeDark") }}
+      </NTooltip>
 
-      <div class="setting">
-        <span class="setting-label">{{ t("app.language") }}</span>
-        <NPopselect
-          :value="locale"
-          :options="localeOptions"
-          trigger="click"
-          @update:value="store.setLocale($event)"
-        >
-          <NButton quaternary size="small">{{ locale === "zh" ? "中文" : "English" }}</NButton>
-        </NPopselect>
-      </div>
+      <NDropdown
+        :options="localeOptions"
+        trigger="click"
+        :value="locale"
+        @select="store.setLocale($event)"
+      >
+        <NButton quaternary circle :aria-label="t('app.language')" class="lang-button">
+          <NIcon :component="LanguageOutline" />
+          <NIcon :size="12" class="chevron">
+            <ChevronDownOutline />
+          </NIcon>
+        </NButton>
+      </NDropdown>
     </div>
   </header>
 </template>
@@ -123,33 +134,11 @@ const localeOptions = computed(() => [
 .actions {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
 }
 
-.setting {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.setting-label {
-  font-size: 12px;
+.lang-button .chevron {
+  margin-left: 2px;
   opacity: 0.6;
-}
-
-.theme-dot {
-  display: block;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-}
-
-.theme-dot.dark {
-  background: #1f1f1f;
-}
-
-.theme-dot.light {
-  background: #fff;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25);
 }
 </style>
