@@ -49,6 +49,16 @@ importers:
         specifier: workspace:*
         version: link:../testkit
 
+  packages/harness:
+    dependencies:
+      refino:
+        specifier: workspace:^
+        version: link:../refino
+    devDependencies:
+      '@refino/testkit':
+        specifier: workspace:*
+        version: link:../testkit
+
   packages/refino:
     devDependencies:
       '@refino/testkit':
