@@ -69,10 +69,11 @@ function edgePath(
   to: LaidOutNode,
   direction: LayoutDirection,
   horizontal: boolean,
-  reversed: boolean,
 ): string {
-  const [x1, y1] = anchor(from, direction, horizontal, reversed);
-  const [x2, y2] = anchor(to, direction, horizontal, !reversed);
+  // The edge leaves the source on its flow-facing side and enters the target
+  // from the opposite side, so paths never cross the node cards.
+  const [x1, y1] = anchor(from, direction, horizontal, true);
+  const [x2, y2] = anchor(to, direction, horizontal, false);
   if (horizontal) {
     const mid = (x1 + x2) / 2;
     return `M ${x1} ${y1} C ${mid} ${y1}, ${mid} ${y2}, ${x2} ${y2}`;
@@ -81,7 +82,12 @@ function edgePath(
   return `M ${x1} ${y1} C ${x1} ${mid}, ${x2} ${mid}, ${x2} ${y2}`;
 }
 
-/** Anchor point on the side of `node` that faces the flow direction. */
+/**
+ * Anchor on the flow-facing side of `node` when `outgoing`, otherwise on the
+ * opposite side. The flow runs from abstract to concrete: right for LR, left
+ * for RL, down for TB, up for BT — so an outgoing edge leaves through the
+ * flow-facing side while an incoming edge enters through the other side.
+ */
 function anchor(
   node: LaidOutNode,
   direction: LayoutDirection,
@@ -90,14 +96,12 @@ function anchor(
 ): [number, number] {
   const cx = node.x + node.width / 2;
   const cy = node.y + node.height / 2;
+  const flowPositive = horizontal ? direction === "LR" : direction === "TB";
+  const atFarSide = outgoing === flowPositive;
   if (horizontal) {
-    const flowPositive = direction === "LR";
-    const atEnd = outgoing === flowPositive;
-    return [atEnd ? node.x + node.width : node.x, cy];
+    return [atFarSide ? node.x + node.width : node.x, cy];
   }
-  const flowPositive = direction === "TB";
-  const atEnd = outgoing === flowPositive;
-  return [cx, atEnd ? node.y + node.height : node.y];
+  return [cx, atFarSide ? node.y + node.height : node.y];
 }
 
 export function layoutGraph(
@@ -146,29 +150,28 @@ export function layoutGraph(
         edges.push({
           from: source,
           to: target,
-          path: edgePath(source, target, direction, horizontal, false),
+          path: edgePath(source, target, direction, horizontal),
         });
       }
     }
   }
 
-  const xs = laidOut.flatMap((n) => [n.x, n.x + n.width]);
-  const ys = laidOut.flatMap((n) => [n.y, n.y + n.height]);
-  const minX = Math.min(0, ...xs);
-  const minY = Math.min(0, ...ys);
-  // Normalize into positive coordinates with padding.
+  const minX = Math.min(0, ...laidOut.map((n) => n.x));
+  const minY = Math.min(0, ...laidOut.map((n) => n.y));
+  // Normalize into positive coordinates with padding, then measure the box
+  // from the moved nodes so nothing sticks out of the viewBox.
   for (const node of laidOut) {
     node.x += -minX + 20;
     node.y += -minY + 20;
   }
-  const width = Math.max(...xs) - minX + 40;
-  const height = Math.max(...ys) - minY + 40;
+  const width = Math.max(...laidOut.map((n) => n.x + n.width)) + 20;
+  const height = Math.max(...laidOut.map((n) => n.y + n.height)) + 20;
 
   const moved = new Map(laidOut.map((n) => [n.id, n]));
   for (const edge of edges) {
     edge.from = moved.get(edge.from.id)!;
     edge.to = moved.get(edge.to.id)!;
-    edge.path = edgePath(edge.from, edge.to, direction, horizontal, false);
+    edge.path = edgePath(edge.from, edge.to, direction, horizontal);
   }
 
   return { nodes: laidOut, edges, width, height };

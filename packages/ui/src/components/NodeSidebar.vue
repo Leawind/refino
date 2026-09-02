@@ -30,9 +30,11 @@ function titleOf(summary: string): string {
         clearable
         :placeholder="t('node.searchPlaceholder')"
       />
+    </div>
+    <div class="create-row">
       <NTooltip>
         <template #trigger>
-          <NButton size="small" @click="store.startCreate('premise')"
+          <NButton size="tiny" @click="store.startCreate('premise')"
             >+{{ t("node.premise") }}</NButton
           >
         </template>
@@ -40,7 +42,7 @@ function titleOf(summary: string): string {
       </NTooltip>
       <NTooltip>
         <template #trigger>
-          <NButton size="small" @click="store.startCreate('constraint')"
+          <NButton size="tiny" @click="store.startCreate('constraint')"
             >+{{ t("node.constraint") }}</NButton
           >
         </template>
@@ -80,14 +82,14 @@ function titleOf(summary: string): string {
 }
 
 .toolbar {
-  display: flex;
-  gap: 6px;
-  padding: 10px;
-  border-bottom: 1px solid rgba(128, 128, 128, 0.2);
+  padding: 10px 10px 6px;
 }
 
-.toolbar :first-child {
-  flex: 1;
+.create-row {
+  display: flex;
+  gap: 6px;
+  padding: 0 10px 10px;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.2);
 }
 
 .list {

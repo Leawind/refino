@@ -74,10 +74,19 @@ const directionOptions = computed(() => [
 
       <div class="setting">
         <span class="setting-label">{{ t("app.theme") }}</span>
-        <NSwitch v-model:value="themeChecked" size="small">
-          <template #checked>{{ t("app.themeDark") }}</template>
-          <template #unchecked>{{ t("app.themeLight") }}</template>
-        </NSwitch>
+        <NTooltip>
+          <template #trigger>
+            <NSwitch v-model:value="themeChecked" size="small">
+              <template #checked-icon>
+                <span class="theme-dot dark" />
+              </template>
+              <template #unchecked-icon>
+                <span class="theme-dot light" />
+              </template>
+            </NSwitch>
+          </template>
+          {{ themeChecked ? t("app.themeDark") : t("app.themeLight") }}
+        </NTooltip>
       </div>
 
       <div class="setting">
@@ -142,5 +151,21 @@ const directionOptions = computed(() => [
 .setting-label {
   font-size: 12px;
   opacity: 0.6;
+}
+
+.theme-dot {
+  display: block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.theme-dot.dark {
+  background: #1f1f1f;
+}
+
+.theme-dot.light {
+  background: #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25);
 }
 </style>

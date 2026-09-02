@@ -9,6 +9,7 @@ import {
   NLayoutFooter,
   NLayoutHeader,
   NLayoutSider,
+  NMessageProvider,
   darkTheme,
   zhCN,
   dateZhCN,
@@ -48,27 +49,29 @@ function refresh(): void {
     :date-locale="naiveDateLocale"
     :theme-overrides="{ common: { primaryColor: '#18a058' } }"
   >
-    <NLayout class="shell">
-      <NLayoutHeader class="header" bordered>
-        <AppHeader v-model:direction="direction" @refresh="refresh" />
-      </NLayoutHeader>
-      <NLayoutContent class="content" :native-scrollbar="false">
-        <div class="workbench">
-          <div class="sidebar-pane">
-            <NodeSidebar />
+    <NMessageProvider>
+      <NLayout class="shell">
+        <NLayoutHeader class="header" bordered>
+          <AppHeader v-model:direction="direction" @refresh="refresh" />
+        </NLayoutHeader>
+        <NLayoutContent class="content" :native-scrollbar="false">
+          <div class="workbench">
+            <div class="sidebar-pane">
+              <NodeSidebar />
+            </div>
+            <div class="graph-pane">
+              <CrgGraph :direction="direction" />
+            </div>
+            <div class="detail-pane">
+              <NodeDetail />
+            </div>
           </div>
-          <div class="graph-pane">
-            <CrgGraph :direction="direction" />
-          </div>
-          <div class="detail-pane">
-            <NodeDetail />
-          </div>
-        </div>
-      </NLayoutContent>
-      <NLayoutFooter class="footer" bordered>
-        <StatusBar />
-      </NLayoutFooter>
-    </NLayout>
+        </NLayoutContent>
+        <NLayoutFooter class="footer" bordered>
+          <StatusBar />
+        </NLayoutFooter>
+      </NLayout>
+    </NMessageProvider>
   </NConfigProvider>
 </template>
 
@@ -87,7 +90,7 @@ function refresh(): void {
 
 .workbench {
   display: grid;
-  grid-template-columns: 240px 1fr 320px;
+  grid-template-columns: 280px 1fr 340px;
   height: 100%;
 }
 

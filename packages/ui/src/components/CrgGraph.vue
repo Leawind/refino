@@ -32,8 +32,9 @@ function nodeType(id: string): string | undefined {
   <div class="canvas">
     <svg
       v-if="geometry.nodes.length > 0"
+      :width="geometry.width"
+      :height="geometry.height"
       :viewBox="`0 0 ${geometry.width} ${geometry.height}`"
-      preserveAspectRatio="xMidYMid meet"
     >
       <g class="edges">
         <path v-for="(edge, i) in geometry.edges" :key="i" :d="edge.path" class="edge" />
@@ -63,10 +64,7 @@ function nodeType(id: string): string | undefined {
   overflow: auto;
 }
 
-svg {
-  min-width: 100%;
-  min-height: 100%;
-}
+/* The svg keeps a 1:1 user-unit scale; large graphs scroll within the pane. */
 
 .empty {
   display: grid;
