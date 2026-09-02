@@ -2,6 +2,12 @@ import { describe, expect, it } from "vitest";
 import { extractSummary, parseNodeSource, SUMMARY_MAX_LENGTH } from "../src/parser.js";
 
 describe("parseNodeSource", () => {
+  it("accepts both separator styles and stores the canonical forward-slash form", () => {
+    const { node, issues } = parseNodeSource("constraints\\E5F6G7H8.md", "constraint", "Body.");
+    expect(issues).toEqual([]);
+    expect(node).toMatchObject({ id: "E5F6G7H8", file: "constraints/E5F6G7H8.md" });
+  });
+
   it("parses a constraint with grounds, summary and body", () => {
     const source = [
       "---",

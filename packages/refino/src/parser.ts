@@ -20,18 +20,22 @@ export interface ParseResult {
  * are premises, `.refino/constraints/` constraints. The node id is the file
  * name without the `.md` suffix and must be 8-character Crockford base32.
  * A file without frontmatter is a valid node with no fields.
+ *
+ * `file` is a `.refino`-relative path in either separator style; the parsed
+ * node always carries the canonical forward-slash form.
  */
 export function parseNodeSource(file: string, expectedType: NodeType, source: string): ParseResult {
   const issues: RefinoIssue[] = [];
   const normalized = source.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
 
-  // `file` is a `.refino`-relative POSIX path; the id is its base name.
-  const id = file.slice(file.lastIndexOf("/") + 1).replace(/\.md$/, "");
+  // `file` is a `.refino`-relative path; the id is its base name.
+  const canonicalFile = file.replace(/\\/g, "/");
+  const id = canonicalFile.slice(canonicalFile.lastIndexOf("/") + 1).replace(/\.md$/, "");
   if (!ID_RE.test(id)) {
     issues.push({
       code: "INVALID_ID",
       message: `File name must be an 8-character Crockford base32 id (0-9, A-Z minus I, L, O, U), got "${id}".`,
-      file,
+      file: canonicalFile,
     });
     return { node: null, issues };
   }
@@ -39,7 +43,7 @@ export function parseNodeSource(file: string, expectedType: NodeType, source: st
   let fields: Record<string, unknown> = {};
   const match = FRONTMATTER_RE.exec(normalized) ?? EMPTY_FRONTMATTER_RE.exec(normalized);
   if (match) {
-    const parsed = parseFrontmatter(file, match[1] ?? "", issues);
+    const parsed = parseFrontmatter(canonicalFile, match[1] ?? "", issues);
     if (!parsed) return { node: null, issues };
     fields = parsed;
   }
@@ -47,14 +51,14 @@ export function parseNodeSource(file: string, expectedType: NodeType, source: st
   const body = match ? normalized.slice(match[0].length).trim() : normalized.trim();
   const summary = extractSummary(body);
 
-  const node: RefinoNode = { id, type: expectedType, file, summary, body };
+  const node: RefinoNode = { id, type: expectedType, file: canonicalFile, summary, body };
 
   if (expectedType === "premise") {
     if (fields["grounds"] !== undefined && fields["grounds"] !== null) {
       issues.push({
         code: "PREMISE_WITH_GROUNDS",
         message: 'Premise nodes must not declare "grounds".',
-        file,
+        file: canonicalFile,
         nodeId: id,
       });
     }
@@ -66,13 +70,13 @@ export function parseNodeSource(file: string, expectedType: NodeType, source: st
         issues.push({
           code: "INVALID_CONFIRMED",
           message: '"confirmed" must be an RFC 3339 timestamp with an explicit UTC offset.',
-          file,
+          file: canonicalFile,
           nodeId: id,
         });
       }
     }
   } else {
-    const grounds = parseGrounds(file, id, fields["grounds"], issues);
+    const grounds = parseGrounds(canonicalFile, id, fields["grounds"], issues);
     if (grounds) node.grounds = grounds;
     const rationale = fields["rationale"];
     if (rationale !== undefined && rationale !== null) {
@@ -82,7 +86,7 @@ export function parseNodeSource(file: string, expectedType: NodeType, source: st
         issues.push({
           code: "INVALID_FRONTMATTER",
           message: '"rationale" must be a string.',
-          file,
+          file: canonicalFile,
           nodeId: id,
         });
       }
