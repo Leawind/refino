@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-/** Keys are `.refino`-relative paths, e.g. `constraints/01ABCDEF.md`.
+/** Keys are `.refino`-relative paths, e.g. `nodes/01/9ABCDEF.premise.md`.
  *  Returns the project root; the storage directory is `<root>/.refino`. */
 export async function createRefino(files: Record<string, string>): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "refino-test-"));
