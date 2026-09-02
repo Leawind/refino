@@ -36,11 +36,9 @@ jobs:
       - name: Build packages
         run: pnpm -r build
 
-      # pnpm pack replaces workspace:^ deps with real version ranges.
-      # Publish in dependency order.
-      - name: Pack and publish
-        run: |
-          pnpm --filter refino --filter "@refino/storage" --filter "@refino/cli" pack
-          for pkg in packages/refino packages/storage packages/cli; do
-            pnpm publish "$pkg"/*.tgz --access public --provenance
-          done
+      # pnpm -r publish walks the workspace in topological (dependency) order,
+      # skips private packages and versions already on npm, and replaces
+      # workspace:^ deps with real version ranges. New packages are picked up
+      # without workflow changes.
+      - name: Publish packages
+        run: pnpm -r publish --access public --provenance --no-git-checks
