@@ -105,21 +105,18 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
 
   program
     .command("show")
-    .description("print the full record of one node")
-    .argument("<id>", "node id")
-    .action((id: string, _opts, cmd) =>
+    .description("print the full record of one or more nodes")
+    .argument("<ids...>", "node ids")
+    .action((ids: string[], _opts, cmd) =>
       run(cmd, async (opts) =>
         withGraph(io, opts, (graph) => {
-          const node = requireNode(graph, id);
+          const nodes = ids.map((id) => requireNode(graph, id));
           if (opts.json) {
-            emit(io, {
-              ...nodeJson(node),
-              body: node.body,
-              ...(node.rationale !== undefined && { rationale: node.rationale }),
-              ...(node.confirmed !== undefined && { confirmed: node.confirmed }),
-            });
+            emit(io, nodes.map(fullNodeJson));
           } else {
-            io.stdout.write(`${renderNodeHeading(node)}\n\n${node.body}\n`);
+            io.stdout.write(
+              `${nodes.map((node) => `${renderNodeHeading(node)}\n\n${node.body}`).join("\n\n")}\n`,
+            );
           }
           return 0;
         }),
@@ -128,12 +125,12 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
 
   program
     .command("grounds")
-    .description("direct grounds of a node")
-    .argument("<id>", "node id")
-    .action((id: string, _opts, cmd) =>
+    .description("direct grounds of one or more nodes")
+    .argument("<ids...>", "node ids")
+    .action((ids: string[], _opts, cmd) =>
       run(cmd, async (opts) =>
         withGraph(io, opts, (graph) => {
-          emitNodes(io, opts, getGrounds(graph, id));
+          emitGroupedNodes(io, opts, ids, (id) => getGrounds(graph, id));
           return 0;
         }),
       ),
@@ -142,11 +139,11 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
   program
     .command("ancestors")
     .description("all nodes reachable by recursively following grounds")
-    .argument("<id>", "node id")
-    .action((id: string, _opts, cmd) =>
+    .argument("<ids...>", "node ids")
+    .action((ids: string[], _opts, cmd) =>
       run(cmd, async (opts) =>
         withGraph(io, opts, (graph) => {
-          emitDepths(io, opts, getAncestors(graph, id));
+          emitGroupedDepths(io, opts, ids, (id) => getAncestors(graph, id));
           return 0;
         }),
       ),
@@ -154,12 +151,12 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
 
   program
     .command("dependents")
-    .description("constraints potentially affected if this node changes")
-    .argument("<id>", "node id")
-    .action((id: string, _opts, cmd) =>
+    .description("constraints potentially affected if these nodes change")
+    .argument("<ids...>", "node ids")
+    .action((ids: string[], _opts, cmd) =>
       run(cmd, async (opts) =>
         withGraph(io, opts, (graph) => {
-          emitDepths(io, opts, getDependents(graph, id));
+          emitGroupedDepths(io, opts, ids, (id) => getDependents(graph, id));
           return 0;
         }),
       ),
@@ -292,6 +289,57 @@ function emitNodes(io: CliIo, opts: GlobalOptions, nodes: RefinoNode[]): void {
   }
 }
 
+/**
+ * Emit results of a batch query. JSON groups results under the queried id so
+ * that overlapping results from different queries stay unambiguous; with a
+ * single id the flat shape is kept. Human-readable output prints one section
+ * per queried id.
+ */
+function emitGroupedNodes(
+  io: CliIo,
+  opts: GlobalOptions,
+  ids: string[],
+  select: (id: string) => RefinoNode[],
+): void {
+  if (opts.json) {
+    emit(
+      io,
+      ids.map((id) => ({ id, results: select(id).map(nodeJson) })),
+    );
+  } else if (ids.length === 1) {
+    emitNodes(io, opts, select(ids[0]!));
+  } else {
+    for (const id of ids) {
+      io.stdout.write(`${id}:\n`);
+      emitNodes(io, opts, select(id));
+    }
+  }
+}
+
+function emitGroupedDepths(
+  io: CliIo,
+  opts: GlobalOptions,
+  ids: string[],
+  select: (id: string) => ReadonlyArray<{ node: RefinoNode; depth: number }>,
+): void {
+  if (opts.json) {
+    emit(
+      io,
+      ids.map((id) => ({
+        id,
+        results: select(id).map((r) => ({ ...nodeJson(r.node), depth: r.depth })),
+      })),
+    );
+  } else if (ids.length === 1) {
+    emitDepths(io, opts, select(ids[0]!));
+  } else {
+    for (const id of ids) {
+      io.stdout.write(`${id}:\n`);
+      emitDepths(io, opts, select(id));
+    }
+  }
+}
+
 function emitDepths(
   io: CliIo,
   opts: GlobalOptions,
@@ -307,6 +355,15 @@ function emitDepths(
   } else {
     io.stdout.write(`${renderNodeTable(results.map((r) => ({ ...r.node, depth: r.depth })))}\n`);
   }
+}
+
+function fullNodeJson(node: RefinoNode): Record<string, unknown> {
+  return {
+    ...nodeJson(node),
+    body: node.body,
+    ...(node.rationale !== undefined && { rationale: node.rationale }),
+    ...(node.confirmed !== undefined && { confirmed: node.confirmed }),
+  };
 }
 
 function nodeJson(node: RefinoNode): Record<string, unknown> {

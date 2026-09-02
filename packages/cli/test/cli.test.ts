@@ -119,8 +119,12 @@ describe("refino cli", () => {
   it("ancestors and dependents traverse transitively", async () => {
     const ancestors = await run(["--root", validRoot, "--json", "ancestors", "E5F6G7H8"]);
     expect(ancestors.code).toBe(0);
-    const ancestorList = JSON.parse(ancestors.out) as Array<{ id: string; depth: number }>;
-    expect(ancestorList).toEqual([
+    const [group] = JSON.parse(ancestors.out) as Array<{
+      id: string;
+      results: Array<{ id: string; depth: number }>;
+    }>;
+    expect(group.id).toBe("E5F6G7H8");
+    expect(group.results).toEqual([
       expect.objectContaining({ id: "1A2B3C4D", depth: 1 }),
       expect.objectContaining({ id: "D4E5F6G7", depth: 1 }),
       expect.objectContaining({ id: "A1B2C3D4", depth: 2 }),
@@ -130,6 +134,51 @@ describe("refino cli", () => {
     expect(dependents.code).toBe(0);
     expect(dependents.out).toContain("D4E5F6G7");
     expect(dependents.out).toContain("E5F6G7H8");
+  });
+
+  it("batch queries group results under each queried id", async () => {
+    const { code, out } = await run([
+      "--root",
+      validRoot,
+      "--json",
+      "dependents",
+      "A1B2C3D4",
+      "D4E5F6G7",
+    ]);
+    expect(code).toBe(0);
+    const groups = JSON.parse(out) as Array<{
+      id: string;
+      results: Array<{ id: string; depth: number }>;
+    }>;
+    expect(groups.map((g) => g.id)).toEqual(["A1B2C3D4", "D4E5F6G7"]);
+    expect(groups[0]!.results.map((r) => [r.id, r.depth])).toEqual([
+      ["D4E5F6G7", 1],
+      ["E5F6G7H8", 2],
+    ]);
+    expect(groups[1]!.results.map((r) => [r.id, r.depth])).toEqual([["E5F6G7H8", 1]]);
+  });
+
+  it("batch human-readable output prints one section per queried id", async () => {
+    const { code, out } = await run(["--root", validRoot, "dependents", "A1B2C3D4", "E5F6G7H8"]);
+    expect(code).toBe(0);
+    expect(out).toContain("A1B2C3D4:");
+    expect(out).toContain("E5F6G7H8:\n(empty)\n");
+    expect(out.indexOf("D4E5F6G7")).toBeLessThan(out.indexOf("E5F6G7H8:"));
+  });
+
+  it("show prints several full records when given multiple ids", async () => {
+    const { code, out } = await run([
+      "--root",
+      validRoot,
+      "--json",
+      "show",
+      "E5F6G7H8",
+      "1A2B3C4D",
+    ]);
+    expect(code).toBe(0);
+    const nodes = JSON.parse(out) as Array<{ id: string; body?: string }>;
+    expect(nodes.map((n) => n.id)).toEqual(["E5F6G7H8", "1A2B3C4D"]);
+    expect(nodes.every((n) => typeof n.body === "string")).toBe(true);
   });
 
   it("queries refuse to run on an invalid graph", async () => {
@@ -226,8 +275,8 @@ describe("refino cli", () => {
       const list = await run(["--root", emptyRoot, "--json", "list", "--type", "premise"]);
       const nodes = JSON.parse(list.out) as Array<{ id: string }>;
       const show = await run(["--root", emptyRoot, "--json", "show", nodes[0]!.id]);
-      const node = JSON.parse(show.out) as { confirmed?: string };
-      expect(node.confirmed).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/);
+      const [node] = JSON.parse(show.out) as Array<{ confirmed?: string }>;
+      expect(node!.confirmed).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/);
     } finally {
       await removeRefino(emptyRoot);
     }

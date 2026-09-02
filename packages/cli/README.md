@@ -13,8 +13,8 @@ refino validate
 # 列出所有节点
 refino list
 
-# 查看某个节点的完整内容
-refino show <id>
+# 查看某个或多个节点的完整内容（查询命令均支持批量传入 id）
+refino show <id>...
 
 # 创建节点（--id 可显式指定节点 ID，省略时自动生成）
 refino new premise --body "..." --now
