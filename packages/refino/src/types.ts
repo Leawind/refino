@@ -35,6 +35,15 @@ export interface Graph {
   dependents: Map<string, string[]>;
 }
 
+/**
+ * Result of one id in a batch query: the queried results, or a per-id error
+ * when the id does not resolve. The shared return contract of all batch
+ * query interfaces (CLI, harness tools, Web on-demand queries) — batch
+ * queries use partial-success semantics, so a missing id never aborts the
+ * remaining ids.
+ */
+export type QueryGroup<T> = { id: string; results: T[] } | { id: string; error: string };
+
 export type IssueCode =
   | "INVALID_FRONTMATTER"
   | "INVALID_ID"

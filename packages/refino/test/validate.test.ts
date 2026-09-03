@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildGraph } from "../src/graph.js";
-import { validateGraph } from "../src/validate.js";
+import { checkGroundsChange, validateGraph } from "../src/validate.js";
 import type { Graph, NodeType, RefinoNode } from "../src/index.js";
 
 /** Test factory: build a node directly, bypassing any file parsing. */
@@ -97,4 +97,133 @@ describe("validateGraph", () => {
       expect(graph.nodes.get("1A2B3C4D")?.confirmed).toBe(confirmed);
     },
   );
+});
+
+describe("checkGroundsChange", () => {
+  it("accepts grounds that exist and do not close a cycle", () => {
+    const graph = graphOf(
+      node("1A2B3C4D", "premise"),
+      node("A1B2C3D4", "constraint"),
+      node("B2C3D4E5", "constraint", { grounds: ["1A2B3C4D"] }),
+    );
+    expect(checkGroundsChange(graph, "A1B2C3D4", ["1A2B3C4D", "B2C3D4E5"])).toEqual([]);
+  });
+
+  it("accepts clearing grounds", () => {
+    const graph = graphOf(
+      node("A1B2C3D4", "constraint", { grounds: ["B2C3D4E5"] }),
+      node("B2C3D4E5", "constraint"),
+    );
+    expect(checkGroundsChange(graph, "A1B2C3D4", [])).toEqual([]);
+  });
+
+  it("reports an unknown target id", () => {
+    const graph = graphOf(node("A1B2C3D4", "constraint"));
+    expect(checkGroundsChange(graph, "Z9Y8X7W6", ["A1B2C3D4"])).toEqual([
+      { code: "NODE_NOT_FOUND", message: 'Node "Z9Y8X7W6" not found', nodeId: "Z9Y8X7W6" },
+    ]);
+  });
+
+  it("reports grounds on a premise target and skips further checks", () => {
+    const graph = graphOf(node("1A2B3C4D", "premise"), node("A1B2C3D4", "constraint"));
+    const issues = checkGroundsChange(graph, "1A2B3C4D", ["A1B2C3D4", "Z9Y8X7W6"]);
+    expect(issues.map((i) => i.code)).toEqual(["PREMISE_WITH_GROUNDS"]);
+    expect(issues[0]).toMatchObject({ nodeId: "1A2B3C4D", file: "premises/1A/2B3C4D.md" });
+  });
+
+  it("accepts empty grounds on a premise", () => {
+    const graph = graphOf(node("1A2B3C4D", "premise"));
+    expect(checkGroundsChange(graph, "1A2B3C4D", [])).toEqual([]);
+  });
+
+  it("reports each repeated ground id once", () => {
+    const graph = graphOf(node("A1B2C3D4", "constraint"), node("B2C3D4E5", "constraint"));
+    const issues = checkGroundsChange(graph, "A1B2C3D4", ["B2C3D4E5", "B2C3D4E5", "B2C3D4E5"]);
+    expect(issues.map((i) => i.code)).toEqual(["INVALID_GROUNDS"]);
+    expect(issues[0]?.message).toContain('"B2C3D4E5"');
+  });
+
+  it("reports grounds on unknown nodes", () => {
+    const graph = graphOf(node("A1B2C3D4", "constraint"));
+    const issues = checkGroundsChange(graph, "A1B2C3D4", ["Z9Y8X7W6"]);
+    expect(issues.map((i) => i.code)).toEqual(["UNKNOWN_GROUND"]);
+    expect(issues[0]).toMatchObject({
+      nodeId: "A1B2C3D4",
+      groundId: "Z9Y8X7W6",
+      file: "constraints/A1/B2C3D4.md",
+    });
+  });
+
+  it("reports a self-referencing ground as a closed cycle", () => {
+    const graph = graphOf(node("A1B2C3D4", "constraint"));
+    const issues = checkGroundsChange(graph, "A1B2C3D4", ["A1B2C3D4"]);
+    expect(issues.map((i) => i.code)).toEqual(["CYCLE"]);
+    expect(issues[0]?.cycle).toEqual(["A1B2C3D4", "A1B2C3D4"]);
+  });
+
+  it("reports a cycle closed through a direct ground", () => {
+    const graph = graphOf(
+      node("A1B2C3D4", "constraint"),
+      node("B2C3D4E5", "constraint", { grounds: ["A1B2C3D4"] }),
+    );
+    const issues = checkGroundsChange(graph, "A1B2C3D4", ["B2C3D4E5"]);
+    expect(issues.map((i) => i.code)).toEqual(["CYCLE"]);
+    expect(issues[0]?.cycle).toEqual(["A1B2C3D4", "B2C3D4E5", "A1B2C3D4"]);
+  });
+
+  it("reports a cycle closed through a transitive grounds path", () => {
+    const graph = graphOf(
+      node("A1B2C3D4", "constraint"),
+      node("B2C3D4E5", "constraint", { grounds: ["A1B2C3D4"] }),
+      node("C3D4E5F6", "constraint", { grounds: ["B2C3D4E5"] }),
+      node("D4E5F6G7", "constraint", { grounds: ["C3D4E5F6"] }),
+    );
+    const issues = checkGroundsChange(graph, "A1B2C3D4", ["D4E5F6G7"]);
+    expect(issues[0]?.cycle).toEqual(["A1B2C3D4", "D4E5F6G7", "C3D4E5F6", "B2C3D4E5", "A1B2C3D4"]);
+  });
+
+  it("follows declared grounds order when picking the reported path", () => {
+    const graph = graphOf(
+      node("A1B2C3D4", "constraint"),
+      node("B2C3D4E5", "constraint", { grounds: ["C3D4E5F6", "D4E5F6G7"] }),
+      node("C3D4E5F6", "constraint", { grounds: ["A1B2C3D4"] }),
+      node("D4E5F6G7", "constraint", { grounds: ["A1B2C3D4"] }),
+    );
+    const issues = checkGroundsChange(graph, "A1B2C3D4", ["B2C3D4E5"]);
+    expect(issues).toHaveLength(1);
+    expect(issues[0]?.cycle).toEqual(["A1B2C3D4", "B2C3D4E5", "C3D4E5F6", "A1B2C3D4"]);
+  });
+
+  it("reports one cycle per closing ground", () => {
+    const graph = graphOf(
+      node("A1B2C3D4", "constraint"),
+      node("B2C3D4E5", "constraint", { grounds: ["A1B2C3D4"] }),
+      node("C3D4E5F6", "constraint", { grounds: ["A1B2C3D4"] }),
+    );
+    const issues = checkGroundsChange(graph, "A1B2C3D4", ["B2C3D4E5", "C3D4E5F6"]);
+    expect(issues.map((i) => i.cycle)).toEqual([
+      ["A1B2C3D4", "B2C3D4E5", "A1B2C3D4"],
+      ["A1B2C3D4", "C3D4E5F6", "A1B2C3D4"],
+    ]);
+  });
+
+  it("does not report pre-existing cycles elsewhere in the graph", () => {
+    const graph = graphOf(
+      node("A1B2C3D4", "constraint"),
+      node("B2C3D4E5", "constraint"),
+      node("C3D4E5F6", "constraint", { grounds: ["D4E5F6G7"] }),
+      node("D4E5F6G7", "constraint", { grounds: ["C3D4E5F6"] }),
+    );
+    expect(checkGroundsChange(graph, "A1B2C3D4", ["B2C3D4E5"])).toEqual([]);
+  });
+
+  it("leaves the graph untouched", () => {
+    const graph = graphOf(
+      node("A1B2C3D4", "constraint"),
+      node("B2C3D4E5", "constraint", { grounds: ["A1B2C3D4"] }),
+    );
+    checkGroundsChange(graph, "A1B2C3D4", ["B2C3D4E5"]);
+    expect(graph.nodes.get("A1B2C3D4")?.grounds).toBeUndefined();
+    expect(graph.nodes.get("B2C3D4E5")?.grounds).toEqual(["A1B2C3D4"]);
+  });
 });

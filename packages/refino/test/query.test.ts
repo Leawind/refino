@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildGraph } from "../src/graph.js";
-import { getAncestors, getDependents, getGrounds, RefinoError } from "../src/index.js";
+import { getAncestors, getDependents, getGrounds, queryGroups, RefinoError } from "../src/index.js";
 import type { Graph, NodeType, RefinoNode } from "../src/index.js";
 
 /** Test factory: build a node directly, bypassing any file parsing. */
@@ -86,5 +86,34 @@ describe("queries", () => {
         expect.objectContaining({ code: "NODE_NOT_FOUND" }) as unknown as Error,
       );
     }
+  });
+});
+
+describe("queryGroups", () => {
+  it("groups results under each queried id", () => {
+    const [group] = queryGroups(graph, ["D4E5F6G7"], getGrounds);
+    if (!group || "error" in group) throw new Error("expected a result group");
+    expect(group.results.map((n) => n.id)).toEqual(["A1B2C3D4"]);
+  });
+
+  it("yields a per-id error for missing ids without aborting the rest", () => {
+    const groups = queryGroups(graph, ["9M8N7P6Q", "D4E5F6G7"], getAncestors);
+    expect(groups).toHaveLength(2);
+    expect(groups[0]).toEqual({ id: "9M8N7P6Q", error: 'Node "9M8N7P6Q" not found' });
+    if (!groups[1] || "error" in groups[1]) throw new Error("expected a result group");
+    expect(groups[1].results.map((a) => a.node.id)).toEqual(["A1B2C3D4"]);
+  });
+
+  it("does not call select for missing ids", () => {
+    let calls = 0;
+    queryGroups(graph, ["9M8N7P6Q", "A1B2C3D4"], () => {
+      calls++;
+      return [];
+    });
+    expect(calls).toBe(1);
+  });
+
+  it("returns an empty list for an empty batch", () => {
+    expect(queryGroups(graph, [], getGrounds)).toEqual([]);
   });
 });

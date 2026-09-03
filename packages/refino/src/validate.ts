@@ -44,6 +44,73 @@ export function validateGraph(graph: Graph): RefinoIssue[] {
   return issues;
 }
 
+/**
+ * Validate a prospective change of a node's grounds against the current
+ * graph without mutating it. All write paths call this before persisting, so
+ * graph-level grounds validation has a single source. Reports:
+ *
+ * - the target id does not exist (NODE_NOT_FOUND);
+ * - grounds on a premise target (PREMISE_WITH_GROUNDS);
+ * - repeated ground ids (INVALID_GROUNDS) — the storage format deduplicates
+ *   grounds on load, so writing them would silently diverge from the file;
+ * - grounds referencing nodes that do not exist (UNKNOWN_GROUND);
+ * - cycles the change would close (CYCLE) — a ground that is the target
+ *   itself or reaches it along existing grounds edges.
+ *
+ * Pre-existing issues elsewhere in the graph are not reported; callers run
+ * `validateGraph` for the full picture. Ground entries are not shape-checked:
+ * an entry that cannot be a node id simply does not resolve.
+ */
+export function checkGroundsChange(
+  graph: Graph,
+  id: string,
+  newGrounds: readonly string[],
+): RefinoIssue[] {
+  const target = graph.nodes.get(id);
+  if (!target) {
+    return [{ code: "NODE_NOT_FOUND", message: `Node "${id}" not found`, nodeId: id }];
+  }
+  if (target.type === "premise" && newGrounds.length > 0) {
+    return [
+      {
+        code: "PREMISE_WITH_GROUNDS",
+        message: `Premise "${id}" must not declare "grounds".`,
+        file: target.file,
+        nodeId: id,
+      },
+    ];
+  }
+
+  const issues: RefinoIssue[] = [];
+  // Insertion-ordered counts: one INVALID_GROUNDS per repeated id, and each
+  // distinct id checked (and cycled) exactly once, in declared order.
+  const counts = new Map<string, number>();
+  for (const ground of newGrounds) {
+    counts.set(ground, (counts.get(ground) ?? 0) + 1);
+  }
+  for (const [ground, count] of counts) {
+    if (count > 1) {
+      issues.push({
+        code: "INVALID_GROUNDS",
+        message: `"grounds" lists node "${ground}" more than once.`,
+        file: target.file,
+        nodeId: id,
+      });
+    }
+    if (!graph.nodes.has(ground)) {
+      issues.push({
+        code: "UNKNOWN_GROUND",
+        message: `"${id}" grounds on unknown node "${ground}".`,
+        file: target.file,
+        nodeId: id,
+        groundId: ground,
+      });
+    }
+  }
+  issues.push(...closingCycles(graph, id, [...counts.keys()]));
+  return issues;
+}
+
 function findCycles(graph: Graph): RefinoIssue[] {
   const WHITE = 0;
   const GRAY = 1;
@@ -107,4 +174,52 @@ function canonicalCycleKey(closed: string[]): string {
 
 function sortedValues(nodes: Graph["nodes"]): RefinoNode[] {
   return [...nodes.values()].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
+/**
+ * Cycles the change would close: for each new ground, the first path found
+ * back to the changed node along existing grounds edges, reported in
+ * `validateGraph`'s closed shape. Edges out of the changed node are
+ * irrelevant for reaching it, so the current graph can be searched as-is.
+ * Premises declare no grounds, so paths through them end immediately.
+ */
+function closingCycles(graph: Graph, id: string, grounds: readonly string[]): RefinoIssue[] {
+  const issues: RefinoIssue[] = [];
+  for (const ground of grounds) {
+    const path = groundsPath(graph, ground, id);
+    if (path === undefined) continue;
+    const cycle = [id, ...path];
+    issues.push({
+      code: "CYCLE",
+      message: `Constraint cycle detected: ${cycle.join(" -> ")}.`,
+      nodeId: id,
+      cycle,
+    });
+  }
+  return issues;
+}
+
+/**
+ * First path from `start` to `target` along grounds edges, both ends
+ * inclusive, or undefined. Neighbors are visited in declared grounds order,
+ * so the result is deterministic; the visited set prunes branches that
+ * cannot reach the target, keeping the search linear in the reachable
+ * subgraph even when the graph already contains cycles.
+ */
+function groundsPath(graph: Graph, start: string, target: string): string[] | undefined {
+  const path: string[] = [start];
+  const visited = new Set<string>();
+  const visit = (current: string): boolean => {
+    if (current === target) return true;
+    if (visited.has(current)) return false;
+    visited.add(current);
+    const node = graph.nodes.get(current);
+    for (const ground of node?.grounds ?? []) {
+      path.push(ground);
+      if (visit(ground)) return true;
+      path.pop();
+    }
+    return false;
+  };
+  return visit(start) ? path : undefined;
 }

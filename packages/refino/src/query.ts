@@ -1,5 +1,5 @@
 import { RefinoError } from "./types.js";
-import type { Graph, RefinoNode } from "./types.js";
+import type { Graph, QueryGroup, RefinoNode } from "./types.js";
 
 export interface NodeWithDepth {
   node: RefinoNode;
@@ -48,6 +48,23 @@ export function getAncestors(graph: Graph, id: string): NodeWithDepth[] {
 export function getDependents(graph: Graph, id: string): NodeWithDepth[] {
   requireNode(graph, id);
   return breadthFirst(graph, id, (node) => graph.dependents.get(node.id) ?? []);
+}
+
+/**
+ * Run a query for each id with batch, partial-success semantics: ids that do
+ * not resolve yield a per-id error group while the remaining ids keep their
+ * results. `select` is only called for ids that exist in the graph.
+ */
+export function queryGroups<T>(
+  graph: Graph,
+  ids: readonly string[],
+  select: (graph: Graph, id: string) => T[],
+): QueryGroup<T>[] {
+  return ids.map((id) =>
+    graph.nodes.has(id)
+      ? { id, results: select(graph, id) }
+      : { id, error: `Node "${id}" not found` },
+  );
 }
 
 function breadthFirst(
