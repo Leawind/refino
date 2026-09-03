@@ -17,9 +17,11 @@ import { createProgram, EDGE_QUAD, type Program, UNIT_QUAD } from "./shaders";
  *
  * Frames render on damage only (scene/camera/theme changes, resize,
  * running fade animations); the render budget adapts while frames render
- * continuously. The camera here just fits the working set bounding box —
- * stable virtual space, pan/zoom and fly-to-focus belong to the viewport
- * milestone and replace `#refit`.
+ * continuously. The camera only moves when asked — `fitToContent()` from
+ * focus changes, direction switches and resizes — so the incremental
+ * layout's stable virtual space stays put while the working set expands.
+ * Pan/zoom and fly-to-focus belong to the viewport milestone and replace
+ * `#refit`.
  */
 
 export type RGBA = [number, number, number, number];
@@ -84,8 +86,19 @@ const CORNER_RADIUS = 8;
 /** Fade fully in or out over ~180ms. */
 const FADE_SPEED_PER_S = 1 / 0.18;
 
-/** Parses "rgb(...)"/"rgba(...)" computed styles; hex values work too. */
+/** Parses "rgb(...)"/"rgba(...)" computed styles and #rgb/#rrggbb hex. */
 export function parseColor(spec: string): RGBA {
+  const hex = spec.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+  if (hex !== null) {
+    const digits = hex[1]!;
+    const expanded = digits.length === 3 ? [...digits].map((ch) => ch + ch).join("") : digits;
+    return [
+      parseInt(expanded.slice(0, 2), 16) / 255,
+      parseInt(expanded.slice(2, 4), 16) / 255,
+      parseInt(expanded.slice(4, 6), 16) / 255,
+      1,
+    ];
+  }
   const numbers = spec.match(/[\d.]+/g) ?? [];
   const at = (index: number): number => Number(numbers[index] ?? 0);
   return [at(0) / 255, at(1) / 255, at(2) / 255, numbers[3] !== undefined ? Number(numbers[3]) : 1];
@@ -173,6 +186,9 @@ export class GraphRenderer {
       alpha: true,
       antialias: true,
       premultipliedAlpha: true,
+      // The frame is damage-driven; keeping the buffer means hosts can
+      // snapshot the canvas outside the drawing frame.
+      preserveDrawingBuffer: true,
     });
     return gl === null ? null : new GraphRenderer(canvas, gl, budget);
   }
@@ -256,6 +272,13 @@ export class GraphRenderer {
       if (!seen.has(entry.node.id)) entry.target = 0;
     }
     this.#edges = scene.edges;
+    this.#schedule();
+  }
+
+  /** Moves the camera to fit the working-set bounding box on the next
+   * frame; called when the focus changes or the direction flips, never per
+   * working-set expansion (that would defeat the stable layout). */
+  fitToContent(): void {
     this.#fitDirty = true;
     this.#schedule();
   }

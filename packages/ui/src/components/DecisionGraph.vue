@@ -4,13 +4,15 @@
 // budget culling over-budget parts; floating controls stay DOM. Clicking a
 // node selects it, shift+click range-selects, ctrl+click toggles, double
 // click opens the detail bar, hovering pulls in the node's direct grounds.
-// The camera here fits the working-set bounding box; stable virtual space,
-// pan/zoom and fly-to-focus land with the viewport milestone.
+// The layout engine keeps virtual coordinates stable; the camera moves only
+// on focus changes and direction flips (pan/zoom and fly-to-focus land with
+// the viewport milestone).
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { store } from "../store";
 import { workspace } from "../workspace";
-import { layoutGraph } from "../graph/layout";
+import { IncrementalLayout } from "../graph/layout/engine";
+import type { LaidOutNode } from "../graph/layout/engine";
 import {
   CULL_FOCUS,
   CULL_GROUND_OF_HOVERED,
@@ -37,7 +39,18 @@ const glFailed = ref(false);
 let renderer: GraphRenderer | null = null;
 let budget: AdaptiveBudget | null = null;
 
-const geometry = computed(() => layoutGraph(workspace.displayed.value, props.direction));
+// The layout engine owns the stable virtual coordinates; the display list
+// re-maps them whenever the working set or the direction changes.
+const layoutEngine = new IncrementalLayout();
+const layout = ref<LaidOutNode[]>([]);
+watch(
+  () => [workspace.displayed.value, props.direction] as const,
+  ([nodes, direction]) => {
+    layout.value = layoutEngine.sync(nodes, direction);
+  },
+  { immediate: true },
+);
+
 const byId = computed(() => new Map(workspace.displayed.value.map((n) => [n.id, n] as const)));
 
 /** Display list with render priority classes and per-node styling flags. */
@@ -45,7 +58,7 @@ const scene = computed<SceneInput>(() => {
   const { selection, focusId, hoveredId } = workspace.state;
   const selectionSet = new Set(selection);
   const hovered = hoveredId !== null ? byId.value.get(hoveredId) : undefined;
-  const positions = new Map(geometry.value.nodes.map((n) => [n.id, n] as const));
+  const positions = new Map(layout.value.map((n) => [n.id, n] as const));
   const selectedCenters = selection.flatMap((id) => {
     const node = positions.get(id);
     return node === undefined ? [] : [{ x: node.x + node.width / 2, y: node.y + node.height / 2 }];
@@ -147,6 +160,16 @@ function ensureRenderer(): void {
 onMounted(ensureRenderer);
 
 watch(scene, (value) => renderer?.setScene(value));
+// The camera only moves when the focus changes or the direction flips;
+// working-set expansions keep every placed node exactly where it is.
+watch(
+  () => workspace.state.focusId,
+  () => renderer?.fitToContent(),
+);
+watch(
+  () => props.direction,
+  () => renderer?.fitToContent(),
+);
 watch(
   () => store.state.theme,
   () => renderer?.setTheme(readThemeColors()),
