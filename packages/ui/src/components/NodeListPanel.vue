@@ -111,33 +111,24 @@ function open(nodeId: string): void {
     <template v-if="!collapsed">
       <div class="head">
         <span class="title">{{ t(`sidebar.${type}s`) }}</span>
+        <NButton
+          circle
+          size="tiny"
+          class="head-btn collapse"
+          :title="t('app.collapse')"
+          @click="toggleCollapsed"
+        >
+          <NIcon :component="side === 'left' ? ChevronBackOutline : ChevronForwardOutline" />
+        </NButton>
         <span class="head-actions">
           <NButton
-            quaternary
             circle
             size="tiny"
-            :title="type === 'constraint' ? t('node.createConstraint') : t('node.createPremise')"
-            @click="store.startCreate(type)"
-          >
-            <NIcon :component="AddOutline" />
-          </NButton>
-          <NButton
-            quaternary
-            circle
-            size="tiny"
+            class="head-btn"
             :title="floating ? t('app.dock') : t('app.float')"
             @click="floating = !floating"
           >
             <NIcon :component="floating ? ScanOutline : OpenOutline" />
-          </NButton>
-          <NButton
-            quaternary
-            circle
-            size="tiny"
-            :title="t('app.collapse')"
-            @click="toggleCollapsed"
-          >
-            <NIcon :component="side === 'left' ? ChevronBackOutline : ChevronForwardOutline" />
           </NButton>
         </span>
       </div>
@@ -145,6 +136,12 @@ function open(nodeId: string): void {
         <NInput v-model:value="query" size="small" clearable :placeholder="placeholder" />
       </div>
       <ul class="list">
+        <li class="create-item">
+          <NButton dashed size="small" class="create" @click="store.startCreate(type)">
+            <NIcon :component="AddOutline" />
+            {{ type === "constraint" ? t("node.createConstraint") : t("node.createPremise") }}
+          </NButton>
+        </li>
         <li
           v-for="node in filtered"
           :key="node.id"
@@ -211,13 +208,30 @@ function open(nodeId: string): void {
   position: relative;
   display: flex;
   align-items: center;
-  /* Left panel: cluster on the right; right panel: cluster on the left. */
+  /* Float toggle sits on the inner side of each panel. */
   justify-content: flex-end;
   padding: 8px 8px 0;
 }
 
 .panel.right .head {
   justify-content: flex-start;
+}
+
+.head-btn {
+  background: var(--refino-surface) !important;
+}
+
+/* Collapse lives on the screen-edge side of the panel. */
+.collapse {
+  position: absolute;
+}
+
+.panel.left .collapse {
+  left: 8px;
+}
+
+.panel.right .collapse {
+  right: 8px;
 }
 
 .title {
@@ -243,6 +257,15 @@ function open(nodeId: string): void {
   padding: 0 6px 6px;
   list-style: none;
   user-select: none;
+}
+
+.create-item {
+  margin: 0 2px 6px;
+  list-style: none;
+}
+
+.create {
+  width: 100%;
 }
 
 .item {
