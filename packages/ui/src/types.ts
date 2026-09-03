@@ -28,8 +28,10 @@ export interface GraphRecord {
   nodes: NodeRecord[];
 }
 
-/** Editable fields sent on create/update; type and id are never editable. */
+/** Editable fields sent on create/update; the id is never editable. When
+ * `type` is sent and differs from the current type, the node is converted. */
 export interface NodePayload {
+  type?: NodeType;
   body: string;
   summary?: string;
   grounds?: string[];

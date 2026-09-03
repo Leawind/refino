@@ -65,6 +65,7 @@ export async function getValidate(c: Context, opts: GraphApiOptions): Promise<Re
 }
 
 interface NodePayload {
+  type?: unknown;
   body?: unknown;
   summary?: unknown;
   grounds?: unknown;
@@ -110,7 +111,10 @@ async function create(
   }
 }
 
-/** PUT /api/nodes/:id — replace the editable fields of an existing node. */
+/** PUT /api/nodes/:id — replace the editable fields of an existing node.
+ * Sending a `type` different from the node's current type converts the node
+ * in place: same id, new file. Type-specific fields of the old type that do
+ * not exist on the new one are dropped. */
 export async function putNode(c: Context, opts: GraphApiOptions): Promise<Response> {
   try {
     const id = requireParam(c);
@@ -122,14 +126,39 @@ export async function putNode(c: Context, opts: GraphApiOptions): Promise<Respon
     const payload = await readPayload(c);
     const body = readRequiredString(payload, "body");
     const summary = readString(payload, "summary");
-    if (node.type === "premise") {
-      await updatePremise(opts.refinoDir, id, {
+    const targetType = readTargetType(payload, node.type);
+
+    if (targetType === node.type) {
+      if (node.type === "premise") {
+        await updatePremise(opts.refinoDir, id, {
+          body,
+          summary,
+          confirmed: readString(payload, "confirmed") ?? node.confirmed,
+        });
+      } else {
+        await updateConstraint(opts.refinoDir, id, {
+          body,
+          summary,
+          rationale: readString(payload, "rationale") ?? node.rationale,
+          grounds: (await readGrounds(c, opts, payload)) ?? [],
+        });
+      }
+      return c.json({ id });
+    }
+
+    // Type conversion: recreate the node file with the same id. Fields of
+    // the old type that do not exist on the new one are dropped.
+    await deleteNode(opts.refinoDir, id);
+    if (targetType === "premise") {
+      await createPremise(opts.refinoDir, {
+        id,
         body,
         summary,
         confirmed: readString(payload, "confirmed") ?? node.confirmed,
       });
     } else {
-      await updateConstraint(opts.refinoDir, id, {
+      await createConstraint(opts.refinoDir, {
+        id,
         body,
         summary,
         rationale: readString(payload, "rationale") ?? node.rationale,
@@ -140,6 +169,16 @@ export async function putNode(c: Context, opts: GraphApiOptions): Promise<Respon
   } catch (error) {
     return errorResponse(c, error);
   }
+}
+
+/** Validate an optional `type` override in the payload. */
+function readTargetType(payload: NodePayload, current: "premise" | "constraint") {
+  const raw = readString(payload, "type");
+  if (raw === undefined) return current;
+  if (raw !== "premise" && raw !== "constraint") {
+    throw new RefinoError("INVALID_FRONTMATTER", `"type" must be "premise" or "constraint".`);
+  }
+  return raw;
 }
 
 /** DELETE /api/nodes/:id — refuse while transitive dependents reference the node. */

@@ -3,21 +3,23 @@
 // node, with edit/create forms. Opens on double click; closing keeps the
 // selection. The bar occupies the bottom of the graph pane; expanding
 // turns it into a near-fullscreen modal with a dimmed backdrop.
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import {
   NButton,
-  NForm,
-  NFormItem,
+  NIcon,
   NInput,
   NPopconfirm,
   NSelect,
+  NSwitch,
   NTag,
   NTooltip,
   useMessage,
 } from "naive-ui";
-import { NIcon } from "naive-ui";
+import { SwapHorizontalOutline } from "@vicons/ionicons5";
+import { renderMarkdown, renderMermaidDiagrams } from "../markdown";
 import { CloseOutline, ContractOutline, ExpandOutline } from "@vicons/ionicons5";
+import FormField from "./FormField.vue";
 import { store } from "../store";
 import type { NodePayload } from "../types";
 
@@ -32,10 +34,57 @@ const visible = computed(
 
 const expanded = ref(false);
 
+/** Bar height as a percentage of the graph pane; adjustable by dragging
+ * the bar's top edge. */
+const MIN_HEIGHT_PERCENT = 15;
+const MAX_HEIGHT_PERCENT = 70;
+const barEl = ref<HTMLElement | null>(null);
+const heightPercent = ref(40);
+
+const barStyle = computed(() =>
+  expanded.value ? undefined : { height: `${heightPercent.value}%` },
+);
+
+let resizeStartY = 0;
+let resizeStartPercent = 0;
+
+function onResizeStart(event: MouseEvent): void {
+  resizeStartY = event.clientY;
+  resizeStartPercent = heightPercent.value;
+  document.addEventListener("mousemove", onResizeMove);
+  document.addEventListener("mouseup", onResizeEnd);
+}
+
+function onResizeMove(event: MouseEvent): void {
+  // Dragging up grows the bar.
+  const delta = resizeStartY - event.clientY;
+  const base = barEl.value?.parentElement?.clientHeight ?? 1;
+  heightPercent.value = Math.min(
+    MAX_HEIGHT_PERCENT,
+    Math.max(MIN_HEIGHT_PERCENT, resizeStartPercent + (delta / base) * 100),
+  );
+}
+
+function onResizeEnd(): void {
+  document.removeEventListener("mousemove", onResizeMove);
+  document.removeEventListener("mouseup", onResizeEnd);
+}
+
+onBeforeUnmount(() => onResizeEnd());
+
 function close(): void {
   expanded.value = false;
   // Closing keeps the node selected.
   store.closeDetail();
+}
+
+/** Cancel discards unsaved edits; in create mode it hides the bar. */
+function cancelEdit(): void {
+  if (creating.value) {
+    close();
+    return;
+  }
+  resetForm();
 }
 
 function onKeydown(event: KeyboardEvent): void {
@@ -94,6 +143,31 @@ const groundOptions = computed(() =>
 );
 
 const dependentCount = computed(() => selected.value?.dependents.length ?? 0);
+
+/** Toggles the content field between markdown source and rendered output. */
+const previewBody = ref(false);
+const renderedBody = computed(() => renderMarkdown(form.body));
+
+// Render mermaid diagrams after the preview HTML is on the page, and again
+// when the theme flips (mermaid has its own light/dark palettes).
+const bodyEl = ref<HTMLElement | null>(null);
+watch([renderedBody, () => store.state.theme, previewBody] as const, ([, theme, preview]) => {
+  if (!preview) return;
+  void nextTick(async () => {
+    const el = bodyEl.value;
+    if (el === null) return;
+    await renderMermaidDiagrams(el, theme);
+  });
+});
+
+/** Convert the node to the other type; fields of the old type are dropped. */
+function switchType(): void {
+  const node = selected.value;
+  if (node === null || creating.value) return;
+  const target = node.type === "premise" ? "constraint" : "premise";
+  void store.update(node.id, { ...payload(), type: target });
+  store.select(node.id);
+}
 
 /**
  * Save is only meaningful when something actually changed (or when a new
@@ -158,7 +232,8 @@ function nodeLabel(id: string): string {
 <template>
   <template v-if="visible">
     <div v-if="expanded" class="backdrop" @click="expanded = false" />
-    <section class="detail-bar" :class="{ expanded }">
+    <section ref="barEl" class="detail-bar" :class="{ expanded }" :style="barStyle">
+      <div v-if="!expanded" class="resize-handle" @mousedown.prevent="onResizeStart" />
       <div class="window-actions">
         <NButton
           quaternary
@@ -174,7 +249,9 @@ function nodeLabel(id: string): string {
         </NButton>
       </div>
 
-      <div class="window-body">
+      <!-- The head stays pinned above the scrollable body so the title and
+           the type-switch control never scroll away. -->
+      <div class="window-head">
         <template v-if="creating">
           <h2>
             {{
@@ -183,45 +260,6 @@ function nodeLabel(id: string): string {
               )
             }}
           </h2>
-          <NForm label-placement="top" size="small">
-            <NFormItem :label="t('node.body')">
-              <NInput
-                v-model:value="form.body"
-                type="textarea"
-                :autosize="{ minRows: 4 }"
-                :placeholder="t('node.bodyPlaceholder')"
-              />
-            </NFormItem>
-            <NFormItem :label="t('node.summary')">
-              <NInput v-model:value="form.summary" :placeholder="t('node.summaryPlaceholder')" />
-            </NFormItem>
-            <template v-if="store.state.creatingType === 'constraint'">
-              <NFormItem :label="t('node.grounds')">
-                <NSelect
-                  v-model:value="form.grounds"
-                  multiple
-                  filterable
-                  clearable
-                  :options="groundOptions"
-                  :placeholder="t('node.groundsPlaceholder')"
-                />
-              </NFormItem>
-              <NFormItem :label="t('node.rationale')">
-                <NInput
-                  v-model:value="form.rationale"
-                  type="textarea"
-                  :autosize="{ minRows: 2 }"
-                  :placeholder="t('node.rationalePlaceholder')"
-                />
-              </NFormItem>
-            </template>
-            <div class="actions">
-              <NButton size="small" type="primary" :disabled="!canSave" @click="save">
-                {{ t("node.save") }}
-              </NButton>
-              <NButton size="small" @click="close">{{ t("node.cancel") }}</NButton>
-            </div>
-          </NForm>
         </template>
 
         <template v-else-if="selected !== null">
@@ -234,66 +272,92 @@ function nodeLabel(id: string): string {
             >
               {{ t(`node.${selected.type}`) }}
             </NTag>
+            <NTooltip>
+              <template #trigger>
+                <NPopconfirm @positive-click="switchType">
+                  <template #trigger>
+                    <NButton quaternary circle size="tiny" :title="t('node.switchType')">
+                      <NIcon :component="SwapHorizontalOutline" />
+                    </NButton>
+                  </template>
+                  {{
+                    selected.type === "premise"
+                      ? t("node.convertConstraint")
+                      : t("node.convertPremise")
+                  }}
+                </NPopconfirm>
+              </template>
+              {{ t("node.switchType") }}
+            </NTooltip>
           </div>
+        </template>
+      </div>
 
-          <NForm label-placement="top" size="small">
-            <NFormItem :label="t('node.summary')">
-              <NInput v-model:value="form.summary" :placeholder="t('node.summaryPlaceholder')" />
-            </NFormItem>
-            <NFormItem :label="t('node.body')">
-              <NInput
-                v-model:value="form.body"
-                type="textarea"
-                :autosize="{ minRows: 4 }"
-                :placeholder="t('node.bodyPlaceholder')"
-              />
-            </NFormItem>
-            <template v-if="selected.type === 'constraint'">
-              <NFormItem :label="t('node.grounds')">
-                <NSelect
-                  v-model:value="form.grounds"
-                  multiple
-                  filterable
-                  clearable
-                  :options="groundOptions"
-                  :placeholder="t('node.groundsPlaceholder')"
-                />
-              </NFormItem>
-              <NFormItem :label="t('node.rationale')">
-                <NInput
-                  v-model:value="form.rationale"
-                  type="textarea"
-                  :autosize="{ minRows: 2 }"
-                  :placeholder="t('node.rationalePlaceholder')"
-                />
-              </NFormItem>
+      <div ref="bodyEl" class="window-body">
+        <div class="fields" :class="selected?.type ?? store.state.creatingType">
+          <FormField
+            v-if="(selected?.type ?? store.state.creatingType) === 'premise'"
+            class="f-confirmed"
+            :label="t('node.confirmed')"
+          >
+            <NInput v-model:value="form.confirmed" placeholder="RFC 3339" />
+          </FormField>
+
+          <FormField class="f-summary" :label="t('node.summary')">
+            <NInput v-model:value="form.summary" :placeholder="t('node.summaryPlaceholder')" />
+          </FormField>
+
+          <FormField
+            v-if="(selected?.type ?? store.state.creatingType) === 'constraint'"
+            class="f-grounds"
+            :label="t('node.grounds')"
+          >
+            <NSelect
+              v-model:value="form.grounds"
+              multiple
+              filterable
+              clearable
+              :options="groundOptions"
+              :placeholder="t('node.groundsPlaceholder')"
+            />
+          </FormField>
+
+          <FormField
+            v-if="(selected?.type ?? store.state.creatingType) === 'constraint'"
+            class="f-rationale"
+            :label="t('node.rationale')"
+          >
+            <NInput
+              v-model:value="form.rationale"
+              type="textarea"
+              :autosize="{ minRows: 2 }"
+              :placeholder="t('node.rationalePlaceholder')"
+            />
+          </FormField>
+
+          <FormField class="f-body" :label="t('node.body')">
+            <template #extra>
+              <span class="preview-toggle">
+                <NSwitch v-model:value="previewBody" size="small" @click.stop />
+                <span @click.stop="previewBody = !previewBody">{{ t("node.preview") }}</span>
+              </span>
             </template>
-            <NFormItem v-if="selected.type === 'premise'" :label="t('node.confirmed')">
-              <NInput v-model:value="form.confirmed" placeholder="RFC 3339" />
-            </NFormItem>
-            <div class="actions">
-              <NButton size="small" type="primary" :disabled="!canSave" @click="save">
-                {{ t("node.save") }}
-              </NButton>
-              <NTooltip :disabled="dependentCount === 0">
-                <template #trigger>
-                  <NPopconfirm @positive-click="remove">
-                    <template #trigger>
-                      <NButton size="small" type="error" ghost :disabled="dependentCount > 0">
-                        {{ t("node.delete") }}
-                      </NButton>
-                    </template>
-                    {{ t("node.deleteConfirm", { id: selected.id }) }}
-                  </NPopconfirm>
-                </template>
-                {{ t("node.deleteBlocked", { count: dependentCount }) }}
-              </NTooltip>
-            </div>
-          </NForm>
+            <!-- Rendered locally from the user-authored markdown source. -->
+            <div v-if="previewBody" class="markdown" v-html="renderedBody" />
+            <NInput
+              v-else
+              v-model:value="form.body"
+              type="textarea"
+              :autosize="{ minRows: 4 }"
+              :placeholder="t('node.bodyPlaceholder')"
+            />
+          </FormField>
+        </div>
 
+        <template v-if="!creating && selected !== null && expanded">
           <!-- Dependents are derived from the graph, not stored attributes:
                only surfaced in the expanded view. -->
-          <section v-if="expanded" class="meta">
+          <section class="meta">
             <h3>{{ t("node.dependents") }}</h3>
             <template v-if="selected.dependents.length === 0">—</template>
             <ul v-else class="links">
@@ -303,6 +367,29 @@ function nodeLabel(id: string): string {
             </ul>
           </section>
         </template>
+      </div>
+
+      <div class="window-footer">
+        <template v-if="!creating && selected !== null">
+          <NTooltip :disabled="dependentCount === 0">
+            <template #trigger>
+              <NPopconfirm @positive-click="remove">
+                <template #trigger>
+                  <NButton size="small" type="error" ghost :disabled="dependentCount > 0">
+                    {{ t("node.delete") }}
+                  </NButton>
+                </template>
+                {{ t("node.deleteConfirm", { id: selected.id }) }}
+              </NPopconfirm>
+            </template>
+            {{ t("node.deleteBlocked", { count: dependentCount }) }}
+          </NTooltip>
+        </template>
+        <span class="spacer" />
+        <NButton size="small" @click="cancelEdit">{{ t("node.cancel") }}</NButton>
+        <NButton size="small" type="primary" :disabled="!canSave" @click="save">
+          {{ t("node.save") }}
+        </NButton>
       </div>
     </section>
   </template>
@@ -320,8 +407,7 @@ function nodeLabel(id: string): string {
 .detail-bar {
   position: relative;
   flex: none;
-  height: 40%;
-  min-height: 180px;
+  min-height: 120px;
   display: flex;
   flex-direction: column;
   background: var(--refino-surface);
@@ -342,6 +428,20 @@ function nodeLabel(id: string): string {
   overflow: hidden;
 }
 
+.resize-handle {
+  position: absolute;
+  top: -3px;
+  left: 0;
+  right: 0;
+  height: 6px;
+  cursor: row-resize;
+  z-index: 3;
+}
+
+.resize-handle:hover {
+  background: rgba(24, 160, 88, 0.25);
+}
+
 .window-actions {
   position: absolute;
   top: 8px;
@@ -355,18 +455,111 @@ function nodeLabel(id: string): string {
   font-size: 12px;
 }
 
+.window-head {
+  flex: none;
+  padding: 12px 14px 0;
+  box-sizing: border-box;
+}
+
 .window-body {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   padding: 12px 14px;
   box-sizing: border-box;
+  container-type: inline-size;
+}
+
+.window-footer {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--refino-border);
+}
+
+.window-footer .spacer {
+  flex: 1;
+}
+
+/* Wide bars: grounds/rationale in the left column, summary+body on the
+ * right so the long content stays last. */
+@container (min-width: 640px) {
+  .fields.constraint {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+    column-gap: 16px;
+  }
+
+  .fields.constraint .f-summary,
+  .fields.constraint .f-body {
+    grid-column: 2;
+  }
+
+  .fields.constraint .f-grounds,
+  .fields.constraint .f-rationale {
+    grid-column: 1;
+  }
+
+  .fields.constraint .f-summary {
+    grid-row: 1;
+  }
+
+  .fields.constraint .f-grounds {
+    grid-row: 1;
+  }
+
+  .fields.constraint .f-rationale {
+    grid-row: 2;
+  }
+
+  .fields.constraint .f-body {
+    grid-row: 2 / span 2;
+  }
+}
+
+.fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  row-gap: 14px;
+}
+
+.fields .f-body {
+  grid-row: auto;
+}
+
+.label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.preview-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.markdown {
+  font-size: 13px;
+  width: 100%;
+  box-sizing: border-box;
+  /* Mirror the textarea frame so switching to preview keeps the field
+   * outline visible. */
+  border: 1px solid var(--refino-border);
+  border-radius: var(--refino-radius);
+  padding: 6px 10px;
+  min-height: 60px;
 }
 
 .head {
   display: flex;
   align-items: center;
   gap: 8px;
+  margin-bottom: 10px;
 }
 
 h2 {
