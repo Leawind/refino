@@ -4,14 +4,37 @@ import { serve, type ServerType } from "@hono/node-server";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { Hono } from "hono";
+import { streamSSE } from "hono/streaming";
 import type { Context } from "hono";
-import { getGraph, postPremise, postConstraint, putNode, removeNode, getValidate } from "./api.js";
-import type { GraphApiOptions } from "./api.js";
+import {
+  getGraph,
+  getNode,
+  getValidate,
+  postConstraint,
+  postPremise,
+  postReload,
+  putNode,
+  removeNode,
+  errorResponse,
+} from "./api.js";
+import {
+  getSearch,
+  postQueryGrounds,
+  postQueryNeighbors,
+  postQueryRange,
+  postQuerySiblings,
+} from "./query-api.js";
+import { GraphIndex } from "./graph-index.js";
+import type { ChangeEvent } from "./graph-index.js";
+import { startNodeWatcher } from "./watcher.js";
+import type { NodeWatcher } from "./watcher.js";
 
 export interface WebServerOptions {
   host: string;
   port: number;
   refinoDir: string;
+  /** Quiet period for external file-event debouncing; 500ms per design. */
+  watchDebounceMs?: number;
 }
 
 export interface RunningWebServer {
@@ -19,13 +42,15 @@ export interface RunningWebServer {
   url: string;
 }
 
-export interface WebAppOptions extends Partial<GraphApiOptions> {
+export interface WebAppOptions extends Partial<Pick<WebServerOptions, "refinoDir">> {
   /**
    * Absolute path of the directory holding the built `@refino/ui` assets.
    * `null` disables static hosting (placeholder page only); when omitted the
    * installed `@refino/ui` package is located and used if it has been built.
    */
   staticRoot?: string | null;
+  /** Quiet period for external file-event debouncing; 500ms per design. */
+  watchDebounceMs?: number;
 }
 
 /** Placeholder page shown until the real web UI exists. */
@@ -62,44 +87,116 @@ export function resolveUiStaticRoot(from: string): string | undefined {
   }
 }
 
-/** Build the web application. Pure object, no listening socket — easy to test. */
-export function createWebApp(options: WebAppOptions = {}): Hono {
-  const app = new Hono();
+interface WebParts {
+  app: Hono;
+  index?: GraphIndex;
+  /** Begin watching `.refino/nodes/` for external writes; silently degrades. */
+  startWatching(): NodeWatcher | undefined;
+}
 
+function createWeb(options: WebAppOptions): WebParts {
+  const app = new Hono();
+  const index = options.refinoDir !== undefined ? new GraphIndex(options.refinoDir) : undefined;
+
+  const unavailable = (c: Context): Response =>
+    c.json({ error: "API is unavailable without a .refino directory." }, 500);
+
+  /** Loads the index once, then dispatches; load failures surface as API errors. */
   const api =
-    (handler: (c: Context) => Promise<Response>): ((c: Context) => Promise<Response>) =>
+    (
+      handler: (c: Context, index: GraphIndex) => Promise<Response>,
+    ): ((c: Context) => Promise<Response>) =>
     async (c) => {
-      if (options.refinoDir === undefined) {
-        return c.json({ error: "API is unavailable without a .refino directory." }, 500);
+      if (index === undefined) return unavailable(c);
+      try {
+        await index.ready();
+      } catch (error) {
+        return errorResponse(c, error);
       }
-      return handler(c);
+      return handler(c, index);
     };
 
   app.get("/api/health", (c) => c.json({ ok: true }));
   app.get(
     "/api/graph",
-    api((c) => getGraph(c, options as GraphApiOptions)),
+    api((c, index) => getGraph(c, index)),
   );
   app.get(
     "/api/validate",
-    api((c) => getValidate(c, options as GraphApiOptions)),
+    api((c, index) => getValidate(c, index)),
+  );
+  app.get(
+    "/api/nodes/:id",
+    api((c, index) => getNode(c, index)),
   );
   app.post(
     "/api/nodes/premise",
-    api((c) => postPremise(c, options as GraphApiOptions)),
+    api((c, index) => postPremise(c, index)),
   );
   app.post(
     "/api/nodes/constraint",
-    api((c) => postConstraint(c, options as GraphApiOptions)),
+    api((c, index) => postConstraint(c, index)),
   );
   app.put(
     "/api/nodes/:id",
-    api((c) => putNode(c, options as GraphApiOptions)),
+    api((c, index) => putNode(c, index)),
   );
   app.delete(
     "/api/nodes/:id",
-    api((c) => removeNode(c, options as GraphApiOptions)),
+    api((c, index) => removeNode(c, index)),
   );
+  app.post(
+    "/api/reload",
+    api((c, index) => postReload(c, index)),
+  );
+  app.post(
+    "/api/query/neighbors",
+    api((c, index) => postQueryNeighbors(c, index)),
+  );
+  app.post(
+    "/api/query/grounds",
+    api((c, index) => postQueryGrounds(c, index)),
+  );
+  app.post(
+    "/api/query/range",
+    api((c, index) => postQueryRange(c, index)),
+  );
+  app.post(
+    "/api/query/siblings",
+    api((c, index) => postQuerySiblings(c, index)),
+  );
+  app.get(
+    "/api/search",
+    api((c, index) => getSearch(c, index)),
+  );
+
+  // SSE change feed: an initial snapshot event, then one event per applied
+  // change batch. Reconnecting clients compare revisions and refresh
+  // wholesale (docs/design.md, "外部变更同步").
+  app.get("/api/events", (c) => {
+    if (index === undefined) return unavailable(c);
+    return streamSSE(c, async (stream) => {
+      let open = true;
+      const send = (event: ChangeEvent): void => {
+        if (!open) return;
+        void stream.writeSSE({ data: JSON.stringify(event) }).catch(() => {
+          open = false;
+        });
+      };
+      try {
+        await index.ready();
+      } catch {
+        return; // a broken store ends the stream instead of hanging it
+      }
+      const unsubscribe = index.subscribe(send);
+      stream.onAbort(() => {
+        open = false;
+        unsubscribe();
+      });
+      send({ revision: index.revision, changed: [], deleted: [], reload: true });
+      while (!stream.aborted) await stream.sleep(200);
+    });
+  });
 
   const staticRoot =
     options.staticRoot === undefined
@@ -113,7 +210,25 @@ export function createWebApp(options: WebAppOptions = {}): Hono {
     // SPA fallback: unmatched GET requests get the app shell.
     app.get("*", (c) => c.html(readIndexHtml(staticRoot)));
   }
-  return app;
+
+  return {
+    app,
+    index,
+    startWatching(): NodeWatcher | undefined {
+      if (index === undefined || options.refinoDir === undefined) return undefined;
+      void index.ready().catch(() => {}); // watcher events may arrive before the first request
+      return startNodeWatcher(
+        join(options.refinoDir, "nodes"),
+        (ids) => void index.applyChange({ changed: ids }),
+        { debounceMs: options.watchDebounceMs },
+      );
+    },
+  };
+}
+
+/** Build the web application. Pure object, no listening socket — easy to test. */
+export function createWebApp(options: WebAppOptions = {}): Hono {
+  return createWeb(options).app;
 }
 
 function readIndexHtml(staticRoot: string): string {
@@ -122,16 +237,17 @@ function readIndexHtml(staticRoot: string): string {
   return placeholderPage();
 }
 
-/** Start the HTTP server; resolve only when the socket is accepting. */
+/** Start the HTTP server (with external-change watching); resolve only when the socket is accepting. */
 export function startWebServer(options: WebServerOptions): Promise<RunningWebServer> {
   const { host, port, refinoDir } = options;
+  const parts = createWeb({ refinoDir, watchDebounceMs: options.watchDebounceMs });
+  const watcher = parts.startWatching();
   return new Promise((resolve, reject) => {
-    const server = serve(
-      { fetch: createWebApp({ refinoDir }).fetch, hostname: host, port },
-      (info) => {
-        resolve({ server, url: `http://${host}:${info.port}` });
-      },
-    );
+    const server = serve({ fetch: parts.app.fetch, hostname: host, port }, (info) => {
+      // The watchers keep the event loop alive; release them with the server.
+      server.on("close", () => watcher?.close());
+      resolve({ server, url: `http://${host}:${info.port}` });
+    });
     server.on("error", reject);
   });
 }

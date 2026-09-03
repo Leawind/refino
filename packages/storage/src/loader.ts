@@ -43,9 +43,11 @@ export async function readNode(refinoDir: string, id: string): Promise<ReadNodeR
       `Node id must be an 8-character Crockford base32 id (0-9, A-Z minus I, L, O, U), got "${id}".`,
     );
   }
-  const candidates = [...NODE_TYPES]
-    .sort()
-    .map((type) => ({ type, file: nodeRelativeFile(type, id), absolute: nodeFilePath(refinoDir, type, id) }));
+  const candidates = [...NODE_TYPES].sort().map((type) => ({
+    type,
+    file: nodeRelativeFile(type, id),
+    absolute: nodeFilePath(refinoDir, type, id),
+  }));
   const issues: RefinoIssue[] = [];
   let node: RefinoNode | null = null;
   for (const candidate of candidates) {

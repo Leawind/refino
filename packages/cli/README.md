@@ -34,9 +34,10 @@ refino web --host 127.0.0.1 --port 5649
 - 命令行参数解析与输出格式化
 - JSON 输出模式（`--json`）
 - 自定义项目根目录（`--root`）
+- `refino web` 的 HTTP 服务：进程内常驻索引（轻量索引常驻、body 按需读取并 LRU 缓存）、画布按需查询、分页搜索、文件监听与 SSE 变更推送（`/api/events`）、权威重建（`/api/reload`）。API 契约与索引架构见 [docs/design.md](../../docs/design.md) 的「Web 界面」一节
 
 本包不提供：
 
 - 图结构解析、校验或查询逻辑（由 `refino` 引擎提供）
-- 可视化编辑界面
+- 可视化编辑界面组件（由 `@refino/ui` 提供）
 - 任务界定或权限管理
