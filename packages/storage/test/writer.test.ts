@@ -1,8 +1,10 @@
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { ID_RE, validateGraph } from "refino";
 import { loadGraph } from "../src/loader.js";
 import {
+  atomicWriteFile,
   createConstraint,
   createPremise,
   deleteNode,
@@ -343,6 +345,67 @@ describe("writer: update and delete", () => {
       issues.push(...validateGraph(graph));
       expect(issues).toHaveLength(1);
       expect(issues[0]).toMatchObject({ code: "UNKNOWN_GROUND", nodeId: id, groundId });
+    } finally {
+      await removeRefino(root);
+    }
+  });
+});
+
+describe("writer: atomic writes", () => {
+  it("create and update leave no temp files in the shard directory", async () => {
+    const root = await createRefino({});
+    try {
+      const id = await createPremise(`${root}/.refino`, { body: "First." });
+      await updatePremise(`${root}/.refino`, id, { body: "Second." });
+      const shard = `${root}/.refino/nodes/${id.slice(0, 2)}`;
+      expect((await readdir(shard)).filter((name) => !name.endsWith(".md"))).toEqual([]);
+      const source = await readFile(`${shard}/${id.slice(2)}.premise.md`, "utf8");
+      expect(source).toBe("Second.\n");
+    } finally {
+      await removeRefino(root);
+    }
+  });
+
+  it("atomicWriteFile removes the temp file when the rename fails", async () => {
+    const root = await createRefino({});
+    try {
+      const dir = `${root}/.refino/nodes/A1`;
+      // A directory occupying the target path makes the rename fail.
+      await mkdir(`${dir}/B2C3D4.premise.md`, { recursive: true });
+      await expect(atomicWriteFile(`${dir}/B2C3D4.premise.md`, "Body.\n")).rejects.toThrow();
+      expect(await readdir(dir)).toEqual(["B2C3D4.premise.md"]);
+    } finally {
+      await removeRefino(root);
+    }
+  });
+
+  it("atomicWriteFile replaces existing content and leaves no temp file", async () => {
+    const root = await createRefino({});
+    try {
+      const file = `${root}/.refino/nodes/A1/B2C3D4.premise.md`;
+      await mkdir(dirname(file), { recursive: true });
+      await atomicWriteFile(file, "Old.\n");
+      await atomicWriteFile(file, "New.\n");
+      expect(await readFile(file, "utf8")).toBe("New.\n");
+      expect((await readdir(`${root}/.refino/nodes/A1`)).filter((n) => !n.endsWith(".md"))).toEqual(
+        [],
+      );
+    } finally {
+      await removeRefino(root);
+    }
+  });
+
+  it("the loader ignores stray temp files from interrupted writes", async () => {
+    const root = await createRefino({});
+    try {
+      const id = await createPremise(`${root}/.refino`, { body: "Kept." });
+      const shard = `${root}/.refino/nodes/${id.slice(0, 2)}`;
+      // What a crashed process would leave behind (written, never renamed).
+      await writeFile(`${shard}/${id.slice(2)}.premise.md.4242-0.tmp`, "half-written", "utf8");
+      const { graph, issues } = await loadGraph(`${root}/.refino`);
+      expect(issues).toEqual([]);
+      expect(graph.nodes.size).toBe(1);
+      expect(graph.nodes.get(id)).toMatchObject({ body: "Kept." });
     } finally {
       await removeRefino(root);
     }

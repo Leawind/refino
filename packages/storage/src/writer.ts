@@ -1,4 +1,4 @@
-import { mkdir, stat, unlink, writeFile } from "node:fs/promises";
+import { mkdir, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { generateId, ID_RE, RefinoError } from "refino";
 import type { NodeType } from "refino";
@@ -87,7 +87,7 @@ async function createNode(
   }
   const file = nodeFilePath(refinoDir, type, id);
   await mkdir(dirname(file), { recursive: true });
-  await writeFile(file, serializeNode(fields, body), "utf8");
+  await atomicWriteFile(file, serializeNode(fields, body));
   return id;
 }
 
@@ -164,7 +164,7 @@ async function updateNode(
   if (!(await fileExists(file))) {
     throw new RefinoError("NODE_NOT_FOUND", `Node "${id}" does not exist.`);
   }
-  await writeFile(file, serializeNode(fields, body), "utf8");
+  await atomicWriteFile(file, serializeNode(fields, body));
 }
 
 /**
@@ -191,6 +191,41 @@ function assertValidId(id: string): void {
       "INVALID_ID",
       `Node id must be an 8-character Crockford base32 id (0-9, A-Z minus I, L, O, U), got "${id}".`,
     );
+  }
+}
+
+/**
+ * Monotonic suffix making temp names unique within the process; the pid
+ * disambiguates across processes.
+ */
+let tempSeq = 0;
+
+/**
+ * Sole filesystem write primitive: write to a temp file in the target's
+ * directory, then rename it into place, so readers (loader scans, directory
+ * watchers) never observe a half-written node file. The temp name never
+ * matches the `<id>.<type>.md` node shape, so the loader silently skips it.
+ * Not part of the package's public API; exported for tests.
+ */
+export async function atomicWriteFile(file: string, content: string): Promise<void> {
+  const tmp = `${file}.${process.pid}-${tempSeq++}.tmp`;
+  try {
+    await writeFile(tmp, content, "utf8");
+    // A concurrent reader holding the destination open can transiently fail
+    // the replace on Windows; back off briefly before giving up.
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await rename(tmp, file);
+        break;
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (attempt >= 3 || (code !== "EPERM" && code !== "EACCES")) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 10 * attempt));
+      }
+    }
+  } catch (error) {
+    await unlink(tmp).catch(() => {}); // best-effort temp cleanup
+    throw error;
   }
 }
 
