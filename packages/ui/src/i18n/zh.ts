@@ -19,8 +19,7 @@ export default {
   sidebar: {
     constraints: "约束",
     premises: "前提",
-    searchConstraints: "搜索约束（id 或摘要）…",
-    searchPremises: "搜索前提（id 或摘要）…",
+    search: "按 id / 摘要搜索…",
   },
   window: {
     expand: "放大",

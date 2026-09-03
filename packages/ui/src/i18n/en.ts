@@ -19,8 +19,7 @@ export default {
   sidebar: {
     constraints: "Constraints",
     premises: "Premises",
-    searchConstraints: "Search constraints (id or summary)…",
-    searchPremises: "Search premises (id or summary)…",
+    search: "Search by id / summary…",
   },
   window: {
     expand: "Expand",

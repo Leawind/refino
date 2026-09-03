@@ -38,7 +38,7 @@ const panelStyle = computed(() => {
     // in-panel collapse button, floating over the graph.
     return {
       position: "absolute" as const,
-      top: "10px",
+      top: "8px",
       [props.side]: "8px",
       zIndex: 10,
     };
@@ -63,10 +63,6 @@ const filtered = computed(() => {
   if (q === "") return nodes;
   return nodes.filter((n) => n.id.toLowerCase().includes(q) || n.summary.toLowerCase().includes(q));
 });
-
-const placeholder = computed(() =>
-  props.type === "constraint" ? t("sidebar.searchConstraints") : t("sidebar.searchPremises"),
-);
 
 function toggleCollapsed(): void {
   collapsed.value = !collapsed.value;
@@ -133,13 +129,18 @@ function open(nodeId: string): void {
         </span>
       </div>
       <div class="search">
-        <NInput v-model:value="query" size="small" clearable :placeholder="placeholder" />
+        <NInput v-model:value="query" size="small" clearable :placeholder="t('sidebar.search')" />
       </div>
       <ul class="list">
         <li class="create-item">
-          <NButton dashed size="small" class="create" @click="store.startCreate(type)">
+          <NButton
+            dashed
+            size="small"
+            class="create"
+            :title="type === 'constraint' ? t('node.createConstraint') : t('node.createPremise')"
+            @click="store.startCreate(type)"
+          >
             <NIcon :component="AddOutline" />
-            {{ type === "constraint" ? t("node.createConstraint") : t("node.createPremise") }}
           </NButton>
         </li>
         <li
@@ -198,10 +199,8 @@ function open(nodeId: string): void {
   background: transparent;
 }
 
-/* Same size and height as the in-panel collapse button, but opaque. */
 .expand {
   background: var(--refino-surface) !important;
-  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.2);
 }
 
 .head {

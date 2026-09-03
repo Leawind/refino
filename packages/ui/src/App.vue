@@ -83,7 +83,7 @@ function refresh(): void {
             <NodeListPanel type="constraint" side="left" />
             <div class="center-pane">
               <DecisionGraph :direction="direction" />
-              <GraphFloat placement="top-right">
+              <GraphFloat placement="bottom-right">
                 <NPopselect v-model:value="direction" :options="directionOptions" trigger="click">
                   <NButton circle :title="t('app.direction')">{{ direction }}</NButton>
                 </NPopselect>
