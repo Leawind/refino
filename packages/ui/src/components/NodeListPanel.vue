@@ -1,12 +1,13 @@
 <script setup lang="ts">
 // Sidebar listing one node type only (constraints on the left, premises on
-// the right). Width is a percentage of the whole interface; dragging it
-// below the minimum collapses it to a floating round button, and dragging
-// back during the same gesture restores it. The panel can dock (push the
-// graph aside) or float over the graph.
-import { computed, onBeforeUnmount, ref } from "vue";
+// the right). Listings come from the paginated /api/search endpoint — the
+// full graph is never loaded (README, "画布按需查询"). Width is a percentage
+// of the whole interface; dragging it below the minimum collapses it to a
+// floating round button, and dragging back during the same gesture restores
+// it. The panel can dock (push the canvas aside) or float over the canvas.
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { NButton, NIcon, NInput } from "naive-ui";
+import { NButton, NIcon, NInput, NSpin } from "naive-ui";
 import {
   AddOutline,
   ChevronBackOutline,
@@ -14,8 +15,10 @@ import {
   OpenOutline,
   ScanOutline,
 } from "@vicons/ionicons5";
+import { search } from "../api";
 import { store } from "../store";
-import type { NodeType } from "../types";
+import { workspace } from "../workspace";
+import type { NodeType, SearchNode } from "../types";
 
 const props = defineProps<{ type: NodeType; side: "left" | "right" }>();
 
@@ -23,6 +26,8 @@ const { t } = useI18n();
 
 const MIN_PERCENT = 4;
 const MAX_PERCENT = 40;
+const PAGE_SIZE = 50;
+const DEBOUNCE_MS = 250;
 
 const rootEl = ref<HTMLElement | null>(null);
 const widthPercent = ref(20);
@@ -35,7 +40,7 @@ const widthStyle = computed(() => ({ width: `${widthPercent.value}%` }));
 const panelStyle = computed(() => {
   if (collapsed.value) {
     // No strip: a single round expand button at the same height as the
-    // in-panel collapse button, floating over the graph.
+    // in-panel collapse button, floating over the canvas.
     return {
       position: "absolute" as const,
       top: "8px",
@@ -56,13 +61,69 @@ const panelStyle = computed(() => {
   return widthStyle.value;
 });
 
-const filtered = computed(() => {
-  const q = query.value.trim().toLowerCase();
-  const nodes = store.state.nodes.filter((n) => n.type === props.type);
-  nodes.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  if (q === "") return nodes;
-  return nodes.filter((n) => n.id.toLowerCase().includes(q) || n.summary.toLowerCase().includes(q));
+const items = ref<SearchNode[]>([]);
+const nextCursor = ref<string | undefined>(undefined);
+const loading = ref(false);
+
+let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+let searchToken = 0;
+
+async function fetchPage(cursor: string | undefined, replace: boolean): Promise<void> {
+  const token = ++searchToken;
+  loading.value = true;
+  try {
+    const page = await search({
+      q: query.value.trim(),
+      type: props.type,
+      limit: PAGE_SIZE,
+      cursor,
+    });
+    if (token !== searchToken) return;
+    items.value = replace ? page.nodes : [...items.value, ...page.nodes];
+    nextCursor.value = page.nextCursor;
+  } catch {
+    // Sidebar listings are best-effort; keep the previous page on failure.
+  } finally {
+    if (token === searchToken) loading.value = false;
+  }
+}
+
+/** Re-fetch the already-shown window when the graph changes externally. */
+function refreshLoaded(): void {
+  if (items.value.length === 0) return;
+  const token = searchToken;
+  void search({
+    q: query.value.trim(),
+    type: props.type,
+    limit: Math.min(Math.max(items.value.length, PAGE_SIZE), 500),
+  }).then((page) => {
+    if (token !== searchToken) return; // a newer search superseded this one
+    items.value = page.nodes;
+    nextCursor.value = page.nextCursor;
+  });
+}
+
+watch(query, () => {
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(() => void fetchPage(undefined, true), DEBOUNCE_MS);
 });
+
+watch(
+  () => workspace.state.revision,
+  () => {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(refreshLoaded, DEBOUNCE_MS);
+  },
+);
+
+void fetchPage(undefined, true);
+
+function onScroll(event: Event): void {
+  const el = event.target as HTMLElement;
+  if (nextCursor.value === undefined || loading.value) return;
+  if (el.scrollTop + el.clientHeight < el.scrollHeight - 40) return;
+  void fetchPage(nextCursor.value, false);
+}
 
 function toggleCollapsed(): void {
   collapsed.value = !collapsed.value;
@@ -93,12 +154,19 @@ function onResizeEnd(): void {
   document.removeEventListener("mouseup", onResizeEnd);
 }
 
-onBeforeUnmount(() => onResizeEnd());
+onBeforeUnmount(() => {
+  clearTimeout(debounceTimer);
+  onResizeEnd();
+});
 
 /** Double click opens the detail window; single click only selects. */
-function open(nodeId: string): void {
-  store.select(nodeId);
+function open(node: SearchNode): void {
+  workspace.select(node);
   store.openDetail();
+}
+
+function select(node: SearchNode): void {
+  workspace.select(node);
 }
 </script>
 
@@ -131,7 +199,7 @@ function open(nodeId: string): void {
       <div class="search">
         <NInput v-model:value="query" size="small" clearable :placeholder="t('sidebar.search')" />
       </div>
-      <ul class="list">
+      <ul class="list" @scroll="onScroll">
         <li class="create-item">
           <NButton
             dashed
@@ -144,17 +212,20 @@ function open(nodeId: string): void {
           </NButton>
         </li>
         <li
-          v-for="node in filtered"
+          v-for="node in items"
           :key="node.id"
           class="item"
-          :class="{ selected: node.id === store.state.selectedId }"
-          @click="store.select(node.id)"
-          @dblclick="open(node.id)"
+          :class="{ selected: workspace.state.selection.includes(node.id) }"
+          @click="select(node)"
+          @dblclick="open(node)"
         >
           <div class="summary">
             {{ node.summary === "" ? t("node.untitled") : node.summary }}
           </div>
           <div class="id">{{ node.id }}</div>
+        </li>
+        <li v-if="loading" class="more">
+          <NSpin size="small" />
         </li>
       </ul>
     </template>
@@ -295,6 +366,12 @@ function open(nodeId: string): void {
   opacity: 0.55;
   margin-top: 2px;
   text-align: right;
+}
+
+.more {
+  display: grid;
+  place-items: center;
+  padding: 8px;
 }
 
 .resize-handle {

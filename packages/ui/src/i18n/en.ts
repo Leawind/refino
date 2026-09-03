@@ -54,7 +54,18 @@ export default {
     bodyPlaceholder: "markdown body",
     rationalePlaceholder: "Why this decision follows from these grounds",
     untitled: "(no summary)",
-    emptySelection: "Select a node in the sidebar or click one in the graph",
+    emptySelection: "Search the sidebar and select a node to start expanding",
+  },
+  canvas: {
+    truncated: "Truncated at the limit",
+    rangeDegraded: "The two nodes are on different branches; only the clicked node was added",
+    rangeDisconnected: "No relationship within the search budget; only the clicked node was added",
+  },
+  selection: {
+    title: "Selection",
+    clear: "Clear selection",
+    remove: "Remove",
+    locate: "Locate (make focus)",
   },
   status: {
     constraints: "Constraints",

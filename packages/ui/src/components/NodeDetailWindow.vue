@@ -11,6 +11,7 @@ import {
   NInput,
   NPopconfirm,
   NSelect,
+  NSpin,
   NSwitch,
   NTag,
   NTooltip,
@@ -20,16 +21,18 @@ import { SwapHorizontalOutline } from "@vicons/ionicons5";
 import { renderMarkdown, renderMermaidDiagrams } from "../markdown";
 import { CloseOutline, ContractOutline, ExpandOutline } from "@vicons/ionicons5";
 import FormField from "./FormField.vue";
+import { search } from "../api";
 import { store } from "../store";
+import { workspace } from "../workspace";
 import type { NodePayload } from "../types";
 
 const { t } = useI18n();
 const message = useMessage();
 
-const selected = computed(() => store.selected);
+const selected = computed(() => store.state.detail.node);
 const creating = computed(() => store.state.creatingType !== null);
 const visible = computed(
-  () => store.state.detailOpen && (creating.value || selected.value !== null),
+  () => store.state.detailOpen && (creating.value || store.state.detail.id !== null),
 );
 
 const expanded = ref(false);
@@ -114,14 +117,15 @@ const form = reactive<FormState>({
 });
 
 watch(
-  () => [store.state.selectedId, store.state.creatingType] as const,
+  () => [store.state.detail.id, store.state.creatingType] as const,
   () => resetForm(),
   { immediate: true },
 );
 
-// Keep the form in sync when the node is reloaded after a save elsewhere.
+// Keep the form in sync when the node is re-fetched (after a save, or when
+// an external change is merged server-side).
 watch(
-  () => selected.value?.body,
+  () => store.state.detail.node,
   () => {
     if (!creating.value) resetForm();
   },
@@ -136,13 +140,49 @@ function resetForm(): void {
   form.confirmed = node?.confirmed ?? "";
 }
 
-const groundOptions = computed(() =>
-  store.state.nodes
-    .filter((n) => n.id !== selected.value?.id)
-    .map((n) => ({ label: `${n.id} ${n.summary}`, value: n.id })),
-);
+/**
+ * Grounds options come from the paginated search endpoint (README, "编辑功
+ * 能": 多选节点，支持搜索); the fetched page replaces the option list while
+ * already-selected ids stay labelled.
+ */
+const groundOptions = ref<Array<{ label: string; value: string }>>([]);
+const groundSearching = ref(false);
+let groundSearchToken = 0;
 
-const dependentCount = computed(() => selected.value?.dependents.length ?? 0);
+function optionLabel(id: string, summary: string): string {
+  return `${id} ${summary === "" ? t("node.untitled") : summary}`;
+}
+
+async function searchGrounds(q: string): Promise<void> {
+  const token = ++groundSearchToken;
+  groundSearching.value = true;
+  try {
+    const page = await search({ q: q.trim(), limit: 50 });
+    if (token !== groundSearchToken) return;
+    groundOptions.value = page.nodes
+      .filter((node) => node.id !== selected.value?.id)
+      .map((node) => ({ label: optionLabel(node.id, node.summary), value: node.id }));
+  } catch {
+    // Keep the previous options on failure.
+  } finally {
+    if (token === groundSearchToken) groundSearching.value = false;
+  }
+}
+
+const mergedGroundOptions = computed(() => {
+  const options = new Map(groundOptions.value.map((option) => [option.value, option]));
+  for (const id of form.grounds) {
+    if (!options.has(id)) options.set(id, { label: id, value: id });
+  }
+  return [...options.values()];
+});
+
+// Seed the options when the bar appears.
+watch(visible, (shown) => {
+  if (shown) void searchGrounds("");
+});
+
+const dependentCount = computed(() => store.state.detail.dependents.length);
 
 /** Toggles the content field between markdown source and rendered output. */
 const previewBody = ref(false);
@@ -166,7 +206,6 @@ function switchType(): void {
   if (node === null || creating.value) return;
   const target = node.type === "premise" ? "constraint" : "premise";
   void store.update(node.id, { ...payload(), type: target });
-  store.select(node.id);
 }
 
 /**
@@ -224,8 +263,8 @@ async function remove(): Promise<void> {
 }
 
 function nodeLabel(id: string): string {
-  const node = store.state.nodes.find((n) => n.id === id);
-  return node === undefined ? id : `${id} ${node.summary}`;
+  const node = store.state.detail.dependents.find((dependent) => dependent.id === id);
+  return node === undefined ? id : optionLabel(id, node.summary);
 }
 </script>
 
@@ -294,6 +333,10 @@ function nodeLabel(id: string): string {
       </div>
 
       <div ref="bodyEl" class="window-body">
+        <div v-if="!creating && selected === null" class="loading">
+          <NSpin v-if="store.state.detail.error === null" size="small" />
+          <span v-else class="load-error">{{ store.state.detail.error }}</span>
+        </div>
         <div class="fields" :class="selected?.type ?? store.state.creatingType">
           <FormField
             v-if="(selected?.type ?? store.state.creatingType) === 'premise'"
@@ -317,8 +360,11 @@ function nodeLabel(id: string): string {
               multiple
               filterable
               clearable
-              :options="groundOptions"
+              remote
+              :loading="groundSearching"
+              :options="mergedGroundOptions"
               :placeholder="t('node.groundsPlaceholder')"
+              @search="searchGrounds"
             />
           </FormField>
 
@@ -359,10 +405,10 @@ function nodeLabel(id: string): string {
                only surfaced in the expanded view. -->
           <section class="meta">
             <h3>{{ t("node.dependents") }}</h3>
-            <template v-if="selected.dependents.length === 0">—</template>
+            <template v-if="store.state.detail.dependents.length === 0">—</template>
             <ul v-else class="links">
-              <li v-for="id in selected.dependents" :key="id">
-                <a @click="store.select(id)">{{ nodeLabel(id) }}</a>
+              <li v-for="dependent in store.state.detail.dependents" :key="dependent.id">
+                <a @click="workspace.select(dependent)">{{ nodeLabel(dependent.id) }}</a>
               </li>
             </ul>
           </section>
@@ -522,6 +568,17 @@ function nodeLabel(id: string): string {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   row-gap: 14px;
+}
+
+.loading {
+  display: grid;
+  place-items: center;
+  padding: 8px 0 14px;
+}
+
+.loading .load-error {
+  color: #d03050;
+  font-size: 12px;
 }
 
 .fields .f-body {

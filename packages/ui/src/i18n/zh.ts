@@ -53,7 +53,18 @@ export default {
     bodyPlaceholder: "markdown 正文",
     rationalePlaceholder: "为什么从这些依据得出该决策",
     untitled: "（无摘要）",
-    emptySelection: "在左侧选择一个节点，或在图中点击查看详情",
+    emptySelection: "在侧栏搜索并选择一个节点开始展开",
+  },
+  canvas: {
+    truncated: "已按上限截断",
+    rangeDegraded: "两节点不在同一祖先链上，仅追加被点击的节点",
+    rangeDisconnected: "预算内未能建立两节点的关联，仅选中了被点击的节点",
+  },
+  selection: {
+    title: "已选择",
+    clear: "清空选择",
+    remove: "移除",
+    locate: "定位（设为焦点）",
   },
   status: {
     constraints: "约束",

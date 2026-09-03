@@ -1,7 +1,8 @@
 <script setup lang="ts">
-// Application shell: header, dual sidebars, decision graph with floating
-// layers, floating detail window.
-import { computed, onMounted, ref, watchEffect } from "vue";
+// Application shell: header, dual sidebars, canvas with floating layers,
+// detail bar. Graph data flows through the on-demand workspace; the shell
+// only wires lifecycle, global actions and status display.
+import { computed, onBeforeUnmount, onMounted, ref, watchEffect } from "vue";
 import { useI18n } from "vue-i18n";
 import {
   NAlert,
@@ -18,20 +19,25 @@ import {
   dateEnUS,
 } from "naive-ui";
 import { store } from "./store";
+import { workspace } from "./workspace";
 import { i18n } from "./i18n";
 import AppHeader from "./components/AppHeader.vue";
 import NodeListPanel from "./components/NodeListPanel.vue";
 import DecisionGraph from "./components/DecisionGraph.vue";
 import NodeDetailWindow from "./components/NodeDetailWindow.vue";
 import GraphFloat from "./components/GraphFloat.vue";
+import SelectionList from "./components/SelectionList.vue";
+import WorkspaceToasts from "./components/WorkspaceToasts.vue";
 import type { LayoutDirection } from "./types";
 
-const constraintCount = computed(
-  () => store.state.nodes.filter((n) => n.type === "constraint").length,
-);
-const premiseCount = computed(() => store.state.nodes.filter((n) => n.type === "premise").length);
-
 const { t } = useI18n();
+
+const constraintCount = computed(
+  () => workspace.displayed.value.filter((n) => n.type === "constraint").length,
+);
+const premiseCount = computed(
+  () => workspace.displayed.value.filter((n) => n.type === "premise").length,
+);
 
 const naiveTheme = computed(() => (store.state.theme === "dark" ? darkTheme : null));
 const naiveLocale = computed(() => (i18n.global.locale.value === "zh" ? zhCN : enUS));
@@ -53,12 +59,23 @@ watchEffect(() => {
 });
 
 onMounted(() => {
-  void store.reload();
+  workspace.start();
+});
+onBeforeUnmount(() => {
+  workspace.stop();
 });
 
 function refresh(): void {
-  void store.reload();
+  void workspace.reload();
 }
+
+// Esc clears the selection; the detail window consumes Esc first when open
+// (closing it keeps the selection, per design).
+function onKeydown(event: KeyboardEvent): void {
+  if (event.key === "Escape" && !store.state.detailOpen) workspace.clearSelection();
+}
+onMounted(() => document.addEventListener("keydown", onKeydown));
+onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
 </script>
 
 <template>
@@ -69,6 +86,7 @@ function refresh(): void {
     :theme-overrides="{ common: { primaryColor: '#18a058', borderRadius: '8px' } }"
   >
     <NMessageProvider>
+      <WorkspaceToasts />
       <NGlobalStyle />
       <!-- Own flex shell: naive's NLayout boxes carry no layout of their own. -->
       <div class="shell" :class="{ dark: store.state.theme === 'dark' }">
@@ -77,19 +95,23 @@ function refresh(): void {
         </NLayoutHeader>
         <div class="content">
           <NAlert
-            v-if="store.state.loadError !== null"
+            v-if="workspace.state.error !== null"
             class="load-error"
             type="error"
             :show-icon="true"
             closable
+            @close="workspace.dismissError"
           >
-            {{ t("app.loadError") }}: {{ store.state.loadError }}
+            {{ t("app.loadError") }}: {{ workspace.state.error }}
           </NAlert>
           <div class="workbench">
             <NodeListPanel type="constraint" side="left" />
             <div class="center-pane">
               <div class="graph-area">
                 <DecisionGraph :direction="direction" />
+                <GraphFloat placement="top-right">
+                  <SelectionList />
+                </GraphFloat>
                 <GraphFloat placement="bottom-right">
                   <NPopselect v-model:value="direction" :options="directionOptions" trigger="click">
                     <NButton circle :title="t('app.direction')">{{ direction }}</NButton>
@@ -99,11 +121,14 @@ function refresh(): void {
                   <div class="status-pill">
                     <span>{{ t("status.constraints") }}: {{ constraintCount }}</span>
                     <span>{{ t("status.premises") }}: {{ premiseCount }}</span>
-                    <span v-if="store.state.issues.length > 0" class="issues">
-                      {{ t("status.issues") }}: {{ store.state.issues.length }}
+                    <span v-if="workspace.state.truncated" class="issues">
+                      {{ t("canvas.truncated") }}
                     </span>
-                    <span v-if="store.state.selectedId !== null" class="mono">
-                      {{ t("status.selected") }}: {{ store.state.selectedId }}
+                    <span v-if="workspace.state.issues.length > 0" class="issues">
+                      {{ t("status.issues") }}: {{ workspace.state.issues.length }}
+                    </span>
+                    <span v-if="workspace.state.focusId !== null" class="mono">
+                      {{ t("status.selected") }}: {{ workspace.state.focusId }}
                     </span>
                   </div>
                 </GraphFloat>

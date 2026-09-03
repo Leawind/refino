@@ -1,22 +1,25 @@
 <script setup lang="ts">
-// Center canvas: layered CRG visualization. Clicking a node selects it.
-// Pan/zoom and richer in-canvas interactions are intentionally out of scope.
+// Center canvas: renders the on-demand working set. Clicking a node makes it
+// the sole selection; shift+click range-selects; ctrl+click toggles; double
+// click opens the detail window; hovering pulls in the node's direct
+// grounds. The SVG renderer is a placeholder for the WebGL canvas
+// (README, "画布": rendering and incremental layout land separately).
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 import { store } from "../store";
+import { workspace } from "../workspace";
 import { layoutGraph } from "../graph/layout";
-import type { LayoutDirection } from "../types";
+import type { LayoutDirection, NodeLite } from "../types";
 
 const props = defineProps<{ direction: LayoutDirection }>();
 
 const { t } = useI18n();
 
-const geometry = computed(() => layoutGraph(store.state.nodes, props.direction));
+const geometry = computed(() => layoutGraph(workspace.displayed.value, props.direction));
+const byId = computed(() => new Map(workspace.displayed.value.map((n) => [n.id, n] as const)));
 
 function labelOf(id: string): string {
-  const node = store.state.nodes.find((n) => n.id === id);
-  const summary = node?.summary ?? "";
-  return summary === "" ? t("node.untitled") : summary;
+  return byId.value.get(id)?.summary ?? "";
 }
 
 function truncate(text: string): string {
@@ -24,8 +27,11 @@ function truncate(text: string): string {
   return [...text].length > 12 ? `${[...text].slice(0, 11).join("")}…` : text;
 }
 
-function nodeType(id: string): string | undefined {
-  return store.state.nodes.find((n) => n.id === id)?.type;
+function onClick(event: MouseEvent, lite: NodeLite | undefined): void {
+  if (lite === undefined) return;
+  if (event.shiftKey) void workspace.rangeSelect(lite);
+  else if (event.ctrlKey || event.metaKey) workspace.toggle(lite);
+  else workspace.select(lite);
 }
 </script>
 
@@ -38,19 +44,39 @@ function nodeType(id: string): string | undefined {
       :viewBox="`0 0 ${geometry.width} ${geometry.height}`"
     >
       <g class="edges">
-        <path v-for="(edge, i) in geometry.edges" :key="i" :d="edge.path" class="edge" />
+        <path
+          v-for="(edge, i) in geometry.edges"
+          :key="i"
+          :d="edge.path"
+          class="edge"
+          :class="{ strong: edge.to.id === workspace.state.hoveredId }"
+        />
       </g>
       <g
         v-for="node in geometry.nodes"
         :key="node.id"
         class="node"
-        :class="[nodeType(node.id), { selected: node.id === store.state.selectedId }]"
-        @click="store.select(node.id)"
+        :class="[
+          byId.get(node.id)?.type,
+          {
+            selected: workspace.state.selection.includes(node.id),
+            focus: node.id === workspace.state.focusId,
+            hovered: node.id === workspace.state.hoveredId,
+          },
+        ]"
+        @click="onClick($event, byId.get(node.id))"
         @dblclick="store.openDetail()"
+        @mouseenter="workspace.hover(node.id)"
+        @mouseleave="workspace.unhover()"
       >
-        <rect :x="node.x" :y="node.y" :width="node.width" :height="node.height" rx="8" />
-        <text class="id" :x="node.x + 10" :y="node.y + 17">{{ node.id }}</text>
-        <text class="summary" :x="node.x + 10" :y="node.y + 34">
+        <rect
+          :x="node.x"
+          :y="node.y"
+          :width="node.width"
+          :height="node.height"
+          :rx="byId.get(node.id)?.type === 'premise' ? 0 : 8"
+        />
+        <text class="summary" :x="node.x + 10" :y="node.y + 26">
           {{ truncate(labelOf(node.id)) }}
         </text>
       </g>
@@ -82,16 +108,22 @@ function nodeType(id: string): string | undefined {
   stroke-width: 1.4;
 }
 
+.edge.strong {
+  stroke: var(--refino-primary, #18a058);
+  stroke-width: 2.2;
+}
+
 .node rect {
-  rx: var(--refino-radius);
   fill: var(--refino-node-bg);
   stroke: var(--refino-node-border);
   stroke-width: 1.2;
   cursor: pointer;
 }
 
-.node:hover rect {
+.node:hover rect,
+.node.hovered rect {
   stroke: var(--refino-primary, #18a058);
+  stroke-width: 2;
 }
 
 .node.selected rect {
@@ -100,18 +132,13 @@ function nodeType(id: string): string | undefined {
   fill: rgba(24, 160, 88, 0.12);
 }
 
+.node.focus rect {
+  stroke-width: 3.2;
+}
+
 .node text {
   font-size: 11px;
   fill: currentColor;
   pointer-events: none;
-}
-
-.node .id {
-  font-family: monospace;
-  opacity: 0.7;
-}
-
-.node.premise rect {
-  stroke-dasharray: 4 3;
 }
 </style>
