@@ -80,9 +80,6 @@ export type DeltaEvent =
   | { type: "frozen"; id: string }
   | { type: "unfrozen"; id: string };
 
-/** Result of one id in a batch query: results, or a per-id error. */
-export type QueryGroup<T> = { id: string; results: T[] } | { id: string; error: string };
-
 /** Context node ids reference nodes that do not exist in the graph. */
 export function unknownNodes(graph: Graph, ids: readonly string[]): string[] {
   return ids.filter((id) => !graph.nodes.has(id));

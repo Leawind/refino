@@ -4,18 +4,15 @@ import {
   getGrounds,
   type Graph,
   type NodeWithDepth,
+  type QueryGroup,
   type RefinoNode,
+  queryGroups,
+  requireNode,
 } from "refino";
 import { checkModification, validateContext } from "./boundary.js";
 import { contextBlocks, diffContext } from "./context.js";
 import { pendingReview } from "./pending.js";
-import type {
-  AuthorizationContext,
-  ContextBlock,
-  DeltaEvent,
-  ModificationCheck,
-  QueryGroup,
-} from "./types.js";
+import type { AuthorizationContext, ContextBlock, DeltaEvent, ModificationCheck } from "./types.js";
 
 /**
  * Host adapter interface (docs/design.md, "harness 与工具插件的分工"). Tool
@@ -81,37 +78,18 @@ export class HarnessSession {
   }
 
   show(ids: readonly string[]): QueryGroup<RefinoNode>[] {
-    return ids.map((id) => {
-      const node = this.graph.nodes.get(id);
-      return node ? { id, results: [node] } : { id, error: notFound(id) };
-    });
+    return queryGroups(this.graph, ids, (graph, id) => [requireNode(graph, id)]);
   }
 
   grounds(ids: readonly string[]): QueryGroup<RefinoNode>[] {
-    return ids.map((id) =>
-      this.graph.nodes.has(id)
-        ? { id, results: getGrounds(this.graph, id) }
-        : { id, error: notFound(id) },
-    );
+    return queryGroups(this.graph, ids, getGrounds);
   }
 
   ancestors(ids: readonly string[]): QueryGroup<NodeWithDepth>[] {
-    return ids.map((id) =>
-      this.graph.nodes.has(id)
-        ? { id, results: getAncestors(this.graph, id) }
-        : { id, error: notFound(id) },
-    );
+    return queryGroups(this.graph, ids, getAncestors);
   }
 
   dependents(ids: readonly string[]): QueryGroup<NodeWithDepth>[] {
-    return ids.map((id) =>
-      this.graph.nodes.has(id)
-        ? { id, results: getDependents(this.graph, id) }
-        : { id, error: notFound(id) },
-    );
+    return queryGroups(this.graph, ids, getDependents);
   }
-}
-
-function notFound(id: string): string {
-  return `Node "${id}" not found`;
 }

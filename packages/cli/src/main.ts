@@ -3,8 +3,17 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createConstraint, createPremise, loadGraph } from "@refino/storage";
 import { CommanderError, Command, Option } from "commander";
-import { getAncestors, getDependents, getGrounds, ID_RE, RefinoError, validateGraph } from "refino";
-import type { Graph, RefinoIssue, RefinoNode } from "refino";
+import {
+  getAncestors,
+  getDependents,
+  getGrounds,
+  ID_RE,
+  queryGroups,
+  RefinoError,
+  requireNode,
+  validateGraph,
+} from "refino";
+import type { Graph, NodeWithDepth, QueryGroup, RefinoIssue, RefinoNode } from "refino";
 import { processIo, renderIssues, renderNodeTable } from "./format.js";
 import type { CliIo } from "./format.js";
 import { startWebServer } from "./web/server.js";
@@ -103,28 +112,23 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
     .action((ids: string[], _opts, cmd) =>
       run(cmd, async (opts) =>
         withGraph(io, opts, (graph) => {
-          let missing = false;
+          const groups = queryGroups(graph, ids, (graph, id) => [requireNode(graph, id)]);
+          const missing = groups.some((group) => "error" in group);
           if (opts.json) {
             emit(
               io,
-              ids.map((id) => {
-                const node = graph.nodes.get(id);
-                if (!node) {
-                  missing = true;
-                  return { id, error: notFound(id) };
-                }
-                return fullNodeJson(node);
-              }),
+              groups.map((group) =>
+                "error" in group
+                  ? group
+                  : { id: group.id, results: group.results.map(fullNodeJson) },
+              ),
             );
           } else {
             io.stdout.write(
-              `${ids
-                .map((id) => {
-                  const node = graph.nodes.get(id);
-                  if (!node) {
-                    missing = true;
-                    return `error: ${notFound(id)}`;
-                  }
+              `${groups
+                .map((group) => {
+                  if ("error" in group) return `error: ${group.error}`;
+                  const node = group.results[0]!;
                   return `${renderNodeHeading(node)}\n\n${node.body}`;
                 })
                 .join("\n\n")}\n`,
@@ -142,9 +146,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
     .action((ids: string[], _opts, cmd) =>
       run(cmd, async (opts) =>
         withGraph(io, opts, (graph) => {
-          const { missing } = emitGroupedNodes(io, opts, ids, (id) =>
-            graph.nodes.has(id) ? { results: getGrounds(graph, id) } : { error: notFound(id) },
-          );
+          const { missing } = emitGroupedNodes(io, opts, queryGroups(graph, ids, getGrounds));
           return missing ? 1 : 0;
         }),
       ),
@@ -157,9 +159,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
     .action((ids: string[], _opts, cmd) =>
       run(cmd, async (opts) =>
         withGraph(io, opts, (graph) => {
-          const { missing } = emitGroupedDepths(io, opts, ids, (id) =>
-            graph.nodes.has(id) ? { results: getAncestors(graph, id) } : { error: notFound(id) },
-          );
+          const { missing } = emitGroupedDepths(io, opts, queryGroups(graph, ids, getAncestors));
           return missing ? 1 : 0;
         }),
       ),
@@ -172,9 +172,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
     .action((ids: string[], _opts, cmd) =>
       run(cmd, async (opts) =>
         withGraph(io, opts, (graph) => {
-          const { missing } = emitGroupedDepths(io, opts, ids, (id) =>
-            graph.nodes.has(id) ? { results: getDependents(graph, id) } : { error: notFound(id) },
-          );
+          const { missing } = emitGroupedDepths(io, opts, queryGroups(graph, ids, getDependents));
           return missing ? 1 : 0;
         }),
       ),
@@ -332,10 +330,6 @@ function emitCreated(
   else io.stdout.write(`created ${id} (${join(".refino", file)})\n`);
 }
 
-function notFound(id: string): string {
-  return `Node "${id}" not found`;
-}
-
 function emitNodes(io: CliIo, opts: GlobalOptions, nodes: RefinoNode[]): void {
   if (opts.json) {
     emit(io, nodes.map(nodeJson));
@@ -356,95 +350,70 @@ function emitNodes(io: CliIo, opts: GlobalOptions, nodes: RefinoNode[]): void {
 function emitGroupedNodes(
   io: CliIo,
   opts: GlobalOptions,
-  ids: string[],
-  select: (id: string) => { results: RefinoNode[] } | { error: string },
+  groups: QueryGroup<RefinoNode>[],
 ): { missing: boolean } {
-  let missing = false;
-  const resolve = (id: string): { results: RefinoNode[] } | { error: string } => {
-    const selected = select(id);
-    if ("error" in selected) missing = true;
-    return selected;
-  };
+  const missing = groups.some((group) => "error" in group);
   if (opts.json) {
     emit(
       io,
-      ids.map((id) => {
-        const selected = resolve(id);
-        return "error" in selected
-          ? { id, error: selected.error }
-          : { id, results: selected.results.map(nodeJson) };
-      }),
+      groups.map((group) =>
+        "error" in group ? group : { id: group.id, results: group.results.map(nodeJson) },
+      ),
     );
-  } else if (ids.length === 1) {
-    emitNodesOrError(io, opts, resolve(ids[0]!));
+  } else if (groups.length === 1) {
+    emitNodesOrError(io, opts, groups[0]!);
   } else {
-    for (const id of ids) {
-      io.stdout.write(`${id}:\n`);
-      emitNodesOrError(io, opts, resolve(id));
+    for (const group of groups) {
+      io.stdout.write(`${group.id}:\n`);
+      emitNodesOrError(io, opts, group);
     }
   }
   return { missing };
 }
 
-function emitNodesOrError(
-  io: CliIo,
-  opts: GlobalOptions,
-  selected: { results: RefinoNode[] } | { error: string },
-): void {
-  if ("error" in selected) {
-    io.stdout.write(`error: ${selected.error}\n`);
+function emitNodesOrError(io: CliIo, opts: GlobalOptions, group: QueryGroup<RefinoNode>): void {
+  if ("error" in group) {
+    io.stdout.write(`error: ${group.error}\n`);
     return;
   }
-  emitNodes(io, opts, selected.results);
+  emitNodes(io, opts, group.results);
 }
 
 function emitGroupedDepths(
   io: CliIo,
   opts: GlobalOptions,
-  ids: string[],
-  select: (
-    id: string,
-  ) => { results: ReadonlyArray<{ node: RefinoNode; depth: number }> } | { error: string },
+  groups: QueryGroup<NodeWithDepth>[],
 ): { missing: boolean } {
-  let missing = false;
-  const resolve = (
-    id: string,
-  ): { results: ReadonlyArray<{ node: RefinoNode; depth: number }> } | { error: string } => {
-    const selected = select(id);
-    if ("error" in selected) missing = true;
-    return selected;
-  };
+  const missing = groups.some((group) => "error" in group);
   if (opts.json) {
     emit(
       io,
-      ids.map((id) => {
-        const selected = resolve(id);
-        return "error" in selected
-          ? { id, error: selected.error }
-          : { id, results: selected.results.map((r) => ({ ...nodeJson(r.node), depth: r.depth })) };
-      }),
+      groups.map((group) =>
+        "error" in group
+          ? group
+          : {
+              id: group.id,
+              results: group.results.map((r) => ({ ...nodeJson(r.node), depth: r.depth })),
+            },
+      ),
     );
-  } else if (ids.length === 1) {
-    emitDepthsOrError(io, opts, resolve(ids[0]!));
+  } else if (groups.length === 1) {
+    emitDepthsOrError(io, opts, groups[0]!);
   } else {
-    for (const id of ids) {
-      io.stdout.write(`${id}:\n`);
-      emitDepthsOrError(io, opts, resolve(id));
+    for (const group of groups) {
+      io.stdout.write(`${group.id}:\n`);
+      emitDepthsOrError(io, opts, group);
     }
   }
   return { missing };
 }
 
-function emitDepthsOrError(
-  io: CliIo,
-  opts: GlobalOptions,
-  selected: { results: ReadonlyArray<{ node: RefinoNode; depth: number }> } | { error: string },
-): void {
-  if ("error" in selected) {
-    io.stdout.write(`error: ${selected.error}\n`);
+function emitDepthsOrError(io: CliIo, opts: GlobalOptions, group: QueryGroup<NodeWithDepth>): void {
+  if ("error" in group) {
+    io.stdout.write(`error: ${group.error}\n`);
     return;
   }
-  emitDepths(io, opts, selected.results);
+  emitDepths(io, opts, group.results);
 }
 
 function emitDepths(

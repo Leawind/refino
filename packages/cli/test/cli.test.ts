@@ -176,9 +176,9 @@ describe("refino cli", () => {
       "1A2B3C4D",
     ]);
     expect(code).toBe(0);
-    const nodes = JSON.parse(out) as Array<{ id: string; body?: string }>;
-    expect(nodes.map((n) => n.id)).toEqual(["E5F6G7H8", "1A2B3C4D"]);
-    expect(nodes.every((n) => typeof n.body === "string")).toBe(true);
+    const groups = JSON.parse(out) as Array<{ id: string; results: Array<{ body?: string }> }>;
+    expect(groups.map((g) => g.id)).toEqual(["E5F6G7H8", "1A2B3C4D"]);
+    expect(groups.every((g) => typeof g.results[0]?.body === "string")).toBe(true);
   });
 
   it("queries refuse to run on an invalid graph", async () => {
@@ -313,8 +313,10 @@ describe("refino cli", () => {
       const list = await run(["--root", emptyRoot, "--json", "list", "--type", "premise"]);
       const nodes = JSON.parse(list.out) as Array<{ id: string }>;
       const show = await run(["--root", emptyRoot, "--json", "show", nodes[0]!.id]);
-      const [node] = JSON.parse(show.out) as Array<{ confirmed?: string }>;
-      expect(node!.confirmed).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/);
+      const [group] = JSON.parse(show.out) as Array<{ results: Array<{ confirmed?: string }> }>;
+      expect(group!.results[0]!.confirmed).toMatch(
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/,
+      );
     } finally {
       await removeRefino(emptyRoot);
     }

@@ -14,5 +14,5 @@ export type {
   DeltaEvent,
   EscalationReport,
   ModificationCheck,
-  QueryGroup,
 } from "./types.js";
+export type { QueryGroup } from "refino";
