@@ -242,6 +242,7 @@ function open(nodeId: string): void {
   margin: 0;
   padding: 0 6px 6px;
   list-style: none;
+  user-select: none;
 }
 
 .item {

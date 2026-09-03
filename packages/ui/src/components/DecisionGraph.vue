@@ -64,6 +64,7 @@ function nodeType(id: string): string | undefined {
   width: 100%;
   height: 100%;
   overflow: auto;
+  user-select: none;
 }
 
 /* The svg keeps a 1:1 user-unit scale; large graphs scroll within the pane. */
