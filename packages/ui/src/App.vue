@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Application shell: header, dual sidebars, decision graph with floating
 // layers, floating detail window.
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watchEffect } from "vue";
 import { useI18n } from "vue-i18n";
 import {
   NAlert,
@@ -45,6 +45,12 @@ const directionOptions = [
   { label: "←", value: "RL" },
   { label: "↑", value: "BT" },
 ];
+
+// Expose the theme on <html> so token definitions and naive portals
+// (which render outside .shell) follow the dark/light switch.
+watchEffect(() => {
+  document.documentElement.dataset.theme = store.state.theme;
+});
 
 onMounted(() => {
   void store.reload();
@@ -111,25 +117,6 @@ function refresh(): void {
 </template>
 
 <style scoped>
-/* Theme-aware tokens consumed by the plain (non-naive) panes and the SVG
- * graph, which do not receive naive's theme variables. */
-.shell {
-  --refino-border: rgba(0, 0, 0, 0.1);
-  --refino-radius: 8px;
-  --refino-surface: #ffffff;
-  --refino-node-bg: rgba(128, 128, 128, 0.08);
-  --refino-node-border: rgba(128, 128, 128, 0.4);
-  --refino-edge: rgba(128, 128, 128, 0.5);
-}
-
-.shell.dark {
-  --refino-border: rgba(255, 255, 255, 0.12);
-  --refino-surface: rgb(24, 24, 28);
-  --refino-node-bg: rgba(255, 255, 255, 0.06);
-  --refino-node-border: rgba(255, 255, 255, 0.28);
-  --refino-edge: rgba(255, 255, 255, 0.3);
-}
-
 .shell {
   /* Fill the host element, whatever size the embedding page gives it. */
   height: 100%;

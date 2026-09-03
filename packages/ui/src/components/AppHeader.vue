@@ -73,6 +73,8 @@ const localeOptions = computed(() =>
         :options="localeOptions"
         trigger="hover"
         :value="locale"
+        :show-arrow="false"
+        placement="bottom"
         @select="store.setLocale($event)"
       >
         <button class="nav-btn" :aria-label="t('app.language')">

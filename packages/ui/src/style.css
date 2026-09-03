@@ -1,3 +1,31 @@
+:root {
+  --refino-border: rgba(0, 0, 0, 0.1);
+  --refino-radius: 8px;
+  --refino-surface: #ffffff;
+  --refino-node-bg: rgba(128, 128, 128, 0.08);
+  --refino-node-border: rgba(128, 128, 128, 0.4);
+  --refino-edge: rgba(128, 128, 128, 0.5);
+}
+
+:root[data-theme="dark"] {
+  --refino-border: rgba(255, 255, 255, 0.12);
+  --refino-surface: rgb(24, 24, 28);
+  --refino-node-bg: rgba(255, 255, 255, 0.06);
+  --refino-node-border: rgba(255, 255, 255, 0.28);
+  --refino-edge: rgba(255, 255, 255, 0.3);
+}
+
+/* naive portals (dropdown menus etc.) escape .shell, so they read the same
+ * tokens from the root and get matching surfaces here. */
+.n-dropdown-menu {
+  /* naive defaults to a 6px top margin; the menu must touch the header. */
+  margin-top: 0 !important;
+  background: var(--refino-surface) !important;
+  border: 1px solid var(--refino-border);
+  border-radius: var(--refino-radius);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.25);
+}
+
 /* Host-provided container sizing: the UI fills whatever element mounts it,
  * it never assumes it owns the whole viewport. */
 html,
