@@ -83,6 +83,7 @@ function nodeType(id: string): string | undefined {
 }
 
 .node rect {
+  rx: var(--refino-radius);
   fill: var(--refino-node-bg);
   stroke: var(--refino-node-border);
   stroke-width: 1.2;

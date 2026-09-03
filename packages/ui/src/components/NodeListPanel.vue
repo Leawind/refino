@@ -186,7 +186,7 @@ function open(nodeId: string): void {
 .panel.floating {
   background: var(--refino-surface);
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.25);
-  border-radius: 10px;
+  border-radius: var(--refino-radius);
   border: 1px solid var(--refino-border);
 }
 
@@ -270,7 +270,7 @@ function open(nodeId: string): void {
 
 .item {
   padding: 6px 8px;
-  border-radius: 6px;
+  border-radius: var(--refino-radius);
   cursor: pointer;
 }
 

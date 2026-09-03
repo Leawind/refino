@@ -60,7 +60,7 @@ function refresh(): void {
     :theme="naiveTheme"
     :locale="naiveLocale"
     :date-locale="naiveDateLocale"
-    :theme-overrides="{ common: { primaryColor: '#18a058' } }"
+    :theme-overrides="{ common: { primaryColor: '#18a058', borderRadius: '8px' } }"
   >
     <NMessageProvider>
       <NGlobalStyle />
@@ -115,6 +115,7 @@ function refresh(): void {
  * graph, which do not receive naive's theme variables. */
 .shell {
   --refino-border: rgba(0, 0, 0, 0.1);
+  --refino-radius: 8px;
   --refino-surface: #ffffff;
   --refino-node-bg: rgba(128, 128, 128, 0.08);
   --refino-node-border: rgba(128, 128, 128, 0.4);
@@ -175,7 +176,7 @@ function refresh(): void {
   gap: 12px;
   padding: 4px 12px;
   font-size: 12px;
-  border-radius: 999px;
+  border-radius: var(--refino-radius);
   background: var(--refino-surface);
   border: 1px solid var(--refino-border);
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);

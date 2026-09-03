@@ -332,7 +332,7 @@ function nodeLabel(id: string): string {
   flex-direction: column;
   background: var(--refino-surface);
   border: 1px solid var(--refino-border);
-  border-radius: 10px;
+  border-radius: var(--refino-radius);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
   z-index: 41;
   overflow: hidden;
