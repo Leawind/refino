@@ -3,7 +3,7 @@
 // language follow the VitePress pattern: small icon buttons with dropdowns.
 import { computed, h } from "vue";
 import { useI18n } from "vue-i18n";
-import { NButton, NDropdown, NIcon, NTooltip } from "naive-ui";
+import { NDropdown, NIcon } from "naive-ui";
 import {
   LanguageOutline,
   MoonOutline,
@@ -59,41 +59,28 @@ const localeOptions = computed(() =>
     </div>
 
     <div class="actions">
-      <NTooltip>
-        <template #trigger>
-          <NButton quaternary circle :aria-label="t('app.refresh')" @click="emit('refresh')">
-            <NIcon :component="RefreshOutline" />
-          </NButton>
-        </template>
-        {{ t("app.refresh") }}
-      </NTooltip>
-
-      <NTooltip>
-        <template #trigger>
-          <NButton
-            quaternary
-            circle
-            :aria-label="isDark ? t('app.themeLight') : t('app.themeDark')"
-            @click="toggleTheme"
-          >
-            <NIcon :component="isDark ? SunnyOutline : MoonOutline" />
-          </NButton>
-        </template>
-        {{ isDark ? t("app.themeLight") : t("app.themeDark") }}
-      </NTooltip>
-
+      <button class="nav-btn" :aria-label="t('app.refresh')" @click="emit('refresh')">
+        <NIcon :component="RefreshOutline" />
+      </button>
+      <button
+        class="nav-btn"
+        :aria-label="isDark ? t('app.themeLight') : t('app.themeDark')"
+        @click="toggleTheme"
+      >
+        <NIcon :component="isDark ? SunnyOutline : MoonOutline" />
+      </button>
       <NDropdown
         :options="localeOptions"
-        trigger="click"
+        trigger="hover"
         :value="locale"
         @select="store.setLocale($event)"
       >
-        <NButton quaternary circle :aria-label="t('app.language')" class="lang-button">
+        <button class="nav-btn" :aria-label="t('app.language')">
           <NIcon :component="LanguageOutline" />
           <NIcon :size="12" class="chevron">
             <ChevronDownOutline />
           </NIcon>
-        </NButton>
+        </button>
       </NDropdown>
     </div>
   </header>
@@ -133,8 +120,31 @@ const localeOptions = computed(() =>
 
 .actions {
   display: flex;
+  align-items: stretch;
+  height: 100%;
+}
+
+/* Rectangular, header-high icon buttons; hovering recolors the icon only. */
+.nav-btn {
+  width: 46px;
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
+  justify-content: center;
+  gap: 2px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  padding: 0;
+}
+
+.nav-btn:hover {
+  color: var(--refino-primary, #18a058);
+}
+
+.chevron {
+  opacity: 0.6;
 }
 
 .lang-button .chevron {
