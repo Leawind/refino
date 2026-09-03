@@ -65,10 +65,11 @@ export function toLite(node: RefinoNode): NodeLite {
 }
 
 /**
- * Per-id neighborhood: ancestors up to `ancestorDepth` (constraints and
- * premises) plus descendants up to `descendantDepth` (constraints only —
- * only constraints carry grounds). Nearest-first; `limit` truncates. The
- * group's `results` array holds exactly one neighborhood object.
+ * Per-id neighborhood: the anchor itself at depth 0, ancestors up to
+ * `ancestorDepth` (constraints and premises) plus descendants up to
+ * `descendantDepth` (constraints only — only constraints carry grounds).
+ * Nearest-first; `limit` truncates. The group's `results` array holds
+ * exactly one neighborhood object.
  */
 export function neighbors(
   graph: Graph,
@@ -76,7 +77,7 @@ export function neighbors(
   params: { ancestorDepth: number; descendantDepth: number; limit?: number },
 ): QueryGroup<Neighborhood>[] {
   return queryGroups(graph, ids, (g, id): Neighborhood[] => {
-    const depth = new Map<string, number>();
+    const depth = new Map<string, number>([[id, 0]]);
     for (const entry of getAncestors(g, id)) {
       if (entry.depth <= params.ancestorDepth) depth.set(entry.node.id, entry.depth);
     }

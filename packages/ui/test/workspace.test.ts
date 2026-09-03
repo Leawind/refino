@@ -40,9 +40,10 @@ const lite: Record<string, NodeLite> = {
   [C6]: { id: C6, type: "constraint", summary: "C6。", grounds: [P1, P2] },
 };
 
-/** Nearest-first neighborhoods at the default depths (ancestors 2, descendants 2). */
+/** Nearest-first neighborhoods at the default depths (ancestors 2, descendants 2). Anchors come back at depth 0. */
 const NEIGHBORHOODS: Record<string, Array<[string, number]>> = {
   [C1]: [
+    [C1, 0],
     [P1, 1],
     [C2, 1],
     [C4, 1],
@@ -50,6 +51,7 @@ const NEIGHBORHOODS: Record<string, Array<[string, number]>> = {
     [C3, 2],
   ],
   [C2]: [
+    [C2, 0],
     [C1, 1],
     [P2, 1],
     [C3, 1],
@@ -57,17 +59,23 @@ const NEIGHBORHOODS: Record<string, Array<[string, number]>> = {
     [P1, 2],
   ],
   [C3]: [
+    [C3, 0],
     [C2, 1],
     [P2, 2],
     [C1, 2],
   ],
   [C4]: [
+    [C4, 0],
     [C1, 1],
     [P2, 1],
     [P1, 2],
   ],
-  [C5]: [[P3, 1]],
+  [C5]: [
+    [C5, 0],
+    [P3, 1],
+  ],
   [C6]: [
+    [C6, 0],
     [P1, 1],
     [P2, 1],
   ],
@@ -104,8 +112,6 @@ const GROUNDS: Record<string, string[]> = {
 };
 
 const RANGES: Record<string, { mode: string; nodes: Array<[string, number | null]> }> = {
-  [`${C3}->${C3}`]: { mode: "ancestor", nodes: [[C3, 0]] },
-  [`${C5}->${C5}`]: { mode: "ancestor", nodes: [[C5, 0]] },
   [`${C3}->${C1}`]: {
     mode: "ancestor",
     nodes: [
@@ -284,8 +290,8 @@ afterEach(() => {
 describe("select expands the working set", () => {
   it("unions the anchor, its neighborhood and its siblings", async () => {
     await select(C3);
-    // Anchors are re-read via range(id, id) for fresh grounds.
-    expect(lastCall("/api/query/range").body).toMatchObject({ focusId: C3, clickedId: C3 });
+    // The neighborhood carries the anchor itself, so the one neighbors call
+    // also refreshes the anchor's lite shape (grounds included).
     expect(lastCall("/api/query/siblings").body).toMatchObject({ ids: [C3] });
     expect(lastCall("/api/query/neighbors").body).toMatchObject({
       ids: [C3],

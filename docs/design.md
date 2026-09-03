@@ -140,7 +140,7 @@ vibe coding 工具插件统一命名为 `@refino/<tool>-plugin`，`<tool>` 为�
 
 界面中央的 CRG 交互式可视化区域（下称"画布"）不默认全量加载：一个项目可能包含 10⁶ 量级的约束节点，全量拉取不可行。画布以选择驱动按需展开，工作集与渲染预算等细节见 `@refino/ui` README；跨包的查询契约如下，均沿用批量、部分成功语义，返回形状为 `QueryGroup<T>`：
 
-- `POST /api/query/neighbors`：`{ ids, ancestorDepth, descendantDepth, limit? }` → 各节点的邻域（含相对深度 `depth`），按近者优先截断，返回 `truncated` 标志。邻域内祖先必含约束与前提；后代只含约束。
+- `POST /api/query/neighbors`：`{ ids, ancestorDepth, descendantDepth, limit? }` → 各节点的邻域（含相对深度 `depth`），按近者优先截断，返回 `truncated` 标志。邻域含锚点自身（`depth` 为 0）；邻域内祖先必含约束与前提；后代只含约束。
 - `POST /api/query/grounds`：`{ ids }` → 各节点的直接依据（悬停时单跳拉取）。
 - `POST /api/query/range`：`{ focusId, clickedId, budget }` → `{ mode, nodes }`。`mode` 取值：
   - `ancestor`：一端是另一端的祖先，`nodes` 为「祖先的后代约束集 ∩ 后代的祖先约束集」加两个端点自身，有序去重；

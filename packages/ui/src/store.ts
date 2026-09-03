@@ -66,7 +66,8 @@ async function loadDetail(id: string): Promise<void> {
   state.detail = { ...emptyDetail(), id, loading: true };
   try {
     // Direct dependents = constraints whose grounds contain the node, i.e.
-    // the first descendant hop of the neighborhood query.
+    // the first descendant hop of the neighborhood query (minus the node
+    // itself, which comes back as its own depth-0 anchor).
     const [detail, dependentGroups] = await Promise.all([
       fetchNode(id),
       queryNeighbors([id], { ancestorDepth: 0, descendantDepth: 1 }),
@@ -74,7 +75,8 @@ async function loadDetail(id: string): Promise<void> {
     if (token !== detailToken) return;
     const dependents = dependentGroups
       .filter((group): group is Extract<typeof group, { results: unknown[] }> => "results" in group)
-      .flatMap((group) => group.results[0]?.nodes ?? []);
+      .flatMap((group) => group.results[0]?.nodes ?? [])
+      .filter((node) => node.id !== id);
     state.detail = {
       id,
       loading: false,

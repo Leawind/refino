@@ -134,28 +134,6 @@ function sameSelection(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((id, i) => id === b[i]);
 }
 
-/**
- * Fresh lite shapes for the anchors themselves: neighborhood results exclude
- * their anchors, and selection sources (search hits, canvas clicks) may
- * carry stale or missing grounds, so anchors are re-read on every expansion.
- * `range(id, id)` returns the single node with full lite shape.
- */
-async function refreshAnchors(ids: readonly string[]): Promise<void> {
-  await Promise.all(
-    ids.map((id) =>
-      queryRange(id, id)
-        .then((result) => {
-          const node = result.nodes[0];
-          if (node !== undefined) prime(node);
-        })
-        .catch(() => {
-          // The anchor may have vanished mid-refresh; the working set simply
-          // keeps whatever cached shape exists until SSE prunes it.
-        }),
-    ),
-  );
-}
-
 /** Rebuild the working set from the current selection. */
 async function refresh(): Promise<void> {
   const token = ++refreshToken;
@@ -168,8 +146,6 @@ async function refresh(): Promise<void> {
   }
   state.loading = true;
   try {
-    await refreshAnchors(anchors);
-
     const siblingIds = new Set<string>();
     let siblingsTruncated = false;
     if (state.config.showSiblings) {

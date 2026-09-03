@@ -73,7 +73,8 @@ describe("POST /api/query/neighbors", () => {
       results: Array<{ truncated: boolean; nodes: Array<{ id: string; depth: number }> }>;
     };
     expect(results[0]!.truncated).toBe(false);
-    expect(results[0]!.nodes.map((n) => `${n.id}:${n.depth}`)).toEqual([`${C2}:1`]);
+    // The anchor itself is part of its neighborhood at depth 0.
+    expect(results[0]!.nodes.map((n) => `${n.id}:${n.depth}`)).toEqual([`${C3}:0`, `${C2}:1`]);
   });
 
   it("reaches premises at ancestor depth 2", async () => {
@@ -88,6 +89,7 @@ describe("POST /api/query/neighbors", () => {
     };
     // depth ties are ordered by id: 1A2B3C4E < A1B2C3D4.
     expect(results[0]!.nodes.map((n) => `${n.id}:${n.depth}`)).toEqual([
+      `${C3}:0`,
       `${C2}:1`,
       `${P2}:2`,
       `${C1}:2`,
@@ -107,7 +109,7 @@ describe("POST /api/query/neighbors", () => {
       results: Array<{ truncated: boolean; nodes: Array<{ id: string; depth: number }> }>;
     };
     expect(results[0]!.truncated).toBe(true);
-    expect(results[0]!.nodes.map((n) => n.depth)).toEqual([1, 1]);
+    expect(results[0]!.nodes.map((n) => n.depth)).toEqual([0, 1]);
   });
 
   it("answers 207 with a per-id error for unknown ids", async () => {
