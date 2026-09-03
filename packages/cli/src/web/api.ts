@@ -147,13 +147,19 @@ async function create(
  * the new one are dropped. A payload `revision` (recorded when the client
  * opened the node) turns the save into an optimistic concurrency check:
  * a mismatch answers 409 instead of silently overwriting the external change.
+ *
+ * PUT to an id that does not exist creates it when the payload states a
+ * `type` (docs/design.md, "编辑冲突处理": 以我的内容重新创建该 id) — the
+ * detail editor recreates a node that external tools deleted while it held
+ * unsaved edits.
  */
 export async function putNode(c: Context, index: GraphIndex): Promise<Response> {
   try {
     const id = requireParam(c);
     const entry = index.entry(id);
     if (entry === undefined) {
-      throw new RefinoError("NODE_NOT_FOUND", `Node "${id}" does not exist.`);
+      // await: without it a rejection escapes the try/catch below.
+      return await createWithId(c, index, id);
     }
     const payload = await readPayload(c);
     const body = readRequiredString(payload, "body");
@@ -273,6 +279,54 @@ export async function postReload(c: Context, index: GraphIndex): Promise<Respons
   } catch (error) {
     return errorResponse(c, error);
   }
+}
+
+/**
+ * Create a node under the given (still free) id from a PUT payload. The
+ * type must be stated explicitly; grounds rules match the create endpoint.
+ */
+async function createWithId(c: Context, index: GraphIndex, id: string): Promise<Response> {
+  if (!ID_RE.test(id)) {
+    throw new RefinoError("INVALID_ID", `Node "${id}" is not a valid node id.`);
+  }
+  const payload = await readPayload(c);
+  const body = readRequiredString(payload, "body");
+  const summary = readString(payload, "summary");
+  const type = readString(payload, "type");
+  if (type !== "premise" && type !== "constraint") {
+    throw new RefinoError(
+      "INVALID_FRONTMATTER",
+      `"type" must be "premise" or "constraint" to create node "${id}".`,
+    );
+  }
+  const grounds = resolveGrounds(payload);
+  if (type === "premise" && grounds.length > 0) {
+    throw new RefinoError("PREMISE_WITH_GROUNDS", `Premise "${id}" must not declare "grounds".`);
+  }
+  if (type === "constraint") {
+    const missing = grounds.find((g) => !index.graph.nodes.has(g));
+    if (missing !== undefined) {
+      throw new RefinoError("UNKNOWN_GROUND", `Ground "${missing}" does not exist.`);
+    }
+  }
+  if (type === "premise") {
+    await createPremise(index.refinoDir, {
+      id,
+      body,
+      summary,
+      confirmed: readString(payload, "confirmed"),
+    });
+  } else {
+    await createConstraint(index.refinoDir, {
+      id,
+      body,
+      summary,
+      rationale: readString(payload, "rationale"),
+      grounds,
+    });
+  }
+  await index.applyChange({ changed: [id] });
+  return c.json({ id, revision: index.entry(id)?.revision }, 201);
 }
 
 /** Validate an optional `type` override in the payload. */

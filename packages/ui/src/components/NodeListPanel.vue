@@ -162,7 +162,7 @@ onBeforeUnmount(() => {
 /** Double click opens the detail window; single click only selects. */
 function open(node: SearchNode): void {
   workspace.select(node);
-  store.openDetail();
+  store.openDetail(node.id);
 }
 
 function select(node: SearchNode): void {

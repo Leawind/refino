@@ -135,3 +135,42 @@ describe("refino web api", () => {
     expect(res.status).toBe(404);
   });
 });
+
+describe("recreate a deleted id via PUT", () => {
+  it("rejects a missing type and an invalid id shape", async () => {
+    const noType = await app().request("/api/nodes/BB000000", {
+      method: "PUT",
+      body: JSON.stringify({ body: "重建。" }),
+    });
+    expect(noType.status).toBe(400);
+
+    const invalid = await app().request("/api/nodes/ZZZZZZZ99", {
+      method: "PUT",
+      body: JSON.stringify({ body: "重建。", type: "constraint", grounds: ["1A2B3C4D"] }),
+    });
+    expect(invalid.status).toBe(400);
+  });
+
+  it("creates a node under a free id and serves it afterwards", async () => {
+    const created = await app().request("/api/nodes/BB000000", {
+      method: "PUT",
+      body: JSON.stringify({
+        body: "重建的约束。",
+        type: "constraint",
+        summary: "重建",
+        grounds: ["1A2B3C4D"],
+      }),
+    });
+    expect(created.status).toBe(201);
+    // A fresh app loads at revision 1 and the create bumps it to 2.
+    const { id, revision } = (await created.json()) as { id: string; revision: number };
+    expect(id).toBe("BB000000");
+    expect(revision).toBe(2);
+
+    const fetched = await app().request("/api/nodes/BB000000");
+    expect(fetched.status).toBe(200);
+    const body = (await fetched.json()) as { node: { body: string; type: string } };
+    expect(body.node.body).toBe("重建的约束。");
+    expect(body.node.type).toBe("constraint");
+  });
+});

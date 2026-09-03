@@ -56,6 +56,16 @@ export default {
     untitled: "(no summary)",
     emptySelection: "Search the sidebar and select a node to start expanding",
   },
+  detail: {
+    merged: "External changes merged",
+    conflictTitle: "The node changed externally and collides with your edits:",
+    loadExternal: "Load external version",
+    keepMine: "Keep my changes",
+    deletedTitle: "The node was deleted externally while you had unsaved edits.",
+    recreate: "Recreate with my content",
+    discard: "Discard",
+    recreated: "Node recreated",
+  },
   canvas: {
     truncated: "Truncated at the limit",
     renderCulled: "Rendering culled to fit the budget",

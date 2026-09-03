@@ -55,6 +55,16 @@ export default {
     untitled: "（无摘要）",
     emptySelection: "在侧栏搜索并选择一个节点开始展开",
   },
+  detail: {
+    merged: "已合并外部更改",
+    conflictTitle: "节点已在外部被修改，与你的编辑冲突：",
+    loadExternal: "载入外部版本",
+    keepMine: "保留我的改动",
+    deletedTitle: "节点已在外部被删除，且存在未保存的编辑。",
+    recreate: "以我的内容重建",
+    discard: "放弃",
+    recreated: "已重建节点",
+  },
   canvas: {
     truncated: "已按上限截断",
     renderCulled: "渲染已按预算裁剪",

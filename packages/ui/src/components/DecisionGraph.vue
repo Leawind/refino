@@ -211,7 +211,8 @@ function onClick(event: MouseEvent): void {
 }
 
 function onDoubleClick(event: MouseEvent): void {
-  if (pickAt(event) !== null) store.openDetail();
+  const id = pickAt(event);
+  if (id !== null) store.openDetail(id);
 }
 
 let hoveredNode: string | null = null;

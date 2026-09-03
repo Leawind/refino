@@ -139,6 +139,8 @@ const state = reactive<WorkspaceState>({
 
 /** Light shapes currently in the working set (rebuilt per expansion). */
 const workingSet = shallowRef(new Map<string, NodeLite>());
+/** External-change listeners (applied SSE/reload events, post-pruning). */
+const changeListeners = new Set<(event: ChangeEvent) => void>();
 /** Grounds of the hovered node; merged into the display while hovering. */
 const hoverSet = shallowRef(new Map<string, NodeLite>());
 
@@ -370,6 +372,20 @@ function applyEvent(event: ChangeEvent): void {
   if (event.deleted.length > 0) pruneDeleted(event.deleted);
   else void refresh();
   void refreshIssues();
+  for (const listener of changeListeners) {
+    try {
+      listener(event);
+    } catch {
+      // a broken listener must not break change application
+    }
+  }
+}
+
+/** Subscribe to applied external-change events (SSE batches and reloads);
+ * returns an unsubscribe function. */
+function onChange(callback: (event: ChangeEvent) => void): () => void {
+  changeListeners.add(callback);
+  return () => changeListeners.delete(callback);
 }
 
 /** Begin lifecycle: subscribe to the change feed and fetch issues. The
@@ -450,6 +466,7 @@ export const workspace = {
   selectedNodes,
   start,
   stop,
+  onChange,
   reload,
   select,
   rangeSelect,

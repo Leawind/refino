@@ -3,7 +3,7 @@
 // node, with edit/create forms. Opens on double click; closing keeps the
 // selection. The bar occupies the bottom of the graph pane; expanding
 // turns it into a near-fullscreen modal with a dimmed backdrop.
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import {
   NButton,
@@ -22,7 +22,8 @@ import { renderMarkdown, renderMermaidDiagrams } from "../markdown";
 import { CloseOutline, ContractOutline, ExpandOutline } from "@vicons/ionicons5";
 import FormField from "./FormField.vue";
 import { search } from "../api";
-import { store } from "../store";
+import { changedFields, toEditorFields } from "../conflict";
+import { recreateDetail, store } from "../store";
 import { workspace } from "../workspace";
 import type { NodePayload } from "../types";
 
@@ -87,7 +88,7 @@ function cancelEdit(): void {
     close();
     return;
   }
-  resetForm();
+  store.resetDetailForm();
 }
 
 function onKeydown(event: KeyboardEvent): void {
@@ -100,45 +101,9 @@ function onKeydown(event: KeyboardEvent): void {
 onMounted(() => document.addEventListener("keydown", onKeydown));
 onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
 
-interface FormState {
-  summary: string;
-  body: string;
-  rationale: string;
-  grounds: string[];
-  confirmed: string;
-}
-
-const form = reactive<FormState>({
-  summary: "",
-  body: "",
-  rationale: "",
-  grounds: [],
-  confirmed: "",
-});
-
-watch(
-  () => [store.state.detail.id, store.state.creatingType] as const,
-  () => resetForm(),
-  { immediate: true },
-);
-
-// Keep the form in sync when the node is re-fetched (after a save, or when
-// an external change is merged server-side).
-watch(
-  () => store.state.detail.node,
-  () => {
-    if (!creating.value) resetForm();
-  },
-);
-
-function resetForm(): void {
-  const node = selected.value;
-  form.summary = node?.summary ?? "";
-  form.body = node?.body ?? "";
-  form.rationale = node?.rationale ?? "";
-  form.grounds = [...(node?.grounds ?? [])];
-  form.confirmed = node?.confirmed ?? "";
-}
+// The form lives in the store: external merges update it while the user's
+// edits are preserved, and the conflict flow needs it for field comparisons.
+const form = store.form;
 
 /**
  * Grounds options come from the paginated search endpoint (README, "编辑功
@@ -215,13 +180,7 @@ function switchType(): void {
 const dirty = computed(() => {
   const node = selected.value;
   if (node === null) return form.body.trim() !== "";
-  return (
-    form.summary !== node.summary ||
-    form.body !== node.body ||
-    form.rationale !== (node.rationale ?? "") ||
-    JSON.stringify(form.grounds) !== JSON.stringify(node.grounds ?? []) ||
-    form.confirmed !== (node.confirmed ?? "")
-  );
+  return changedFields(toEditorFields(node), form).length > 0;
 });
 
 const canSave = computed(() =>
@@ -244,13 +203,41 @@ async function save(): Promise<void> {
       const id = await store.create(store.state.creatingType, payload());
       message.success(`${t("node.save")}: ${id}`);
     } else if (selected.value !== null) {
-      await store.update(selected.value.id, payload());
+      // The revision turns the save into an optimistic concurrency check;
+      // a 409 makes the store fetch the external change and run the merge
+      // flow before the error surfaces here.
+      await store.update(selected.value.id, payload(), store.state.detail.revision ?? undefined);
       message.success(t("node.save"));
     }
   } catch (error) {
     message.error(error instanceof Error ? error.message : String(error));
   }
 }
+
+/** Recreate the externally deleted node from the form under the same id. */
+async function recreate(): Promise<void> {
+  const node = selected.value;
+  if (node === null) return;
+  try {
+    await recreateDetail(node.type, payload());
+    message.success(t("detail.recreated"));
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : String(error));
+  }
+}
+
+/** Fields the external change collides on, for the conflict message. */
+const conflictFieldLabels = computed(() =>
+  (store.state.detail.conflict?.fields ?? []).map((field) => t(`node.${field}`)).join("、"),
+);
+
+// Silent field-level merges surface as a toast.
+watch(
+  () => store.state.detail.mergeNotice,
+  (count) => {
+    if (count > 0) message.info(t("detail.merged"));
+  },
+);
 
 async function remove(): Promise<void> {
   if (selected.value === null) return;
@@ -332,6 +319,43 @@ function nodeLabel(id: string): string {
         </template>
       </div>
 
+      <NAlert
+        v-if="store.state.detail.deletedWithEdits"
+        type="error"
+        class="conflict"
+        :show-icon="true"
+      >
+        {{ t("detail.deletedTitle") }}
+        <div class="conflict-actions">
+          <NButton size="tiny" type="primary" @click="recreate">
+            {{ t("detail.recreate") }}
+          </NButton>
+          <NButton size="tiny" @click="store.discardDeletedWithEdits()">
+            {{ t("detail.discard") }}
+          </NButton>
+        </div>
+      </NAlert>
+      <NAlert
+        v-else-if="store.state.detail.conflict !== null"
+        type="warning"
+        class="conflict"
+        :show-icon="true"
+      >
+        {{ t("detail.conflictTitle") }}
+        <ul class="conflict-fields">
+          <li v-for="field in store.state.detail.conflict.fields" :key="field">
+            {{ t(`node.${field}`) }}
+          </li>
+        </ul>
+        <div class="conflict-actions">
+          <NButton size="tiny" type="primary" @click="store.applyConflictExternal()">
+            {{ t("detail.loadExternal") }}
+          </NButton>
+          <NButton size="tiny" @click="store.keepLocalOverConflict()">
+            {{ t("detail.keepMine") }}
+          </NButton>
+        </div>
+      </NAlert>
       <div ref="bodyEl" class="window-body">
         <div v-if="!creating && selected === null" class="loading">
           <NSpin v-if="store.state.detail.error === null" size="small" />
@@ -574,6 +598,21 @@ function nodeLabel(id: string): string {
   display: grid;
   place-items: center;
   padding: 8px 0 14px;
+}
+
+.conflict {
+  margin: 0 0 12px;
+}
+
+.conflict-fields {
+  margin: 6px 0;
+  padding-left: 18px;
+}
+
+.conflict-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
 }
 
 .loading .load-error {
