@@ -25,3 +25,12 @@ Constraint Refinement Graph (CRG) 纯引擎：CRG 的图数据模型与纯图逻
 注意：
 
 - 待审查（Pending Review）是派生状态，通过查询前提的依赖关系确定，由应用在内存中维护，不在节点文件中持久化存储。
+
+## 校验问题（issues）
+
+issues 是引擎对图做完整性检查后产出的问题列表，产生于两个阶段：
+
+- 加载解析阶段：frontmatter 非法、ID 或文件路径形状非法、前提声明grounds、重复 ID 等；
+- 结构校验阶段（`validateGraph`）：依据引用不存在的节点、约束→约束路径成环、`confirmed` 时间戳格式非法。
+
+issues 只描述图结构本身，与任何消费方无关；如何处置（阻断操作或附带展示）由消费方自行决定。
