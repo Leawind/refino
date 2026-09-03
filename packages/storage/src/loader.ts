@@ -1,7 +1,8 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { buildGraph, RefinoError } from "refino";
+import { buildGraph, ID_RE, RefinoError } from "refino";
 import { parseNodeSource } from "./parser.js";
+import { nodeFilePath, nodeRelativeFile, NODE_TYPES } from "./writer.js";
 import type { Graph, NodeType, RefinoIssue, RefinoNode } from "refino";
 
 const NODES_DIR = "nodes";
@@ -12,12 +13,65 @@ const SHARD_RE = /^[0-9A-HJKMNP-TV-Z]{2}$/;
 /** A node file base name: the last 6 characters of a node id. */
 const SHARD_FILE_RE = /^[0-9A-HJKMNP-TV-Z]{6}$/;
 
-const NODE_TYPES: ReadonlyArray<NodeType> = ["premise", "constraint"];
-
 export interface LoadResult {
   graph: Graph;
   /** Issues found while reading and parsing node files (including duplicate ids). */
   issues: RefinoIssue[];
+}
+
+export interface ReadNodeResult {
+  /** The parsed node, or null when neither candidate file exists. */
+  node: RefinoNode | null;
+  issues: RefinoIssue[];
+}
+
+/**
+ * Read a single node by id (path is identity): parse whichever of the two
+ * candidate files exists. Incremental index updates use this instead of a
+ * full rescan, so parse logic stays single-sourced in the storage layer.
+ *
+ * Candidate order mirrors loadGraph's within-shard lexicographic scan
+ * ("constraint" sorts before "premise"), so single-node reads agree with
+ * full loads: parse issues from every existing candidate are reported, the
+ * first candidate yielding a valid node wins, and a second valid candidate
+ * is reported as DUPLICATE_ID.
+ */
+export async function readNode(refinoDir: string, id: string): Promise<ReadNodeResult> {
+  if (!ID_RE.test(id)) {
+    throw new RefinoError(
+      "INVALID_ID",
+      `Node id must be an 8-character Crockford base32 id (0-9, A-Z minus I, L, O, U), got "${id}".`,
+    );
+  }
+  const candidates = [...NODE_TYPES]
+    .sort()
+    .map((type) => ({ type, file: nodeRelativeFile(type, id), absolute: nodeFilePath(refinoDir, type, id) }));
+  const issues: RefinoIssue[] = [];
+  let node: RefinoNode | null = null;
+  for (const candidate of candidates) {
+    let source: string;
+    try {
+      source = await readFile(candidate.absolute, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; // no file of this type
+      throw error;
+    }
+    const parsed = parseNodeSource(id, candidate.file, candidate.type, source);
+    issues.push(...parsed.issues);
+    if (parsed.node === null) continue;
+    if (node === null) {
+      node = parsed.node;
+    } else {
+      issues.push({
+        code: "DUPLICATE_ID",
+        message: `Duplicate node id "${id}" (already defined in ${node.file}).`,
+        file: parsed.node.file,
+        nodeId: id,
+      });
+      break; // both candidates parsed: nothing left to read
+    }
+  }
+  return { node, issues };
 }
 
 /**

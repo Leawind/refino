@@ -1,5 +1,5 @@
-export { loadGraph } from "./loader.js";
-export type { LoadResult } from "./loader.js";
+export { loadGraph, readNode } from "./loader.js";
+export type { LoadResult, ReadNodeResult } from "./loader.js";
 export {
   createPremise,
   createConstraint,

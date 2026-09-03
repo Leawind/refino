@@ -3,6 +3,11 @@ import type { Graph, RefinoIssue, RefinoNode } from "./types.js";
 /** RFC 3339 timestamp; the UTC offset (Z or ±HH:MM) is mandatory. */
 const CONFIRMED_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
 
+/** Whether the value is a valid premise `confirmed` timestamp. */
+export function isValidConfirmed(value: string): boolean {
+  return CONFIRMED_RE.test(value);
+}
+
 /**
  * Structural validation of a loaded graph:
  * 1. premise `confirmed` timestamps are RFC 3339 with an explicit UTC offset;

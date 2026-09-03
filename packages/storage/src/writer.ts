@@ -6,7 +6,7 @@ import { serializeNode } from "./serialize.js";
 
 const NODES_DIR = "nodes";
 
-const NODE_TYPES: ReadonlyArray<NodeType> = ["premise", "constraint"];
+export const NODE_TYPES: ReadonlyArray<NodeType> = ["premise", "constraint"];
 
 /**
  * Node creation. This is the storage adapter's write path; everything else
@@ -92,11 +92,16 @@ async function createNode(
 }
 
 /**
- * Canonical `.refino`-relative path of a node:
+ * Canonical `.refino`-relative path of a node, always forward-slash:
  * `nodes/<2 chars>/<6 chars>.<type>.md`.
  */
-function nodeFilePath(refinoDir: string, type: NodeType, id: string): string {
-  return join(refinoDir, NODES_DIR, id.slice(0, 2), `${id.slice(2)}.${type}.md`);
+export function nodeRelativeFile(type: NodeType, id: string): string {
+  return `${NODES_DIR}/${id.slice(0, 2)}/${id.slice(2)}.${type}.md`;
+}
+
+/** Absolute path of a node file of the given type (platform separators). */
+export function nodeFilePath(refinoDir: string, type: NodeType, id: string): string {
+  return join(refinoDir, nodeRelativeFile(type, id));
 }
 
 /**
