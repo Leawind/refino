@@ -58,8 +58,10 @@ export default {
   },
   canvas: {
     truncated: "Truncated at the limit",
+    renderCulled: "Rendering culled to fit the budget",
     rangeDegraded: "The two nodes are on different branches; only the clicked node was added",
     rangeDisconnected: "No relationship within the search budget; only the clicked node was added",
+    glUnavailable: "WebGL 2 is unavailable; the canvas cannot render",
   },
   selection: {
     title: "Selection",

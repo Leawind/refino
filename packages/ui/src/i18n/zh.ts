@@ -57,8 +57,10 @@ export default {
   },
   canvas: {
     truncated: "已按上限截断",
+    renderCulled: "渲染已按预算裁剪",
     rangeDegraded: "两节点不在同一祖先链上，仅追加被点击的节点",
     rangeDisconnected: "预算内未能建立两节点的关联，仅选中了被点击的节点",
+    glUnavailable: "当前环境不支持 WebGL 2，画布无法渲染",
   },
   selection: {
     title: "已选择",

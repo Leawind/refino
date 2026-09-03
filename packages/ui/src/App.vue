@@ -39,6 +39,8 @@ const premiseCount = computed(
   () => workspace.displayed.value.filter((n) => n.type === "premise").length,
 );
 
+const renderCulled = ref(false);
+
 const naiveTheme = computed(() => (store.state.theme === "dark" ? darkTheme : null));
 const naiveLocale = computed(() => (i18n.global.locale.value === "zh" ? zhCN : enUS));
 const naiveDateLocale = computed(() => (i18n.global.locale.value === "zh" ? dateZhCN : dateEnUS));
@@ -108,7 +110,7 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
             <NodeListPanel type="constraint" side="left" />
             <div class="center-pane">
               <div class="graph-area">
-                <DecisionGraph :direction="direction" />
+                <DecisionGraph :direction="direction" @render-culled="renderCulled = $event" />
                 <GraphFloat placement="top-right">
                   <SelectionList />
                 </GraphFloat>
@@ -123,6 +125,9 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
                     <span>{{ t("status.premises") }}: {{ premiseCount }}</span>
                     <span v-if="workspace.state.truncated" class="issues">
                       {{ t("canvas.truncated") }}
+                    </span>
+                    <span v-if="renderCulled" class="issues">
+                      {{ t("canvas.renderCulled") }}
                     </span>
                     <span v-if="workspace.state.issues.length > 0" class="issues">
                       {{ t("status.issues") }}: {{ workspace.state.issues.length }}

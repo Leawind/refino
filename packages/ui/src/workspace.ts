@@ -37,6 +37,10 @@ export interface CanvasConfig {
   siblingLimit: number;
   /** Per-anchor neighborhood truncation limit (nearest-first). */
   neighborhoodLimit: number;
+  /** Render budget mode: estimated from viewport/hardware, or pinned. */
+  budgetMode: "auto" | "manual";
+  /** Manual render budget in cost units (budgetMode "manual"). */
+  budgetManual: number;
 }
 
 const DEFAULT_CONFIG: CanvasConfig = {
@@ -45,6 +49,8 @@ const DEFAULT_CONFIG: CanvasConfig = {
   showSiblings: true,
   siblingLimit: 24,
   neighborhoodLimit: 400,
+  budgetMode: "auto",
+  budgetManual: 6000,
 };
 
 const CONFIG_KEYS: Record<keyof CanvasConfig, string> = {
@@ -53,6 +59,8 @@ const CONFIG_KEYS: Record<keyof CanvasConfig, string> = {
   showSiblings: "refino.canvas.showSiblings",
   siblingLimit: "refino.canvas.siblingLimit",
   neighborhoodLimit: "refino.canvas.neighborhoodLimit",
+  budgetMode: "refino.canvas.budgetMode",
+  budgetManual: "refino.canvas.budgetManual",
 };
 
 /** Why the last range selection degraded to just the clicked node. */
@@ -89,6 +97,14 @@ function loadConfig(): CanvasConfig {
     neighborhoodLimit: readNumberPreference(
       CONFIG_KEYS.neighborhoodLimit,
       DEFAULT_CONFIG.neighborhoodLimit,
+    ),
+    budgetMode:
+      readPreference(CONFIG_KEYS.budgetMode, DEFAULT_CONFIG.budgetMode) === "manual"
+        ? "manual"
+        : "auto",
+    budgetManual: Math.max(
+      64,
+      readNumberPreference(CONFIG_KEYS.budgetManual, DEFAULT_CONFIG.budgetManual),
     ),
   };
 }
