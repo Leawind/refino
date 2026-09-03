@@ -41,6 +41,10 @@ export interface CanvasConfig {
   budgetMode: "auto" | "manual";
   /** Manual render budget in cost units (budgetMode "manual"). */
   budgetManual: number;
+  /** Zoom anchor for ctrl+wheel zooming. */
+  zoomAnchor: "cursor" | "center";
+  /** Maximum zoom scale. */
+  zoomMax: number;
 }
 
 const DEFAULT_CONFIG: CanvasConfig = {
@@ -51,6 +55,8 @@ const DEFAULT_CONFIG: CanvasConfig = {
   neighborhoodLimit: 400,
   budgetMode: "auto",
   budgetManual: 6000,
+  zoomAnchor: "cursor",
+  zoomMax: 4,
 };
 
 const CONFIG_KEYS: Record<keyof CanvasConfig, string> = {
@@ -61,6 +67,8 @@ const CONFIG_KEYS: Record<keyof CanvasConfig, string> = {
   neighborhoodLimit: "refino.canvas.neighborhoodLimit",
   budgetMode: "refino.canvas.budgetMode",
   budgetManual: "refino.canvas.budgetManual",
+  zoomAnchor: "refino.canvas.zoomAnchor",
+  zoomMax: "refino.canvas.zoomMax",
 };
 
 /** Why the last range selection degraded to just the clicked node. */
@@ -106,6 +114,11 @@ function loadConfig(): CanvasConfig {
       64,
       readNumberPreference(CONFIG_KEYS.budgetManual, DEFAULT_CONFIG.budgetManual),
     ),
+    zoomAnchor:
+      readPreference(CONFIG_KEYS.zoomAnchor, DEFAULT_CONFIG.zoomAnchor) === "center"
+        ? "center"
+        : "cursor",
+    zoomMax: Math.max(0.5, readNumberPreference(CONFIG_KEYS.zoomMax, DEFAULT_CONFIG.zoomMax)),
   };
 }
 

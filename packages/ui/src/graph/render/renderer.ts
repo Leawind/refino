@@ -1,5 +1,15 @@
 import { ellipsize, GlyphAtlas } from "./atlas";
 import {
+  centeredCamera,
+  fitCamera,
+  pannedCamera as panCamera,
+  zoomedCamera as zoomCamera,
+  clampCamera,
+  type Camera,
+  type CameraBox,
+  type Viewport,
+} from "./camera";
+import {
   COST_SHAPE_NODE,
   COST_TEXT_NODE,
   cullByBudget,
@@ -17,11 +27,10 @@ import { createProgram, EDGE_QUAD, type Program, UNIT_QUAD } from "./shaders";
  *
  * Frames render on damage only (scene/camera/theme changes, resize,
  * running fade animations); the render budget adapts while frames render
- * continuously. The camera only moves when asked — `fitToContent()` from
- * focus changes, direction switches and resizes — so the incremental
- * layout's stable virtual space stays put while the working set expands.
- * Pan/zoom and fly-to-focus belong to the viewport milestone and replace
- * `#refit`.
+ * continuously. The viewport owns a current/target camera pair: inputs
+ * (wheel pan, ctrl+wheel zoom, middle-drag) and focus moves set clamped
+ * targets, and the current camera glides towards them; at rest the camera
+ * always satisfies the bounding-box constraints (README, "视口").
  */
 
 export type RGBA = [number, number, number, number];
@@ -64,15 +73,26 @@ export interface RenderEdgeInput {
 export interface SceneInput {
   nodes: RenderNodeInput[];
   edges: RenderEdgeInput[];
+  /** The focus node (last of the selection); the camera follows it. */
+  focusId: string | null;
 }
 
 export interface RenderInfo {
   /** The last frame dropped nodes or edges to fit the render budget. */
   culled: boolean;
+  /** Camera at frame end. */
+  camera: { scale: number; tx: number; ty: number };
+  /** Camera target at frame end. */
+  target: { scale: number; tx: number; ty: number };
 }
 
-const FIT_MAX_SCALE = 1;
 const FIT_MARGIN = 24;
+/** Zoom factor per wheel notch unit; ctrl+wheel is multiplicative. */
+const ZOOM_WHEEL_FACTOR = 0.0015;
+/** Camera smoothing: time constant of the exponential approach. */
+const CAMERA_TAU_MS = 110;
+/** Camera snap threshold. */
+const CAMERA_EPSILON = 0.01;
 const LABEL_FONT_PX = 12;
 const LABEL_PAD_X = 10;
 const EDGE_WIDTH = 1.4;
@@ -152,10 +172,14 @@ export class GraphRenderer {
     primary: [0.09, 0.63, 0.35, 1],
     text: [0.1, 0.1, 0.1, 0.9],
   };
-  #camera = { scale: 1, tx: 0, ty: 0 };
+  #camera: Camera = { scale: 1, tx: 0, ty: 0 };
+  #target: Camera = { scale: 1, tx: 0, ty: 0 };
+  #maxScale = 4;
+  #zoomAnchor: "cursor" | "center" = "cursor";
   #cssWidth = 0;
   #cssHeight = 0;
-  #fitDirty = true;
+  #dragging: { x: number; y: number } | null = null;
+  #lastFocusId: string | null = null;
 
   #edgeProgram: Program;
   #nodeProgram: Program;
@@ -243,6 +267,13 @@ export class GraphRenderer {
 
     canvas.addEventListener("webglcontextlost", this.#onContextLost);
     canvas.addEventListener("webglcontextrestored", this.#onContextRestored);
+    // Wheel and middle-drag pan/zoom (README, "视口"): ctrl+wheel zooms
+    // (and must never page-zoom), plain wheel pans vertically, shift+wheel
+    // horizontally, middle-drag pans 1:1.
+    canvas.addEventListener("wheel", this.#onWheel, { passive: false });
+    canvas.addEventListener("mousedown", this.#onMouseDown);
+    window.addEventListener("mousemove", this.#onMouseMove);
+    window.addEventListener("mouseup", this.#onMouseUp);
     this.#resizeObserver = new ResizeObserver(() => this.#resize());
     this.#resizeObserver.observe(canvas);
     this.#resize();
@@ -250,6 +281,9 @@ export class GraphRenderer {
 
   /** Replaces the whole display list; takes effect on the next frame. */
   setScene(scene: SceneInput): void {
+    // True when the focus node is new to the scene: its selection pulled it
+    // into the working set, and the camera should follow it there.
+    const focusJoined = scene.focusId !== null && !this.#entries.has(scene.focusId);
     const seen = new Set<string>();
     for (const node of scene.nodes) {
       seen.add(node.id);
@@ -272,16 +306,133 @@ export class GraphRenderer {
       if (!seen.has(entry.node.id)) entry.target = 0;
     }
     this.#edges = scene.edges;
+
+    // The camera follows the focus (README: 相机随焦点). The focus id and the
+    // focus node's scene entry change in different ticks — the working set
+    // arrives asynchronously after the selection — so both transitions fly.
+    if (scene.focusId !== this.#lastFocusId) {
+      this.#lastFocusId = scene.focusId;
+      this.#flyTo(scene.focusId);
+    } else if (scene.focusId !== null && focusJoined) {
+      this.#flyTo(scene.focusId);
+    }
     this.#schedule();
+  }
+
+  /** Center the node on the viewport (no-op when it is not in the scene). */
+  #flyTo(id: string | null): void {
+    if (id === null) return;
+    const entry = this.#entries.get(id);
+    if (entry === undefined) return; // not in the working set (yet)
+    const box = this.#contentBox();
+    if (box === null) return;
+    this.#target = centeredCamera(
+      { x: entry.node.x + entry.node.width / 2, y: entry.node.y + entry.node.height / 2 },
+      this.#viewport(),
+      this.#camera,
+      box,
+      this.#maxScale,
+    );
   }
 
   /** Moves the camera to fit the working-set bounding box on the next
    * frame; called when the focus changes or the direction flips, never per
    * working-set expansion (that would defeat the stable layout). */
+  /** Moves the camera so the whole working set fits with a margin. */
   fitToContent(): void {
-    this.#fitDirty = true;
+    const box = this.#contentBox();
+    if (box === null) return;
+    this.#target = fitCamera(box, this.#viewport(), this.#maxScale, FIT_MARGIN);
     this.#schedule();
   }
+
+  /** Glides the camera so the focus node sits at the viewport center
+   * (README: 焦点更换时相机平滑飞向新焦点). */
+  /** Glides the camera so node `id` sits at the viewport center. */
+  flyToNode(id: string): void {
+    this.#flyTo(id);
+  }
+
+  setZoomAnchor(anchor: "cursor" | "center"): void {
+    this.#zoomAnchor = anchor;
+  }
+
+  setMaxScale(maxScale: number): void {
+    this.#maxScale = Math.max(0.1, maxScale);
+  }
+
+  #viewport(): Viewport {
+    return { width: this.#cssWidth, height: this.#cssHeight };
+  }
+
+  /** Union bounding box of everything laid out; null while empty. */
+  #contentBox(): CameraBox | null {
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const entry of this.#entries.values()) {
+      minX = Math.min(minX, entry.node.x);
+      minY = Math.min(minY, entry.node.y);
+      maxX = Math.max(maxX, entry.node.x + entry.node.width);
+      maxY = Math.max(maxY, entry.node.y + entry.node.height);
+    }
+    return Number.isFinite(minX) ? { minX, minY, maxX, maxY } : null;
+  }
+
+  #onWheel = (event: WheelEvent): void => {
+    event.preventDefault();
+    const box = this.#contentBox();
+    if (box === null) return;
+    const rect = this.#canvas.getBoundingClientRect();
+    const anchor = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    if (event.ctrlKey) {
+      // Trackpad pinch synthesizes ctrl+wheel; multiplicative zoom keeps
+      // the gesture linear in perceived scale.
+      this.#target = zoomCamera(
+        this.#target,
+        Math.exp(-event.deltaY * ZOOM_WHEEL_FACTOR),
+        this.#zoomAnchor === "cursor" ? anchor : null,
+        this.#viewport(),
+        box,
+        this.#maxScale,
+      );
+    } else if (event.shiftKey) {
+      // Wheel down pans the view right: content moves left.
+      this.#target = panCamera(this.#target, -event.deltaY, 0, this.#viewport(), box);
+    } else {
+      // Wheel down pans the view down: content moves up (scroll convention).
+      this.#target = panCamera(this.#target, -event.deltaX, -event.deltaY, this.#viewport(), box);
+    }
+    this.#schedule();
+  };
+
+  #onMouseDown = (event: MouseEvent): void => {
+    if (event.button !== 1) return;
+    event.preventDefault(); // no middle-click autoscroll
+    this.#dragging = { x: event.clientX, y: event.clientY };
+    this.#canvas.style.cursor = "grabbing";
+  };
+
+  #onMouseMove = (event: MouseEvent): void => {
+    if (this.#dragging === null) return;
+    const box = this.#contentBox();
+    if (box === null) return;
+    // Dragging is 1:1 (no smoothing lag): content follows the cursor.
+    const dx = event.clientX - this.#dragging.x;
+    const dy = event.clientY - this.#dragging.y;
+    this.#dragging = { x: event.clientX, y: event.clientY };
+    const moved = panCamera(this.#camera, dx, dy, this.#viewport(), box);
+    this.#camera = moved;
+    this.#target = panCamera(this.#target, dx, dy, this.#viewport(), box);
+    this.#schedule();
+  };
+
+  #onMouseUp = (): void => {
+    if (this.#dragging === null) return;
+    this.#dragging = null;
+    this.#canvas.style.cursor = "default";
+  };
 
   setTheme(colors: ThemeColors): void {
     this.#theme = colors;
@@ -310,6 +461,10 @@ export class GraphRenderer {
     if (this.#raf !== 0) cancelAnimationFrame(this.#raf);
     this.#raf = 0;
     this.#resizeObserver.disconnect();
+    this.#canvas.removeEventListener("wheel", this.#onWheel);
+    this.#canvas.removeEventListener("mousedown", this.#onMouseDown);
+    window.removeEventListener("mousemove", this.#onMouseMove);
+    window.removeEventListener("mouseup", this.#onMouseUp);
     this.#canvas.removeEventListener("webglcontextlost", this.#onContextLost);
     this.#canvas.removeEventListener("webglcontextrestored", this.#onContextRestored);
     this.#gl.getExtension("WEBGL_lose_context")?.loseContext();
@@ -339,7 +494,11 @@ export class GraphRenderer {
       this.#canvas.height = deviceHeight;
     }
     this.#budget.reestimate({ width, height });
-    this.#fitDirty = true;
+    const box = this.#contentBox();
+    if (box !== null) {
+      this.#camera = clampCamera(this.#camera, box, this.#viewport());
+      this.#target = clampCamera(this.#target, box, this.#viewport());
+    }
     this.#schedule();
   }
 
@@ -360,8 +519,8 @@ export class GraphRenderer {
       if (delta < 100) this.#budget.reportFrame(delta);
     }
 
-    const animating = this.#tweenAlphas(now);
-    if (this.#fitDirty) this.#refit();
+    const settling = this.#tweenAlphas(now);
+    const animating = this.#animateCamera(now) || settling;
     this.#cullAndDraw();
     if (animating) this.#schedule();
   }
@@ -392,32 +551,23 @@ export class GraphRenderer {
     return animating;
   }
 
-  /** Fits the camera to the working-set bounding box (viewport milestone
-   * replaces this with a stable virtual space). */
-  #refit(): void {
-    this.#fitDirty = false;
-    let minX = Infinity;
-    let minY = Infinity;
-    let maxX = -Infinity;
-    let maxY = -Infinity;
-    for (const entry of this.#entries.values()) {
-      minX = Math.min(minX, entry.node.x);
-      minY = Math.min(minY, entry.node.y);
-      maxX = Math.max(maxX, entry.node.x + entry.node.width);
-      maxY = Math.max(maxY, entry.node.y + entry.node.height);
+  /** Exponential approach of the current camera towards the target; true
+   * while still gliding. */
+  #animateCamera(now: number): boolean {
+    const dt =
+      this.#lastRenderedAt === 0 ? CAMERA_TAU_MS : Math.min(200, now - this.#lastRenderedAt);
+    const blend = 1 - Math.exp(-dt / CAMERA_TAU_MS);
+    let moving = false;
+    for (const key of ["scale", "tx", "ty"] as const) {
+      const delta = this.#target[key] - this.#camera[key];
+      if (Math.abs(delta) < CAMERA_EPSILON) {
+        this.#camera[key] = this.#target[key];
+      } else {
+        this.#camera[key] += delta * blend;
+        moving = true;
+      }
     }
-    if (!Number.isFinite(minX)) return;
-    const scale = Math.min(
-      FIT_MAX_SCALE,
-      (this.#cssWidth - FIT_MARGIN * 2) / (maxX - minX),
-      (this.#cssHeight - FIT_MARGIN * 2) / (maxY - minY),
-    );
-    const fitScale = Math.max(0.05, scale);
-    this.#camera = {
-      scale: fitScale,
-      tx: (this.#cssWidth - (maxX - minX) * fitScale) / 2 - minX * fitScale,
-      ty: (this.#cssHeight - (maxY - minY) * fitScale) / 2 - minY * fitScale,
-    };
+    return moving;
   }
 
   #cullAndDraw(): void {
@@ -449,7 +599,11 @@ export class GraphRenderer {
     this.#drawNodes();
     this.#drawText(textShown);
 
-    this.#frameEnd?.({ culled: this.#culled });
+    this.#frameEnd?.({
+      culled: this.#culled,
+      camera: { ...this.#camera },
+      target: { ...this.#target },
+    });
   }
 
   #drawEdges(lowLod: boolean, enabled: Set<string>): void {

@@ -125,7 +125,7 @@ const scene = computed<SceneInput>(() => {
       edges.push({ fromId: ground, toId: lite.id, emphasized: lite.id === hoveredId });
     }
   }
-  return { nodes, edges };
+  return { nodes, edges, focusId };
 });
 
 function syncBudget(): void {
@@ -153,6 +153,8 @@ function ensureRenderer(): void {
     return;
   }
   renderer.onFrameEnd = (info) => emit("renderCulled", info.culled);
+  renderer.setZoomAnchor(workspace.state.config.zoomAnchor);
+  renderer.setMaxScale(workspace.state.config.zoomMax);
   renderer.setTheme(readThemeColors());
   renderer.setScene(scene.value);
 }
@@ -160,15 +162,21 @@ function ensureRenderer(): void {
 onMounted(ensureRenderer);
 
 watch(scene, (value) => renderer?.setScene(value));
-// The camera only moves when the focus changes or the direction flips;
-// working-set expansions keep every placed node exactly where it is.
-watch(
-  () => workspace.state.focusId,
-  () => renderer?.fitToContent(),
-);
+// The camera follows the focus inside setScene: it flies whenever the focus
+// changes or the focus node joins the working set (the two happen in
+// different ticks — the working set arrives asynchronously after the
+// selection). Direction flips re-fit the whole working set.
 watch(
   () => props.direction,
   () => renderer?.fitToContent(),
+);
+watch(
+  () => [workspace.state.config.zoomAnchor, workspace.state.config.zoomMax] as const,
+  ([anchor, max]) => {
+    renderer?.setZoomAnchor(anchor);
+    renderer?.setMaxScale(max);
+    renderer?.requestRender();
+  },
 );
 watch(
   () => store.state.theme,
