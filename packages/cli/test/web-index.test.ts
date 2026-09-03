@@ -64,6 +64,34 @@ describe("optimistic concurrency on PUT", () => {
     expect(lenient.status).toBe(200);
   });
 
+  it("detects body-only external edits via mtime and guards PUT", async () => {
+    // An explicit summary pins the light fields: only the body and mtime differ.
+    const created = await app.request("/api/nodes/constraint", {
+      method: "POST",
+      body: JSON.stringify({ body: "首段。\n\n第二段。", summary: "固定摘要。", grounds: [P1] }),
+    });
+    const { id, revision } = (await created.json()) as { id: string; revision: number };
+
+    await updateConstraint(refinoDir, id, {
+      body: "首段。\n\n第二段已改写。",
+      summary: "固定摘要。",
+      grounds: [P1],
+    });
+    await app.request("/api/reload", { method: "POST" });
+
+    const opened = await app.request(`/api/nodes/${id}`);
+    const snapshot = (await opened.json()) as { revision: number; node: { body: string } };
+    expect(snapshot.revision).toBeGreaterThan(revision);
+    expect(snapshot.node.body).toContain("第二段已改写");
+
+    // The revision recorded before the external edit no longer saves.
+    const stale = await app.request(`/api/nodes/${id}`, {
+      method: "PUT",
+      body: JSON.stringify({ body: "旧内容。", summary: "固定摘要。", grounds: [P1], revision }),
+    });
+    expect(stale.status).toBe(409);
+  });
+
   it("reports issues instead of blocking reads when the graph is invalid", async () => {
     // External write that makes the graph invalid (tool plugins bypass the API).
     await updateConstraint(refinoDir, C1, { body: "C1。", grounds: ["ZZZZZZZZ"] });

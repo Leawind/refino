@@ -16,8 +16,11 @@ import { loadGraph, readNode } from "@refino/storage";
  * `applyChange` is the single incremental update entry: API writes and
  * external file events both re-read the affected ids from disk through it,
  * so the index is a pure mirror of `.refino/` regardless of write path.
- * Note that body-only external edits are invisible to the light index and
- * surface on the next full rebuild (`reload`, POST /api/reload).
+ * Change detection covers the light fields plus the file mtime, so
+ * body-only external edits (invisible to the light fields) still bump the
+ * revision, reach SSE clients and guard PUT saves against silent
+ * overwrites. mtime is a conservative signal: rewriting a file with
+ * identical content also counts as a change.
  */
 
 /** SSE payload pushed on /api/events after every applied change batch. */
@@ -34,6 +37,8 @@ interface Entry {
   node: RefinoNode;
   /** Global revision at which this node last changed. */
   revision: number;
+  /** File mtime (ms) captured with the last read; body-level change signal. */
+  mtimeMs: number;
 }
 
 const BODY_CACHE_MAX = 500;
@@ -180,7 +185,7 @@ export class GraphIndex {
       const reads = await Promise.all(ids.map((id) => readNode(this.refinoDir, id)));
 
       // From here on the batch applies synchronously: readers never observe a half-applied batch.
-      const applied: RefinoNode[] = [];
+      const applied: Array<{ node: RefinoNode; mtimeMs: number }> = [];
       const removed: string[] = [];
       for (let i = 0; i < ids.length; i++) {
         const id = ids[i]!;
@@ -188,21 +193,25 @@ export class GraphIndex {
         const existing = this.#entries.get(id);
         if (read.node === null) {
           if (existing !== undefined) removed.push(id);
-        } else if (existing === undefined || !sameLightFields(existing.node, read.node)) {
-          applied.push(read.node);
+        } else if (
+          existing === undefined ||
+          !sameLightFields(existing.node, read.node) ||
+          existing.mtimeMs !== read.mtimeMs
+        ) {
+          applied.push({ node: read.node, mtimeMs: read.mtimeMs ?? 0 });
         }
       }
       if (applied.length === 0 && removed.length === 0) return undefined;
 
       this.#revision++;
       this.#sortedIds = undefined;
-      for (const node of applied) this.putNode(node);
+      for (const read of applied) this.putNode(read.node, read.mtimeMs);
       for (const id of removed) this.removeNode(id);
       this.recheckIssues(affected);
 
       const event: ChangeEvent = {
         revision: this.#revision,
-        changed: applied.map((n) => n.id),
+        changed: applied.map((read) => read.node.id),
         deleted: removed,
       };
       this.broadcast(event);
@@ -219,7 +228,7 @@ export class GraphIndex {
 
   /** Full rescan; replaces every index structure. */
   private async load(): Promise<void> {
-    const { graph, issues } = await loadGraph(this.refinoDir);
+    const { graph, issues, mtimes } = await loadGraph(this.refinoDir);
     const issueMap = new Map<string, RefinoIssue[]>();
     for (const issue of [...issues, ...validateGraph(graph)]) {
       const key = issue.nodeId ?? issue.file;
@@ -230,18 +239,23 @@ export class GraphIndex {
     }
     const nodes = [...graph.nodes.values()].map((node) => ({ ...node, body: "" }));
     this.#graph = buildGraph(graph.refinoDir, nodes);
-    this.#entries = new Map(nodes.map((node) => [node.id, { node, revision: INITIAL_REVISION }]));
+    this.#entries = new Map(
+      nodes.map((node) => [
+        node.id,
+        { node, revision: INITIAL_REVISION, mtimeMs: mtimes.get(node.id) ?? 0 },
+      ]),
+    );
     this.#issues = issueMap;
     this.#bodies.clear();
     this.#sortedIds = undefined;
     this.#revision = INITIAL_REVISION;
   }
 
-  private putNode(node: RefinoNode): void {
+  private putNode(node: RefinoNode, mtimeMs: number): void {
     const existing = this.#entries.get(node.id);
     if (existing !== undefined) this.dropDependents(existing.node);
     const resident = { ...node, body: "" };
-    this.#entries.set(node.id, { node: resident, revision: this.#revision });
+    this.#entries.set(node.id, { node: resident, revision: this.#revision, mtimeMs });
     this.#graph.nodes.set(node.id, resident);
     this.addDependents(resident);
     this.dropIssues(node.id);

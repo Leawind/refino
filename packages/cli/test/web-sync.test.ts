@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { startWebServer } from "../src/web/server.js";
 import type { RunningWebServer } from "../src/web/server.js";
-import { createConstraint } from "@refino/storage";
+import { createConstraint, updateConstraint } from "@refino/storage";
 import { constraint, createRefino, premise, removeRefino } from "@refino/testkit";
 
 /**
@@ -105,6 +105,15 @@ describe("external change sync", () => {
     const externalId = await createConstraint(refinoDir, { body: "外部写入。", grounds: [P1] });
     const externalEvent = await readEvent(reader, buffer);
     expect(externalEvent).toEqual({ revision: 3, changed: [externalId], deleted: [] });
+
+    // A body-only edit keeps every light field (summary derives from the
+    // unchanged first paragraph) and is still detected, via the file mtime.
+    await updateConstraint(refinoDir, externalId, {
+      body: "外部写入。\n\n追加段落。",
+      grounds: [P1],
+    });
+    const editEvent = await readEvent(reader, buffer);
+    expect(editEvent).toEqual({ revision: 4, changed: [externalId], deleted: [] });
 
     // The on-demand API reflects the external write without any reload.
     const queried = await fetch(`${running.url}/api/query/grounds`, {

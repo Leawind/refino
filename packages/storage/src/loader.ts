@@ -1,4 +1,4 @@
-import { readdir, readFile, stat } from "node:fs/promises";
+import { open, readdir, stat, type FileHandle } from "node:fs/promises";
 import { join } from "node:path";
 import { buildGraph, ID_RE, RefinoError } from "refino";
 import { parseNodeSource } from "./parser.js";
@@ -17,12 +17,40 @@ export interface LoadResult {
   graph: Graph;
   /** Issues found while reading and parsing node files (including duplicate ids). */
   issues: RefinoIssue[];
+  /** Node id -> file mtime (ms) at read time; the baseline for change detection. */
+  mtimes: Map<string, number>;
 }
 
 export interface ReadNodeResult {
   /** The parsed node, or null when neither candidate file exists. */
   node: RefinoNode | null;
   issues: RefinoIssue[];
+  /** File mtime (ms) of the winning candidate; undefined when node is null. */
+  mtimeMs?: number;
+}
+
+/**
+ * Read a node file's source and its mtime as one consistent snapshot: both
+ * come from the same open file handle, so the mtime always describes the
+ * content being parsed even under concurrent atomic writes.
+ * Returns undefined when the file does not exist.
+ */
+async function readSource(
+  absolute: string,
+): Promise<{ source: string; mtimeMs: number } | undefined> {
+  let handle: FileHandle;
+  try {
+    handle = await open(absolute, "r");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined; // no file of this shape
+    throw error;
+  }
+  try {
+    const [source, stats] = await Promise.all([handle.readFile("utf8"), handle.stat()]);
+    return { source, mtimeMs: stats.mtimeMs };
+  } finally {
+    await handle.close();
+  }
 }
 
 /**
@@ -50,19 +78,16 @@ export async function readNode(refinoDir: string, id: string): Promise<ReadNodeR
   }));
   const issues: RefinoIssue[] = [];
   let node: RefinoNode | null = null;
+  let mtimeMs: number | undefined;
   for (const candidate of candidates) {
-    let source: string;
-    try {
-      source = await readFile(candidate.absolute, "utf8");
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; // no file of this type
-      throw error;
-    }
-    const parsed = parseNodeSource(id, candidate.file, candidate.type, source);
+    const read = await readSource(candidate.absolute);
+    if (read === undefined) continue; // no file of this type
+    const parsed = parseNodeSource(id, candidate.file, candidate.type, read.source);
     issues.push(...parsed.issues);
     if (parsed.node === null) continue;
     if (node === null) {
       node = parsed.node;
+      mtimeMs = read.mtimeMs;
     } else {
       issues.push({
         code: "DUPLICATE_ID",
@@ -73,7 +98,7 @@ export async function readNode(refinoDir: string, id: string): Promise<ReadNodeR
       break; // both candidates parsed: nothing left to read
     }
   }
-  return { node, issues };
+  return { node, issues, mtimeMs };
 }
 
 /**
@@ -108,13 +133,14 @@ export async function loadGraph(refinoDir: string): Promise<LoadResult> {
   const nodes: RefinoNode[] = [];
   const issues: RefinoIssue[] = [];
   const seenIds = new Map<string, string>();
+  const mtimes = new Map<string, number>();
 
   let shards;
   try {
     shards = await readdir(join(refinoDir, NODES_DIR), { withFileTypes: true });
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return { graph: buildGraph(refinoDir, []), issues }; // empty store
+      return { graph: buildGraph(refinoDir, []), issues, mtimes }; // empty store
     }
     throw error;
   }
@@ -141,13 +167,8 @@ export async function loadGraph(refinoDir: string): Promise<LoadResult> {
       // Deeper directories and non-markdown files are silently ignored.
       if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
       const file = `${NODES_DIR}/${shard.name}/${entry.name}`;
-      let source: string;
-      try {
-        source = await readFile(join(refinoDir, file), "utf8");
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; // changed mid-scan
-        throw error;
-      }
+      const read = await readSource(join(refinoDir, file));
+      if (read === undefined) continue; // changed mid-scan
       const parsed = parseFileName(entry.name.slice(0, -".md".length));
       if (!parsed) {
         issues.push({
@@ -167,7 +188,7 @@ export async function loadGraph(refinoDir: string): Promise<LoadResult> {
         continue;
       }
       const id = shard.name + base;
-      const { node, issues: parseIssues } = parseNodeSource(id, file, type, source);
+      const { node, issues: parseIssues } = parseNodeSource(id, file, type, read.source);
       issues.push(...parseIssues);
       if (!node) continue;
       const existingFile = seenIds.get(node.id);
@@ -176,16 +197,17 @@ export async function loadGraph(refinoDir: string): Promise<LoadResult> {
           code: "DUPLICATE_ID",
           message: `Duplicate node id "${node.id}" (already defined in ${existingFile}).`,
           file: node.file,
-          nodeId: node.id,
+          nodeId: id,
         });
         continue;
       }
       seenIds.set(node.id, node.file);
+      mtimes.set(node.id, read.mtimeMs);
       nodes.push(node);
     }
   }
 
-  return { graph: buildGraph(refinoDir, nodes), issues };
+  return { graph: buildGraph(refinoDir, nodes), issues, mtimes };
 }
 
 /** Split `<base>.<type>` into its parts; null when the shape is wrong. */
