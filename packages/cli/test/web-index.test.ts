@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { mkdir, rename, writeFile } from "node:fs/promises";
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
 import { createWebApp } from "../src/web/server.js";
 import { GraphIndex } from "../src/web/graph-index.js";
@@ -182,5 +183,30 @@ describe("GraphIndex incremental updates", () => {
     expect(index.issues()).toEqual([]);
     await deleteNode(refinoDir, newId);
     await index.applyChange({ changed: [newId] });
+  });
+
+  it("drops parse issues keyed by files that vanish within a touched shard", async () => {
+    const index = new GraphIndex(refinoDir);
+    await index.ready();
+
+    // A 7-char base name resolves to no id; the parse issue is keyed by file.
+    const shardDir = join(refinoDir, "nodes", "AA");
+    const badFile = join(shardDir, "7P8Q9R0S.constraint.md");
+    await mkdir(shardDir, { recursive: true });
+    await writeFile(badFile, "---\ntype: constraint\nsummary: 形状非法\n---\n正文。\n", "utf8");
+    await index.reload();
+    const invalidIssue = () => index.issues().find((i) => i.code === "INVALID_ID");
+    expect(invalidIssue()?.file).toBe("nodes/AA/7P8Q9R0S.constraint.md");
+
+    // Renaming it into shape reports the new id; the touched shard lets the
+    // index drop the stale file-keyed issue without a full reload.
+    await rename(badFile, join(shardDir, "7P8Q9R.constraint.md"));
+    const event = await index.applyChange({ changed: ["AA7P8Q9R"], shards: ["AA"] });
+    expect(event).toBeDefined();
+    expect(index.entry("AA7P8Q9R")).toBeDefined();
+    expect(invalidIssue()).toBeUndefined();
+
+    // A shard-only batch without anything stale is a no-op.
+    expect(await index.applyChange({ shards: ["AA"] })).toBeUndefined();
   });
 });

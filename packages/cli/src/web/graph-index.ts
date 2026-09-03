@@ -1,6 +1,8 @@
 import { buildGraph, checkGroundsChange, isValidConfirmed, validateGraph } from "refino";
 import type { Graph, RefinoIssue, RefinoNode } from "refino";
 import { loadGraph, readNode } from "@refino/storage";
+import { readdir } from "node:fs/promises";
+import { join } from "node:path";
 
 /**
  * Process-resident graph index over a `.refino` directory (v1 of the
@@ -167,14 +169,24 @@ export class GraphIndex {
    * whose light fields actually changed — no-ops never bump the revision, so
    * duplicate notifications (an API write followed by its own watcher echo)
    * stay silent.
+   *
+   * `shards` are directories touched by the incoming file events. Parse
+   * issues are keyed by file for nodes whose id never resolved (invalid id
+   * shape, duplicate id, ...), and such files are invisible to id-based
+   * reporting — a rename or delete of one would leave its issue stuck. For
+   * each touched shard, file-keyed issues whose file has vanished are
+   * dropped; surviving files keep their issues (their content is re-read
+   * through the ids anyway).
    */
   applyChange(change: {
     changed?: readonly string[];
     deleted?: readonly string[];
+    shards?: readonly string[];
   }): Promise<ChangeEvent | undefined> {
     return this.enqueue(async () => {
       const ids = [...new Set([...(change.changed ?? []), ...(change.deleted ?? [])])];
-      if (ids.length === 0) return undefined;
+      const touchedShards = [...new Set(change.shards ?? [])];
+      if (ids.length === 0 && touchedShards.length === 0) return undefined;
 
       // Direct dependents captured before mutation: their grounds must be
       // rechecked after the change (e.g. grounds that now dangle).
@@ -183,6 +195,7 @@ export class GraphIndex {
         for (const dependent of this.#graph.dependents.get(id) ?? []) affected.add(dependent);
       }
       const reads = await Promise.all(ids.map((id) => readNode(this.refinoDir, id)));
+      const staleFileIssues = await this.staleFileIssueKeys(touchedShards);
 
       // From here on the batch applies synchronously: readers never observe a half-applied batch.
       const applied: Array<{ node: RefinoNode; mtimeMs: number }> = [];
@@ -201,12 +214,15 @@ export class GraphIndex {
           applied.push({ node: read.node, mtimeMs: read.mtimeMs ?? 0 });
         }
       }
-      if (applied.length === 0 && removed.length === 0) return undefined;
+      if (applied.length === 0 && removed.length === 0 && staleFileIssues.length === 0) {
+        return undefined;
+      }
 
       this.#revision++;
       this.#sortedIds = undefined;
       for (const read of applied) this.putNode(read.node, read.mtimeMs);
       for (const id of removed) this.removeNode(id);
+      for (const key of staleFileIssues) this.#issues.delete(key);
       this.recheckIssues(affected);
 
       const event: ChangeEvent = {
@@ -332,6 +348,24 @@ export class GraphIndex {
   private dropIssues(id: string): void {
     this.#issues.delete(id);
     for (const file of candidateFiles(id)) this.#issues.delete(file);
+  }
+
+  /**
+   * File-keyed issue entries whose file no longer exists, within the given
+   * shards (issue keys are node ids or `.refino`-relative file paths; only
+   * file paths live under `nodes/<shard>/`). Must run before the synchronous
+   * apply section — readers never observe a half-applied batch.
+   */
+  private async staleFileIssueKeys(shards: readonly string[]): Promise<string[]> {
+    const stale: string[] = [];
+    for (const shard of shards) {
+      const prefix = `nodes/${shard}/`;
+      const files = await readdir(join(this.refinoDir, "nodes", shard)).catch((): string[] => []);
+      for (const key of this.#issues.keys()) {
+        if (key.startsWith(prefix) && !files.includes(key.slice(prefix.length))) stale.push(key);
+      }
+    }
+    return stale;
   }
 
   private cacheBody(id: string, body: string): void {

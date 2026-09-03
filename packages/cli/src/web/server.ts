@@ -219,7 +219,7 @@ function createWeb(options: WebAppOptions): WebParts {
       void index.ready().catch(() => {}); // watcher events may arrive before the first request
       return startNodeWatcher(
         join(options.refinoDir, "nodes"),
-        (ids) => void index.applyChange({ changed: ids }),
+        (ids, shards) => void index.applyChange({ changed: ids, shards }),
         { debounceMs: options.watchDebounceMs },
       );
     },

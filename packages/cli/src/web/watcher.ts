@@ -9,10 +9,15 @@ import { join } from "node:path";
  * directory — at most 1025 watches, and shard directories are created
  * lazily as ids are generated.
  *
- * File events report the affected node id (shard name + file base). A newly
- * created shard is scanned wholesale because its first files may predate the
- * shard's own watcher. Events are debounced: after a quiet period the
- * accumulated ids flush as one batch into the index's unified update entry.
+ * File events report the affected node id (shard name + file base) plus the
+ * shard directory itself. Ids cover everything that matches the node file
+ * shape; the shard names let the index drop parse issues keyed by files that
+ * no longer exist (an ill-shaped file is never reported as an id, so a
+ * rename or delete of one would otherwise leave its load-phase issue stuck).
+ * A newly created shard is scanned wholesale because its first files may
+ * predate the shard's own watcher. Events are debounced: after a quiet
+ * period the accumulated ids flush as one batch into the index's unified
+ * update entry.
  *
  * Watch initialization failures return undefined — the server silently
  * degrades to manual refresh (POST /api/reload). Removing a whole shard
@@ -36,7 +41,7 @@ export interface NodeWatcherOptions {
 
 export function startNodeWatcher(
   nodesDir: string,
-  onBatch: (ids: string[]) => void,
+  onBatch: (ids: string[], shards: string[]) => void,
   options: NodeWatcherOptions = {},
 ): NodeWatcher | undefined {
   let root: FSWatcher;
@@ -49,6 +54,8 @@ export function startNodeWatcher(
   const debounceMs = options.debounceMs ?? 500;
   const shards = new Map<string, FSWatcher>();
   const pending = new Set<string>();
+  /** Shards touched by any file event, well-shaped or not. */
+  const dirtyShards = new Set<string>();
   /** Shards needing a second scan: files may land between the first scan and the shard watcher attach. */
   const rescanPending = new Set<string>();
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -58,10 +65,12 @@ export function startNodeWatcher(
     // Deferred shard rescans queue their ids now; they flush after the next quiet period.
     for (const name of rescanPending) scanShard(name);
     rescanPending.clear();
-    if (pending.size === 0) return;
+    if (pending.size === 0 && dirtyShards.size === 0) return;
     const ids = [...pending];
+    const dirty = [...dirtyShards];
     pending.clear();
-    onBatch(ids);
+    dirtyShards.clear();
+    onBatch(ids, dirty);
   };
   const schedule = (): void => {
     clearTimeout(timer);
@@ -97,6 +106,7 @@ export function startNodeWatcher(
     // callback argument distinguishes "rename" (create/delete/atomic
     // replace) from "change" (in-place modify). Both resolve via readNode.
     const onFileEvent = (_eventType: string, filename: string | Buffer | null): void => {
+      dirtyShards.add(name);
       if (filename === null) {
         scanShard(name); // platform gave no name: rescan the shard
         return;
@@ -134,6 +144,7 @@ export function startNodeWatcher(
     // its watcher — the id-level deletions are covered by reload.
     watchShard(name);
     scanShard(name);
+    dirtyShards.add(name);
     rescanPending.add(name);
     schedule();
   });
