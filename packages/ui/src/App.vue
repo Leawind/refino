@@ -1,5 +1,6 @@
 <script setup lang="ts">
-// Application shell: header, sidebar, graph canvas, detail panel, status bar.
+// Application shell: header, dual sidebars, decision graph with floating
+// layers, floating detail window.
 import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import {
@@ -7,7 +8,6 @@ import {
   NButton,
   NConfigProvider,
   NGlobalStyle,
-  NLayoutFooter,
   NLayoutHeader,
   NMessageProvider,
   NPopselect,
@@ -23,8 +23,13 @@ import AppHeader from "./components/AppHeader.vue";
 import NodeListPanel from "./components/NodeListPanel.vue";
 import DecisionGraph from "./components/DecisionGraph.vue";
 import NodeDetailWindow from "./components/NodeDetailWindow.vue";
-import StatusBar from "./components/StatusBar.vue";
+import GraphFloat from "./components/GraphFloat.vue";
 import type { LayoutDirection } from "./types";
+
+const constraintCount = computed(
+  () => store.state.nodes.filter((n) => n.type === "constraint").length,
+);
+const premiseCount = computed(() => store.state.nodes.filter((n) => n.type === "premise").length);
 
 const { t } = useI18n();
 
@@ -78,19 +83,28 @@ function refresh(): void {
             <NodeListPanel type="constraint" side="left" />
             <div class="center-pane">
               <DecisionGraph :direction="direction" />
-              <div class="graph-actions">
+              <GraphFloat placement="top-right">
                 <NPopselect v-model:value="direction" :options="directionOptions" trigger="click">
                   <NButton circle :title="t('app.direction')">{{ direction }}</NButton>
                 </NPopselect>
-              </div>
-              <NodeDetailWindow />
+              </GraphFloat>
+              <GraphFloat placement="bottom-left">
+                <div class="status-pill">
+                  <span>{{ t("status.constraints") }}: {{ constraintCount }}</span>
+                  <span>{{ t("status.premises") }}: {{ premiseCount }}</span>
+                  <span v-if="store.state.issues.length > 0" class="issues">
+                    {{ t("status.issues") }}: {{ store.state.issues.length }}
+                  </span>
+                  <span v-if="store.state.selectedId !== null" class="mono">
+                    {{ t("status.selected") }}: {{ store.state.selectedId }}
+                  </span>
+                </div>
+              </GraphFloat>
             </div>
             <NodeListPanel type="premise" side="right" />
+            <NodeDetailWindow />
           </div>
         </div>
-        <NLayoutFooter class="footer" bordered>
-          <StatusBar />
-        </NLayoutFooter>
       </div>
     </NMessageProvider>
   </NConfigProvider>
@@ -155,18 +169,24 @@ function refresh(): void {
   overflow: auto;
 }
 
-.graph-actions {
-  position: absolute;
-  top: 10px;
-  right: 12px;
-  z-index: 5;
+.status-pill {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 12px;
+  font-size: 12px;
+  border-radius: 999px;
+  background: var(--refino-surface);
+  border: 1px solid var(--refino-border);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+  opacity: 0.92;
 }
 
-.footer {
-  flex: none;
-  height: 28px;
+.status-pill .issues {
+  color: #d03050;
+}
+
+.status-pill .mono {
+  font-family: monospace;
 }
 </style>

@@ -1,9 +1,10 @@
 <script setup lang="ts">
-// Floating detail window over the decision graph: details of the selected
-// node, with edit/create forms. Opens on double click; closing keeps the
-// selection. Clicking the dimmed backdrop or pressing Esc closes it, and
-// expanding to near-fullscreen animates via an inset transition.
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+// Floating detail window over the interface: details of the selected node,
+// with edit/create forms. Opens on double click; closing keeps the
+// selection. The window lives inside the positioned workbench, so both
+// states are plain absolute insets — centered dialog by default, covering
+// the whole interface when expanded — and the switch animates via CSS.
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import {
   NButton,
@@ -31,42 +32,6 @@ const visible = computed(
 );
 
 const expanded = ref(false);
-const backdropEl = ref<HTMLElement | null>(null);
-
-/**
- * The window is always fixed so the expand/shrink inset change can animate.
- * Normal mode insets mirror the graph pane's on-screen rect, measured when
- * the window opens (the backdrop blocks pane scrolling while it is open).
- */
-const inset = ref({ top: 0, right: 0, bottom: 0, left: 0 });
-
-function measure(): void {
-  const rect = backdropEl.value?.getBoundingClientRect();
-  if (rect === undefined) return;
-  inset.value = {
-    top: rect.top,
-    right: window.innerWidth - rect.right,
-    bottom: window.innerHeight - rect.bottom,
-    left: rect.left,
-  };
-}
-
-const windowStyle = computed(() => ({
-  inset: expanded.value
-    ? "24px"
-    : `${inset.value.top}px ${inset.value.right}px ${inset.value.bottom}px ${inset.value.left}px`,
-}));
-
-watch(visible, (value) => {
-  if (value) {
-    expanded.value = false;
-    void nextTick(measure);
-  }
-});
-
-function onResize(): void {
-  if (visible.value) measure();
-}
 
 function close(): void {
   expanded.value = false;
@@ -78,14 +43,8 @@ function onKeydown(event: KeyboardEvent): void {
   if (event.key === "Escape" && visible.value) close();
 }
 
-onMounted(() => {
-  document.addEventListener("keydown", onKeydown);
-  window.addEventListener("resize", onResize);
-});
-onBeforeUnmount(() => {
-  document.removeEventListener("keydown", onKeydown);
-  window.removeEventListener("resize", onResize);
-});
+onMounted(() => document.addEventListener("keydown", onKeydown));
+onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
 
 interface FormState {
   summary: string;
@@ -196,8 +155,8 @@ function nodeLabel(id: string): string {
 
 <template>
   <template v-if="visible">
-    <div ref="backdropEl" class="backdrop" :class="{ expanded }" @click="close" />
-    <section class="window" :class="{ expanded }" :style="windowStyle" @click.stop>
+    <div class="backdrop" @click="close" />
+    <section class="window" :class="{ expanded }" @click.stop>
       <div class="window-actions">
         <NButton
           quaternary
@@ -353,32 +312,36 @@ function nodeLabel(id: string): string {
   inset: 0;
   background: rgba(0, 0, 0, 0.45);
   backdrop-filter: blur(4px);
-  z-index: 20;
-}
-
-.backdrop.expanded {
-  position: fixed;
-  inset: 0;
-  z-index: 90;
+  z-index: 40;
 }
 
 .window {
-  position: fixed;
-  /* Insets come from the measured pane rect; the expand/shrink switch
-   * animates between them. */
-  transition: inset 0.25s ease;
+  position: absolute;
+  /* Centered dialog by default; expanded covers the whole interface. Both
+   * are plain insets inside the workbench, so the switch just animates. */
+  top: 24px;
+  bottom: 24px;
+  left: 0;
+  right: 0;
+  margin-inline: auto;
+  width: min(62rem, calc(100% - 48px));
+  transition:
+    inset 0.25s ease,
+    width 0.25s ease;
   display: flex;
   flex-direction: column;
   background: var(--refino-surface);
   border: 1px solid var(--refino-border);
   border-radius: 10px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
-  z-index: 21;
+  z-index: 41;
   overflow: hidden;
 }
 
 .window.expanded {
-  z-index: 91;
+  inset: 12px;
+  width: auto;
+  z-index: 41;
 }
 
 .window-actions {
@@ -395,10 +358,11 @@ function nodeLabel(id: string): string {
 }
 
 .window-body {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 12px 14px;
   box-sizing: border-box;
-  height: 100%;
 }
 
 .head {

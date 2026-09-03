@@ -21,7 +21,7 @@ const props = defineProps<{ type: NodeType; side: "left" | "right" }>();
 
 const { t } = useI18n();
 
-const MIN_PERCENT = 10;
+const MIN_PERCENT = 4;
 const MAX_PERCENT = 40;
 
 const rootEl = ref<HTMLElement | null>(null);
@@ -87,9 +87,8 @@ function onResizeMove(event: MouseEvent): void {
   const signed = props.side === "left" ? delta : -delta;
   const base = rootEl.value?.parentElement?.clientWidth ?? 1;
   const percent = startPercent + (signed / base) * 100;
-  // Dragging past the edge hides the panel but keeps the gesture alive:
-  // dragging back within the minimum restores it until the mouse is released.
-  collapsed.value = percent < MIN_PERCENT;
+  // Reaching the minimum just stops shrinking; collapsing is a separate,
+  // explicit action on the panel header.
   widthPercent.value = Math.min(MAX_PERCENT, Math.max(MIN_PERCENT, percent));
 }
 
