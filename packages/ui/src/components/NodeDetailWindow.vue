@@ -1,9 +1,8 @@
 <script setup lang="ts">
-// Floating detail window over the interface: details of the selected node,
-// with edit/create forms. Opens on double click; closing keeps the
-// selection. The window lives inside the positioned workbench, so both
-// states are plain absolute insets — centered dialog by default, covering
-// the whole interface when expanded — and the switch animates via CSS.
+// Detail bar docked below the decision graph: details of the selected
+// node, with edit/create forms. Opens on double click; closing keeps the
+// selection. The bar occupies the bottom of the graph pane; expanding
+// turns it into a near-fullscreen modal with a dimmed backdrop.
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import {
@@ -40,7 +39,10 @@ function close(): void {
 }
 
 function onKeydown(event: KeyboardEvent): void {
-  if (event.key === "Escape" && visible.value) close();
+  if (!visible.value || event.key !== "Escape") return;
+  // Esc collapses the expanded view first, then hides the bar.
+  if (expanded.value) expanded.value = false;
+  else close();
 }
 
 onMounted(() => document.addEventListener("keydown", onKeydown));
@@ -155,8 +157,8 @@ function nodeLabel(id: string): string {
 
 <template>
   <template v-if="visible">
-    <div class="backdrop" @click="close" />
-    <section class="window" :class="{ expanded }" @click.stop>
+    <div v-if="expanded" class="backdrop" @click="expanded = false" />
+    <section class="detail-bar" :class="{ expanded }">
       <div class="window-actions">
         <NButton
           quaternary
@@ -308,40 +310,36 @@ function nodeLabel(id: string): string {
 
 <style scoped>
 .backdrop {
-  position: absolute;
+  position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.45);
   backdrop-filter: blur(4px);
-  z-index: 40;
+  z-index: 55;
 }
 
-.window {
-  position: absolute;
-  /* Centered dialog by default; expanded covers the whole interface. Both
-   * are plain insets inside the workbench, so the switch just animates. */
-  top: 24px;
-  bottom: 24px;
-  left: 0;
-  right: 0;
-  margin-inline: auto;
-  width: min(62rem, calc(100% - 48px));
-  transition:
-    inset 0.25s ease,
-    width 0.25s ease;
+.detail-bar {
+  position: relative;
+  flex: none;
+  height: 40%;
+  min-height: 180px;
   display: flex;
   flex-direction: column;
   background: var(--refino-surface);
+  border-top: 1px solid var(--refino-border);
+  box-sizing: border-box;
+  z-index: 5;
+}
+
+.detail-bar.expanded {
+  position: fixed;
+  inset: 12px;
+  height: auto;
+  min-height: 0;
   border: 1px solid var(--refino-border);
   border-radius: var(--refino-radius);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
-  z-index: 41;
+  z-index: 60;
   overflow: hidden;
-}
-
-.window.expanded {
-  inset: 12px;
-  width: auto;
-  z-index: 41;
 }
 
 .window-actions {

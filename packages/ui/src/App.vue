@@ -88,27 +88,29 @@ function refresh(): void {
           <div class="workbench">
             <NodeListPanel type="constraint" side="left" />
             <div class="center-pane">
-              <DecisionGraph :direction="direction" />
-              <GraphFloat placement="bottom-right">
-                <NPopselect v-model:value="direction" :options="directionOptions" trigger="click">
-                  <NButton circle :title="t('app.direction')">{{ direction }}</NButton>
-                </NPopselect>
-              </GraphFloat>
-              <GraphFloat placement="bottom-left">
-                <div class="status-pill">
-                  <span>{{ t("status.constraints") }}: {{ constraintCount }}</span>
-                  <span>{{ t("status.premises") }}: {{ premiseCount }}</span>
-                  <span v-if="store.state.issues.length > 0" class="issues">
-                    {{ t("status.issues") }}: {{ store.state.issues.length }}
-                  </span>
-                  <span v-if="store.state.selectedId !== null" class="mono">
-                    {{ t("status.selected") }}: {{ store.state.selectedId }}
-                  </span>
-                </div>
-              </GraphFloat>
+              <div class="graph-area">
+                <DecisionGraph :direction="direction" />
+                <GraphFloat placement="bottom-right">
+                  <NPopselect v-model:value="direction" :options="directionOptions" trigger="click">
+                    <NButton circle :title="t('app.direction')">{{ direction }}</NButton>
+                  </NPopselect>
+                </GraphFloat>
+                <GraphFloat placement="bottom-left">
+                  <div class="status-pill">
+                    <span>{{ t("status.constraints") }}: {{ constraintCount }}</span>
+                    <span>{{ t("status.premises") }}: {{ premiseCount }}</span>
+                    <span v-if="store.state.issues.length > 0" class="issues">
+                      {{ t("status.issues") }}: {{ store.state.issues.length }}
+                    </span>
+                    <span v-if="store.state.selectedId !== null" class="mono">
+                      {{ t("status.selected") }}: {{ store.state.selectedId }}
+                    </span>
+                  </div>
+                </GraphFloat>
+              </div>
+              <NodeDetailWindow />
             </div>
             <NodeListPanel type="premise" side="right" />
-            <NodeDetailWindow />
           </div>
         </div>
       </div>
@@ -151,10 +153,19 @@ function refresh(): void {
 }
 
 .center-pane {
-  position: relative;
   flex: 1;
   min-width: 0;
-  overflow: auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.graph-area {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .status-pill {
