@@ -81,7 +81,6 @@ export default {
   },
   status: {
     constraints: "Constraints",
-    premises: "Premises",
     selected: "Selected",
     issues: "Issues",
   },

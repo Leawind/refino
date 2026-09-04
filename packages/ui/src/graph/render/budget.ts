@@ -11,10 +11,9 @@
  * estimate when they run short. A manual budget disables adaptation.
  *
  * Over-budget culling keeps, in order: the focus node, the other selected
- * nodes, the hovered node, premises of selected nodes, premises of the
- * hovered node, then everything else ascending by distance to the nearest
- * selected node (ties by id, so the same working set always culls the same
- * way).
+ * nodes, the hovered node, then everything else ascending by distance to
+ * the nearest selected node (ties by id, so the same working set always
+ * culls the same way).
  */
 
 /** Cost of a node that renders its label. */
@@ -132,9 +131,7 @@ export function createAdaptiveBudget(
 export const CULL_FOCUS = 0;
 export const CULL_SELECTED = 1;
 export const CULL_HOVERED = 2;
-export const CULL_GROUND_OF_SELECTED = 3;
-export const CULL_GROUND_OF_HOVERED = 4;
-export const CULL_OTHER = 5;
+export const CULL_OTHER = 3;
 
 export interface CullEntry {
   id: string;

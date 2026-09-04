@@ -35,16 +35,9 @@ import { createProgram, EDGE_QUAD, type Program, UNIT_QUAD } from "./shaders";
 
 export type RGBA = [number, number, number, number];
 
-export type NodeKind = "constraint" | "premise";
-
 export interface ThemeColors {
   nodeBg: RGBA;
   nodeBorder: RGBA;
-  premiseBg: RGBA;
-  premiseBorder: RGBA;
-  /** Low-saturation variant for premises displayed in a single place. */
-  premiseMutedBg: RGBA;
-  premiseMutedBorder: RGBA;
   edge: RGBA;
   primary: RGBA;
   text: RGBA;
@@ -57,11 +50,6 @@ export interface RenderNodeInput {
   y: number;
   width: number;
   height: number;
-  /** Decides shape (constraints round their corners, premises are square)
-   * and palette (premises carry the premise tint). */
-  kind: NodeKind;
-  /** Low-saturation premise palette (single-display premise instances). */
-  muted?: boolean;
   label: string;
   selected: boolean;
   focus: boolean;
@@ -70,8 +58,6 @@ export interface RenderNodeInput {
   cls: number;
   /** Distance to the nearest selected node, ordering within a class. */
   distance: number;
-  /** Fade in instead of appearing at once (hover-pulled premises). */
-  fadeIn?: boolean;
 }
 
 export interface RenderEdgeInput {
@@ -150,10 +136,6 @@ export function readThemeColors(): ThemeColors {
   return {
     nodeBg: token("--refino-node-bg", "#ffffff"),
     nodeBorder: token("--refino-node-border", "rgba(15, 23, 42, 0.3)"),
-    premiseBg: token("--refino-premise-bg", "#e5f3ec"),
-    premiseBorder: token("--refino-premise-border", "rgba(24, 160, 88, 0.55)"),
-    premiseMutedBg: token("--refino-premise-muted-bg", "#edf0f2"),
-    premiseMutedBorder: token("--refino-premise-muted-border", "rgba(100, 116, 139, 0.38)"),
     edge: token("--refino-edge", "rgba(15, 23, 42, 0.35)"),
     primary: token("--refino-primary", "#18a058"),
     text: token("--refino-node-text", "rgba(0, 0, 0, 0.9)"),
@@ -208,10 +190,6 @@ export class GraphRenderer {
   #theme: ThemeColors = {
     nodeBg: [1, 1, 1, 1],
     nodeBorder: [0.06, 0.09, 0.16, 0.3],
-    premiseBg: [0.9, 0.95, 0.93, 1],
-    premiseBorder: [0.09, 0.63, 0.35, 0.55],
-    premiseMutedBg: [0.93, 0.94, 0.95, 1],
-    premiseMutedBorder: [0.39, 0.45, 0.55, 0.38],
     edge: [0.06, 0.09, 0.16, 0.35],
     primary: [0.09, 0.63, 0.35, 1],
     text: [0.1, 0.1, 0.1, 0.9],
@@ -350,14 +328,9 @@ export class GraphRenderer {
         entry.node = node;
         entry.target = 1;
       } else {
-        // Hover-pulled premises fade in; everything else appears at once so
-        // the first frame is complete even under rAF throttling. The
-        // fade-out reuses the last known geometry.
-        this.#entries.set(node.id, {
-          node,
-          alpha: node.fadeIn ? 0 : 1,
-          target: 1,
-        });
+        // Nodes appear at once so the first frame is complete even under
+        // rAF throttling. The fade-out reuses the last known geometry.
+        this.#entries.set(node.id, { node, alpha: 1, target: 1 });
       }
     }
     for (const entry of this.#entries.values()) {
@@ -770,7 +743,6 @@ export class GraphRenderer {
       if (entry.alpha < 0.01 || !this.#admitted.has(id)) continue;
       if ((count + 1) * 16 > this.#nodeData.length) this.#nodeData = grow(this.#nodeData);
       const node = entry.node;
-      const premise = node.kind === "premise";
       const borderWidth = node.focus
         ? BORDER_WIDTH_FOCUS
         : node.selected
@@ -781,11 +753,7 @@ export class GraphRenderer {
       const borderColor =
         node.selected || node.focus || node.hovered
           ? this.#theme.primary
-          : premise
-            ? node.muted
-              ? this.#theme.premiseMutedBorder
-              : this.#theme.premiseBorder
-            : this.#theme.nodeBorder;
+          : this.#theme.nodeBorder;
       const base = count * 16;
       this.#nodeData[base] = (node.x + node.width / 2) * scale + tx;
       this.#nodeData[base + 1] = (node.y + node.height / 2) * scale + ty;
@@ -793,12 +761,9 @@ export class GraphRenderer {
       this.#nodeData[base + 3] = node.height * scale;
       // The corner radius lives in virtual space: it grows with the node
       // under zoom instead of staying a fixed screen size.
-      this.#nodeData[base + 4] = premise ? 0 : CORNER_RADIUS * scale;
+      this.#nodeData[base + 4] = CORNER_RADIUS * scale;
       this.#nodeData[base + 5] = borderWidth;
-      this.#nodeData.set(
-        premise ? (node.muted ? this.#theme.premiseMutedBg : this.#theme.premiseBg) : this.#theme.nodeBg,
-        base + 6,
-      );
+      this.#nodeData.set(this.#theme.nodeBg, base + 6);
       this.#nodeData.set(borderColor, base + 10);
       this.#nodeData[base + 14] = node.selected ? 1 : 0;
       this.#nodeData[base + 15] = entry.alpha;

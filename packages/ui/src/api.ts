@@ -3,7 +3,6 @@ import type {
   IssueRecord,
   Neighborhood,
   NodeDetail,
-  NodeLite,
   NodePayload,
   QueryGroup,
   RangeResult,
@@ -44,11 +43,6 @@ export function queryNeighbors(
   params: { ancestorDepth: number; descendantDepth: number; limit?: number },
 ): Promise<QueryGroup<Neighborhood>[]> {
   return post("/api/query/neighbors", { ids: [...ids], ...params });
-}
-
-/** POST /api/query/grounds — per-id direct grounds, single hop. */
-export function queryGrounds(ids: readonly string[]): Promise<QueryGroup<NodeLite>[]> {
-  return post("/api/query/grounds", { ids: [...ids] });
 }
 
 /** POST /api/query/range — relationship and path nodes between two endpoints. */

@@ -6,8 +6,6 @@ import {
   createAdaptiveBudget,
   cullByBudget,
   CULL_FOCUS,
-  CULL_GROUND_OF_HOVERED,
-  CULL_GROUND_OF_SELECTED,
   CULL_HOVERED,
   CULL_OTHER,
   CULL_SELECTED,
@@ -79,12 +77,10 @@ describe("budget culling", () => {
     cost,
   });
 
-  it("keeps the priority order focus, selected, hovered, grounds, then distance", () => {
+  it("keeps the priority order focus, selected, hovered, then distance", () => {
     const entries: CullEntry[] = [
       entry("far-other", CULL_OTHER, 100),
       entry("near-other", CULL_OTHER, 1),
-      entry("ground-hover", CULL_GROUND_OF_HOVERED, 0),
-      entry("ground-selected", CULL_GROUND_OF_SELECTED, 0),
       entry("hovered", CULL_HOVERED),
       entry("selected", CULL_SELECTED),
       entry("focus", CULL_FOCUS, 0, COST_TEXT_NODE),

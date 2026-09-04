@@ -2,7 +2,6 @@ import { computed, reactive, readonly, shallowRef } from "vue";
 import {
   connectEvents,
   fetchIssues,
-  queryGrounds,
   queryNeighbors,
   queryRange,
   querySiblings,
@@ -16,10 +15,11 @@ import type { ChangeEvent, IssueRecord, NodeLite } from "./types";
  * README, "数据：按需工作集").
  *
  * The full graph is never loaded. The canvas renders the working set: the
- * union of the selected nodes' neighborhoods and strong siblings, range
- * selection paths (which join the selection) and the hovered node's
- * temporary grounds. Nodes keep their identity in `liteCache` when they
- * leave the working set so re-entry is instant.
+ * union of the selected nodes' neighborhoods and strong siblings, and range
+ * selection paths (which join the selection). Premise nodes are not
+ * displayed on the canvas (ui README, "显示规则与样式"). Nodes keep their
+ * identity in `liteCache` when they leave the working set so re-entry is
+ * instant.
  *
  * Selection is an ordered, duplicate-free id list; the focus is its last
  * element. External changes arrive over SSE and re-expand the selection, so
@@ -141,8 +141,6 @@ const state = reactive<WorkspaceState>({
 const workingSet = shallowRef(new Map<string, NodeLite>());
 /** External-change listeners (applied SSE/reload events, post-pruning). */
 const changeListeners = new Set<(event: ChangeEvent) => void>();
-/** Grounds of the hovered node; merged into the display while hovering. */
-const hoverSet = shallowRef(new Map<string, NodeLite>());
 
 /** Every lite shape ever seen; evicted working-set nodes stay here for
  * quick restore. Pruned only on deletion events. */
@@ -154,7 +152,6 @@ function prime(lite: NodeLite): void {
 
 /** Refreshes are asynchronous; only the latest one may touch the state. */
 let refreshToken = 0;
-let hoverToken = 0;
 let stopEvents: (() => void) | null = null;
 
 function dedupe(ids: readonly string[]): string[] {
@@ -277,9 +274,8 @@ function appendSelection(ids: readonly string[]): void {
   setSelection(next);
 }
 
-/** Ctrl click: toggle a constraint's membership; premises are unaffected. */
+/** Ctrl click: toggle the node's membership in the selection. */
 function toggle(lite: NodeLite): void {
-  if (lite.type !== "constraint") return;
   prime(lite);
   const index = state.selection.indexOf(lite.id);
   if (index >= 0) setSelection(state.selection.filter((id) => id !== lite.id));
@@ -303,36 +299,16 @@ function clearSelection(): void {
   if (state.selection.length === 0) return;
   setSelection([]);
   state.hoveredId = null;
-  hoverSet.value = new Map();
   void refresh();
 }
 
-/** Hover: the node's direct grounds fade in as temporary working-set nodes. */
-async function hover(id: string): Promise<void> {
+/** Hover: highlights the node and emphasizes its grounds edges. */
+function hover(id: string): void {
   state.hoveredId = id;
-  const lite = liteCache.get(id);
-  if (lite === undefined || lite.type !== "constraint") return;
-  const token = ++hoverToken;
-  try {
-    const groups = await queryGrounds([id]);
-    const grounds = new Map<string, NodeLite>();
-    for (const group of groups) {
-      if ("error" in group) continue;
-      for (const node of group.results) {
-        prime(node);
-        grounds.set(node.id, node);
-      }
-    }
-    if (token === hoverToken && state.hoveredId === id) hoverSet.value = grounds;
-  } catch {
-    // Hover extras are best-effort.
-  }
 }
 
 function unhover(): void {
   state.hoveredId = null;
-  hoverToken++;
-  hoverSet.value = new Map();
 }
 
 function dismissNotice(): void {
@@ -428,49 +404,15 @@ function setConfig(patch: Partial<CanvasConfig>): void {
 }
 
 /**
- * Premise instances display beside the constraint that needs them and carry
- * the composite id "<premise>@<constraint>" (ui README, "显示规则与样式");
- * refino ids never contain "@" (engine ID_RE), so the split is safe.
- */
-export function premiseInstanceId(premiseId: string, constraintId: string): string {
-  return `${premiseId}@${constraintId}`;
-}
-
-/** The real premise id behind an instance id; regular ids pass through. */
-export function premiseIdOf(id: string): string {
-  const at = id.indexOf("@");
-  return at > 0 ? id.slice(0, at) : id;
-}
-
-/** The constraint an instance displays beside; null for regular ids. */
-export function instanceConstraintId(id: string): string | null {
-  const at = id.indexOf("@");
-  return at > 0 ? id.slice(at + 1) : null;
-}
-
-/**
- * Nodes the canvas draws: every constraint of the working set, plus — for
- * each selected or hovered constraint — one display instance per premise
- * ground, shown beside that constraint and connected only to it (ui README,
- * "显示规则与样式"). Edges come from the grounds of the displayed
- * constraints, so both endpoints are always present.
+ * Nodes the canvas draws: every constraint of the working set. Premise
+ * nodes are not displayed (ui README, "显示规则与样式"); edges come from
+ * the grounds of the displayed constraints, restricted to grounds that are
+ * themselves displayed constraints.
  */
 const displayed = computed<NodeLite[]>(() => {
-  const merged = new Map(workingSet.value);
-  for (const [id, node] of hoverSet.value) merged.set(id, node);
-  const pinned = new Set(state.selection);
-  if (state.hoveredId !== null) pinned.add(state.hoveredId);
-
   const result: NodeLite[] = [];
-  for (const node of merged.values()) {
-    if (node.type !== "constraint") continue;
-    result.push(node);
-    if (!pinned.has(node.id)) continue;
-    for (const ground of node.grounds ?? []) {
-      const lite = merged.get(ground);
-      if (lite?.type !== "premise") continue;
-      result.push({ ...lite, id: premiseInstanceId(ground, node.id) });
-    }
+  for (const node of workingSet.value.values()) {
+    if (node.type === "constraint") result.push(node);
   }
   return result;
 });

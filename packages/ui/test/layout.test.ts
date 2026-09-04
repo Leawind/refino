@@ -90,7 +90,10 @@ describe("statelessness", () => {
   it("recomputes positions so they stay consistent with the current structure", () => {
     // A second ground entering changes the joiner's row: with one ground it
     // sits straight below it; with two it centers between their rows.
-    const small = layeredLayout([constraint("G1A2B3C4"), constraint("J1A2B3C4", ["G1A2B3C4"])], "LR");
+    const small = layeredLayout(
+      [constraint("G1A2B3C4"), constraint("J1A2B3C4", ["G1A2B3C4"])],
+      "LR",
+    );
     const grown = layeredLayout(
       [
         constraint("G1A2B3C4"),
@@ -169,47 +172,5 @@ describe("direction mapping", () => {
     expect(byId(rl, P1).y).toBe(byId(lr, P1).y);
     const bt = layeredLayout(chain, "BT");
     expect(byId(bt, C1).y).toBeLessThan(byId(bt, P1).y);
-  });
-});
-
-describe("satellites", () => {
-  const instance = (id: string, beside: string): LayoutNode => ({ id, beside });
-
-  it("places a satellite one layer before its anchor, in its row", () => {
-    const laid = layeredLayout(
-      [premise(P1), constraint(C1, [P1]), instance(`S1@${C1}`, C1)],
-      "LR",
-    );
-    // One layer before the anchor — the same layer P1 sits in — one row
-    // away from P1, which occupies the anchor's row in that layer.
-    expect(byId(laid, `S1@${C1}`).x).toBe(byId(laid, P1).x);
-    expect(byId(laid, `S1@${C1}`).x).toBeLessThan(byId(laid, C1).x);
-    expect(byId(laid, `S1@${C1}`).y).not.toBe(byId(laid, P1).y);
-  });
-
-  it("keeps a satellite off a placed node occupying the anchor's row", () => {
-    // P1 itself occupies the row before C1: the satellite shifts aside
-    // instead of overlapping it.
-    const laid = layeredLayout(
-      [premise(P1), constraint(C1, [P1]), instance(`S1@${C1}`, C1)],
-      "LR",
-    );
-    expect(byId(laid, `S1@${C1}`).y).not.toBe(byId(laid, P1).y);
-    const pitch = Math.abs(byId(laid, `S1@${C1}`).y - byId(laid, P1).y);
-    expect(pitch).toBeLessThanOrEqual(2 * (44 + 32));
-  });
-
-  it("gives two satellites of one anchor distinct rows", () => {
-    const laid = layeredLayout(
-      [
-        premise(P1),
-        premise(P2),
-        constraint(C1, [P1, P2]),
-        instance(`S1@${C1}`, C1),
-        instance(`S2@${C1}`, C1),
-      ],
-      "LR",
-    );
-    expect(byId(laid, `S1@${C1}`).y).not.toBe(byId(laid, `S2@${C1}`).y);
   });
 });

@@ -80,7 +80,6 @@ export default {
   },
   status: {
     constraints: "约束",
-    premises: "前提",
     selected: "选中",
     issues: "校验问题",
   },

@@ -16,11 +16,6 @@ import type { LayoutDirection } from "../../types";
  * drifting to one side. Disjoint groups are laid out as independent
  * components stacked in row ranges (README: 无重叠则作为独立分量排布).
  *
- * Satellite nodes (`beside`) are display copies that follow a regular
- * node — premise instances shown next to the constraint that needs them.
- * They sit one layer before their anchor in the anchor's row and never
- * join the layered flow themselves.
- *
  * The result is a pure function of the input node set (ties ordered by
  * id): the same set always yields the same layout, in any input order.
  */
@@ -29,8 +24,6 @@ import type { LayoutDirection } from "../../types";
 export interface LayoutNode {
   id: string;
   grounds?: readonly string[];
-  /** Place this node one layer before `beside`, in its row. */
-  beside?: string;
 }
 
 /** Mapped node geometry in virtual space. */
@@ -86,30 +79,15 @@ export function layeredLayout(
     }
   };
 
-  const dependents = new Map<string, string[]>();
-  for (const id of ids) {
-    for (const ground of graph.get(id)!.grounds ?? []) {
-      if (!graph.has(ground)) continue;
-      const list = dependents.get(ground);
-      if (list) list.push(id);
-      else dependents.set(ground, [id]);
-    }
-  }
-
-  // Satellites place last: their anchors are regular nodes placed first.
-  const regular = ids.filter((id) => graph.get(id)!.beside === undefined);
-  const satellites = ids.filter((id) => graph.get(id)!.beside !== undefined);
-  placeComponents(regular, graph, placed, place, freeOrder);
-  attachSatellites(satellites, graph, placed, place, freeOrder);
+  // Components stack in disjoint row ranges; every node is a regular node.
+  placeComponents(ids, graph, placed, place, freeOrder);
 
   const horizontal = direction === "LR" || direction === "RL";
   const result: LaidOutNode[] = [];
   for (const id of ids) {
     const placement = placed.get(id)!;
-    const main =
-      placement.layer * (horizontal ? NODE_WIDTH + LAYER_GAP : NODE_HEIGHT + LAYER_GAP);
-    const cross =
-      placement.order * (horizontal ? NODE_HEIGHT + CROSS_GAP : NODE_WIDTH + CROSS_GAP);
+    const main = placement.layer * (horizontal ? NODE_WIDTH + LAYER_GAP : NODE_HEIGHT + LAYER_GAP);
+    const cross = placement.order * (horizontal ? NODE_HEIGHT + CROSS_GAP : NODE_WIDTH + CROSS_GAP);
     const [x, y] =
       direction === "LR"
         ? [main, cross]
@@ -123,8 +101,8 @@ export function layeredLayout(
   return result;
 }
 
-/** Lays out each connected group of the regular nodes as an independent
- * component in its own row range. */
+/** Lays out each connected group of the nodes as an independent component
+ * in its own row range. */
 function placeComponents(
   regular: readonly string[],
   graph: ReadonlyMap<string, LayoutNode>,
@@ -135,7 +113,10 @@ function placeComponents(
   const regularSet = new Set(regular);
   const groundsIn = new Map<string, string[]>();
   for (const id of regular) {
-    groundsIn.set(id, (graph.get(id)!.grounds ?? []).filter((g) => regularSet.has(g)));
+    groundsIn.set(
+      id,
+      (graph.get(id)!.grounds ?? []).filter((g) => regularSet.has(g)),
+    );
   }
   const depsIn = new Map<string, string[]>();
   for (const [id, list] of groundsIn) {
@@ -236,26 +217,5 @@ function placeComponent(
       // Placing immediately keeps later nodes in this layer off the slot.
       place(id, { layer, order });
     }
-  }
-}
-
-/** Places satellite nodes one layer before their anchor, in the anchor's
- * row (nearest free slot), so they display beside it without joining the
- * layered flow. Anchors are regular nodes of the same snapshot and are
- * always placed by the time this runs. */
-function attachSatellites(
-  satellites: readonly string[],
-  graph: ReadonlyMap<string, LayoutNode>,
-  placed: ReadonlyMap<string, Placement>,
-  place: (id: string, placement: Placement) => void,
-  freeOrder: (layer: number, desired: number) => number,
-): void {
-  for (const id of satellites) {
-    const anchor = placed.get(graph.get(id)!.beside!);
-    if (anchor === undefined) continue; // anchor absent: nothing to attach to
-    place(id, {
-      layer: anchor.layer - 1,
-      order: freeOrder(anchor.layer - 1, anchor.order),
-    });
   }
 }
