@@ -2,7 +2,7 @@ import { computed, reactive, readonly, shallowRef, type InjectionKey } from "vue
 import type { RefinoClient } from "./api";
 import { readNumberPreference, readPreference, writePreference } from "./preferences";
 import type { LayoutMode } from "./graph/layout/types";
-import type { ChangeEvent, IssueRecord, NodeLite } from "./types";
+import type { ChangeEvent, IssueRecord, LayoutDirection, NodeLite } from "./types";
 
 /**
  * On-demand working set state (docs/design.md, "画布按需查询"; @refino/ui
@@ -41,6 +41,8 @@ export interface CanvasConfig {
   zoomMax: number;
   /** Canvas layout algorithm. */
   layoutMode: LayoutMode;
+  /** Display direction for directional layouts (force ignores it). */
+  direction: LayoutDirection;
 }
 
 const DEFAULT_CONFIG: CanvasConfig = {
@@ -54,6 +56,7 @@ const DEFAULT_CONFIG: CanvasConfig = {
   zoomAnchor: "cursor",
   zoomMax: 4,
   layoutMode: "layered",
+  direction: "LR",
 };
 
 const CONFIG_KEYS: Record<keyof CanvasConfig, string> = {
@@ -67,6 +70,7 @@ const CONFIG_KEYS: Record<keyof CanvasConfig, string> = {
   zoomAnchor: "refino.canvas.zoomAnchor",
   zoomMax: "refino.canvas.zoomMax",
   layoutMode: "refino.canvas.layoutMode",
+  direction: "refino.canvas.direction",
 };
 
 /** Why the last range selection degraded to just the clicked node. */
@@ -121,7 +125,13 @@ function loadConfig(): CanvasConfig {
       readPreference(CONFIG_KEYS.layoutMode, DEFAULT_CONFIG.layoutMode) === "force"
         ? "force"
         : "layered",
+    direction: parseDirection(readPreference(CONFIG_KEYS.direction, DEFAULT_CONFIG.direction)),
   };
+}
+
+/** Anything but the four spelled-out directions falls back to "LR". */
+function parseDirection(raw: string): LayoutDirection {
+  return raw === "TB" || raw === "RL" || raw === "BT" ? raw : "LR";
 }
 
 /** One workspace instance: working-set state, selection and change

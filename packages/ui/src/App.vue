@@ -51,7 +51,12 @@ const naiveTheme = computed(() => (store.state.theme === "dark" ? darkTheme : nu
 const naiveLocale = computed(() => (locale.value === "zh" ? zhCN : enUS));
 const naiveDateLocale = computed(() => (locale.value === "zh" ? dateZhCN : dateEnUS));
 
-const direction = ref<LayoutDirection>("LR");
+// The display direction is a canvas config value, persisted like the rest
+// of the config; the writable computed keeps the v-model wiring local.
+const direction = computed<LayoutDirection>({
+  get: () => workspace.state.config.direction,
+  set: (value) => workspace.setConfig({ direction: value }),
+});
 
 const directionOptions = [
   { label: "→", value: "LR" },
@@ -60,8 +65,9 @@ const directionOptions = [
   { label: "↑", value: "BT" },
 ];
 
-// Layout selection lives in the persisted canvas config; the direction
-// switch only applies to layouts with a direction (force ignores it).
+// Layout selection and display direction live in the persisted canvas
+// config; the direction switch only applies to layouts with a direction
+// (force ignores it).
 const layoutMode = computed(() => workspace.state.config.layoutMode);
 const layoutOptions = computed(() => [
   { label: t("app.layoutLayered"), value: "layered" },
