@@ -175,36 +175,57 @@ export function range(
     return ancestorRange(graph, focusId, clickedId, focusId, focusAnc, clickedAnc);
   }
 
+  // Nearest common ancestor: minimal total path length, then constraint
+  // nodes before premises (a premise LCA would cut both paths short of the
+  // constraint structure the selection is about), then id order.
   let lca: string | undefined;
   let best = Infinity;
+  let lcaIsPremise = false;
   for (const [id, fromFocus] of focusAnc.depths) {
     const fromClicked = clickedAnc.depths.get(id);
     if (fromClicked === undefined) continue;
     const total = fromFocus + fromClicked;
-    if (total < best || (total === best && (lca === undefined || id < lca))) {
+    const premise = graph.nodes.get(id)?.type !== "constraint";
+    const better =
+      total < best ||
+      (total === best &&
+        (lca === undefined ||
+          (lcaIsPremise && !premise) ||
+          (lcaIsPremise === premise && id < lca)));
+    if (better) {
       best = total;
       lca = id;
+      lcaIsPremise = premise;
     }
   }
   if (lca !== undefined) {
     const fromFocusLca = focusAnc.depths.get(lca)!;
     const fromClickedLca = clickedAnc.depths.get(lca)!;
+    // The constraints on the two paths are the dependents of the LCA that
+    // are also ancestors of the respective endpoint - the same "all paths
+    // between" relation the ancestor mode uses, anchored at the LCA.
+    const down = new Set<string>([lca]);
+    for (const entry of getDependents(graph, lca)) down.add(entry.node.id);
     const depthFromFocus = new Map<string, number>();
-    // Both paths up to the common ancestor; a node on both sides keeps its
-    // smaller (focus-side) distance. Endpoints are kept even when premises.
+    // Focus-side path: distance read straight off its ancestor map. A node
+    // is kept only when it is a constraint strictly between focus and LCA
+    // (or the LCA itself); premises other than the endpoints never appear.
     for (const [id, d] of focusAnc.depths) {
-      if (d <= fromFocusLca && graph.nodes.get(id)?.type === "constraint")
+      if (id !== focusId && down.has(id) && graph.nodes.get(id)?.type === "constraint") {
         depthFromFocus.set(id, d);
+      }
     }
+    // Clicked-side path: d measures up from clicked; the distance from focus
+    // runs through the LCA as fromFocusLca + (fromClickedLca - d). A node on
+    // both sides keeps its smaller (focus-side) distance.
     for (const [id, d] of clickedAnc.depths) {
-      if (d > fromClickedLca) continue;
+      if (id === clickedId || !down.has(id)) continue;
       if (graph.nodes.get(id)?.type !== "constraint") continue;
-      // d measures up from clicked; the distance from focus runs through the
-      // LCA: dist(focus -> LCA) + dist(LCA -> id) = fromFocusLca + (fromClickedLca - d).
       const total = fromFocusLca + (fromClickedLca - d);
       const previous = depthFromFocus.get(id);
       if (previous === undefined || total < previous) depthFromFocus.set(id, total);
     }
+    // Endpoints are kept even when premises.
     depthFromFocus.set(focusId, 0);
     depthFromFocus.set(clickedId, fromFocusLca + fromClickedLca);
     return { mode: "branches", nodes: materialize(graph, depthFromFocus) };

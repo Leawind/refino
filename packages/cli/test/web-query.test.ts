@@ -231,6 +231,57 @@ describe("POST /api/query/siblings", () => {
   });
 });
 
+describe("POST /api/query/range branches with a sibling branch", () => {
+  // F grounds [A, B]; A grounds L, B grounds M (a sibling branch); K
+  // grounds L. B and M are off the F->L and K->L paths and must not
+  // appear in a branches selection between F and K.
+  const F = "AA000001";
+  const A = "AA000002";
+  const B = "AA000003";
+  const L = "AA000004";
+  const M = "AA000005";
+  const K = "AA000006";
+
+  let branchRoot: string;
+  let branchRefinoDir: string;
+  const branchApp = (): ReturnType<typeof createWebApp> =>
+    createWebApp({ refinoDir: branchRefinoDir });
+
+  beforeAll(async () => {
+    branchRoot = await createRefino({
+      "nodes/AA/000001-constraint.md": constraint(F, [A, B], "F。"),
+      "nodes/AA/000002-constraint.md": constraint(A, [L], "A。"),
+      "nodes/AA/000003-constraint.md": constraint(B, [M], "B。"),
+      "nodes/AA/000004-constraint.md": constraint(L, undefined, "L。"),
+      "nodes/AA/000005-constraint.md": constraint(M, undefined, "M。"),
+      "nodes/AA/000006-constraint.md": constraint(K, [L], "K。"),
+    });
+    branchRefinoDir = join(branchRoot, ".refino");
+  });
+
+  afterAll(async () => {
+    await removeRefino(branchRoot);
+  });
+
+  it("selects only the constraints on the two paths to the common ancestor", async () => {
+    const res = await branchApp().request("/api/query/range", {
+      method: "POST",
+      body: JSON.stringify({ focusId: F, clickedId: K }),
+    });
+    const body = (await res.json()) as {
+      mode: string;
+      nodes: Array<{ id: string; depth: number }>;
+    };
+    expect(body.mode).toBe("branches");
+    expect(body.nodes.map((n) => `${n.id}:${n.depth}`)).toEqual([
+      `${F}:0`,
+      `${A}:1`,
+      `${L}:2`,
+      `${K}:3`,
+    ]);
+  });
+});
+
 describe("GET /api/search", () => {
   it("paginates over ascending ids with a keyset cursor", async () => {
     const first = await app().request("/api/search?limit=4");
