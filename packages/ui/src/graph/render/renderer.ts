@@ -182,7 +182,9 @@ export class GraphRenderer {
   readonly #gl: WebGL2RenderingContext;
   #budget: AdaptiveBudget;
   readonly #atlas = new GlyphAtlas();
-  #atlasTexture: WebGLTexture;
+  // GL resources are created in #initGl (constructor and context restore);
+  // the assertions stand in for the compiler's constructor-only analysis.
+  #atlasTexture!: WebGLTexture;
   #atlasVersion = -1;
 
   #entries = new Map<string, Entry>();
@@ -218,15 +220,15 @@ export class GraphRenderer {
   #clickSuppressed = false;
   #lastFocusId: string | null = null;
 
-  #edgeProgram: Program;
-  #nodeProgram: Program;
-  #textProgram: Program;
-  #edgeVao: WebGLVertexArrayObject;
-  #nodeVao: WebGLVertexArrayObject;
-  #textVao: WebGLVertexArrayObject;
-  #edgeInstances: WebGLBuffer;
-  #nodeInstances: WebGLBuffer;
-  #textInstances: WebGLBuffer;
+  #edgeProgram!: Program;
+  #nodeProgram!: Program;
+  #textProgram!: Program;
+  #edgeVao!: WebGLVertexArrayObject;
+  #nodeVao!: WebGLVertexArrayObject;
+  #textVao!: WebGLVertexArrayObject;
+  #edgeInstances!: WebGLBuffer;
+  #nodeInstances!: WebGLBuffer;
+  #textInstances!: WebGLBuffer;
   #edgeData = new Float32Array(9 * 64);
   #nodeData = new Float32Array(16 * 64);
   #textData = new Float32Array(9 * 256);
@@ -271,6 +273,31 @@ export class GraphRenderer {
     this.#gl = gl;
     this.#budget = budget;
 
+    this.#initGl();
+
+    canvas.addEventListener("webglcontextlost", this.#onContextLost);
+    canvas.addEventListener("webglcontextrestored", this.#onContextRestored);
+    // Wheel zooms the viewport; ctrl+wheel resizes text (README, "视口").
+    // Neither may page-zoom; left-drag pans 1:1 and suppresses the click
+    // that follows a gesture beyond the click slop.
+    canvas.addEventListener("wheel", this.#onWheel, { passive: false });
+    canvas.addEventListener("mousedown", this.#onMouseDown);
+    window.addEventListener("mousemove", this.#onMouseMove);
+    window.addEventListener("mouseup", this.#onMouseUp);
+    this.#resizeObserver = new ResizeObserver(() => this.#resize());
+    this.#resizeObserver.observe(canvas);
+    this.#resize();
+  }
+
+  /**
+   * Create every GL resource: the three programs, the glyph atlas texture
+   * and the per-program VAOs with their instance buffers. Runs once from the
+   * constructor and again after a context restore — a restored context is
+   * fresh, with all previous programs, buffers and textures invalidated.
+   * The CPU-side instance arrays survive and are re-uploaded per frame.
+   */
+  #initGl(): void {
+    const gl = this.#gl;
     this.#edgeProgram = createProgram(gl, "edge");
     this.#nodeProgram = createProgram(gl, "node");
     this.#textProgram = createProgram(gl, "text");
@@ -309,19 +336,6 @@ export class GraphRenderer {
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     gl.clearColor(0, 0, 0, 0);
-
-    canvas.addEventListener("webglcontextlost", this.#onContextLost);
-    canvas.addEventListener("webglcontextrestored", this.#onContextRestored);
-    // Wheel zooms the viewport; ctrl+wheel resizes text (README, "视口").
-    // Neither may page-zoom; left-drag pans 1:1 and suppresses the click
-    // that follows a gesture beyond the click slop.
-    canvas.addEventListener("wheel", this.#onWheel, { passive: false });
-    canvas.addEventListener("mousedown", this.#onMouseDown);
-    window.addEventListener("mousemove", this.#onMouseMove);
-    window.addEventListener("mouseup", this.#onMouseUp);
-    this.#resizeObserver = new ResizeObserver(() => this.#resize());
-    this.#resizeObserver.observe(canvas);
-    this.#resize();
   }
 
   /** Replaces the whole display list; takes effect on the next frame. */
@@ -593,6 +607,16 @@ export class GraphRenderer {
   };
 
   #onContextRestored = (): void => {
+    // A restored context lost every program, buffer and texture; rebuild
+    // them before drawing again. A failed rebuild keeps frames suspended
+    // (the same blank-canvas fallback as a failed initial creation).
+    try {
+      this.#initGl();
+    } catch (error) {
+      console.error("graph renderer context restore failed", error);
+      this.#lost = true;
+      return;
+    }
     this.#lost = false;
     this.#schedule();
   };
