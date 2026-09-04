@@ -12,13 +12,13 @@ const app = (): ReturnType<typeof createWebApp> => createWebApp({ refinoDir });
 
 beforeAll(async () => {
   root = await createRefino({
-    "nodes/1A/2B3C4D.premise.md": premise("1A2B3C4D", "当前 PostgreSQL 版本不支持 extension X。"),
-    "nodes/A1/B2C3D4.constraint.md": constraint(
+    "nodes/1A/2B3C4D-premise.md": premise("1A2B3C4D", "当前 PostgreSQL 版本不支持 extension X。"),
+    "nodes/A1/B2C3D4-constraint.md": constraint(
       "A1B2C3D4",
       undefined,
       "所有业务数据存储在 PostgreSQL。",
     ),
-    "nodes/D4/E5F6G7.constraint.md": constraint(
+    "nodes/D4/E5F6G7-constraint.md": constraint(
       "D4E5F6G7",
       ["A1B2C3D4", "1A2B3C4D"],
       "数据访问必须通过 Repository 层。",
@@ -118,7 +118,7 @@ describe("refino web api", () => {
     expect(issues).toEqual([]);
     const node = graph.nodes.get(id);
     expect(node?.type).toBe("constraint");
-    expect(node?.file.endsWith(".constraint.md")).toBe(true);
+    expect(node?.file.endsWith("-constraint.md")).toBe(true);
     expect(graph.nodes.get(id)?.confirmed).toBeUndefined();
   });
 
@@ -144,7 +144,7 @@ describe("recreate a deleted id via PUT", () => {
     });
     expect(noType.status).toBe(400);
 
-    const invalid = await app().request("/api/nodes/ZZZZZZZ99", {
+    const invalid = await app().request("/api/nodes/zzzzzzzz", {
       method: "PUT",
       body: JSON.stringify({ body: "重建。", type: "constraint", grounds: ["1A2B3C4D"] }),
     });

@@ -209,7 +209,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
     .addCommand(
       new Command("premise")
         .description("create a premise node")
-        .option("--id <text>", "explicit node id (8-character Crockford base32)")
+        .option("--id <text>", "explicit node id (3-16 characters: A-Z, 0-9, _)")
         .requiredOption("--body <text>", "fact content (markdown body)")
         .option("--summary <text>", "short summary for relevance checks (stored in frontmatter)")
         .option("--confirmed <timestamp>", "RFC 3339 timestamp with an explicit UTC offset")
@@ -241,7 +241,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
     .addCommand(
       new Command("constraint")
         .description("create a constraint node")
-        .option("--id <text>", "explicit node id (8-character Crockford base32)")
+        .option("--id <text>", "explicit node id (3-16 characters: A-Z, 0-9, _)")
         .requiredOption("--body <text>", "decision content (markdown body)")
         .option("--grounds <ids>", "comma-separated ground node ids")
         .option("--rationale <text>", "why the decision was made")
@@ -262,7 +262,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
             const invalidGround = groundIds.find((g) => !ID_RE.test(g));
             if (invalidGround !== undefined) {
               io.stderr.write(
-                `error: invalid ground id "${invalidGround}" (must be an 8-character Crockford base32 id)\n`,
+                `error: invalid ground id "${invalidGround}" (must be 3-16 characters of A-Z, 0-9 or _)\n`,
               );
               return 1;
             }
@@ -369,7 +369,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
           const invalidGround = grounds.find((g) => !ID_RE.test(g));
           if (invalidGround !== undefined) {
             io.stderr.write(
-              `error: invalid ground id "${invalidGround}" (must be an 8-character Crockford base32 id)\n`,
+              `error: invalid ground id "${invalidGround}" (must be 3-16 characters of A-Z, 0-9 or _)\n`,
             );
             return 1;
           }
@@ -538,7 +538,7 @@ function emitWritten(
   type: "premise" | "constraint",
   verb: "created" | "updated",
 ): void {
-  const file = `nodes/${id.slice(0, 2)}/${id.slice(2)}.${type}.md`;
+  const file = nodeRelativeFile(type, id);
   if (opts.json) emit(io, { id, file });
   else io.stdout.write(`${verb} ${id} (${join(".refino", file)})\n`);
 }

@@ -32,7 +32,7 @@ function nodeJson(id: string): Record<string, unknown> {
   return {
     id,
     type: node.type,
-    file: `nodes/${id.slice(0, 2)}/${id.slice(2)}.${node.type}.md`,
+    file: `nodes/${id.slice(0, 2)}/${id.slice(2)}-${node.type}.md`,
     summary: node.summary,
     body: node.body,
     ...(node.type === "constraint" && { grounds: node.grounds ?? [] }),

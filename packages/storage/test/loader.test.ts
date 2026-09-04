@@ -5,10 +5,10 @@ import { constraint, createRefino, premise, removeRefino } from "@refino/testkit
 describe("loadGraph", () => {
   it("builds the graph and the dependents index from a nodes/ directory", async () => {
     const root = await createRefino({
-      "nodes/1A/2B3C4D.premise.md": premise("1A2B3C4D"),
-      "nodes/A1/B2C3D4.constraint.md": constraint("A1B2C3D4", undefined),
-      "nodes/D4/E5F6G7.constraint.md": constraint("D4E5F6G7", ["A1B2C3D4"]),
-      "nodes/E5/F6G7H8.constraint.md": constraint("E5F6G7H8", ["1A2B3C4D", "D4E5F6G7"]),
+      "nodes/1A/2B3C4D-premise.md": premise("1A2B3C4D"),
+      "nodes/A1/B2C3D4-constraint.md": constraint("A1B2C3D4", undefined),
+      "nodes/D4/E5F6G7-constraint.md": constraint("D4E5F6G7", ["A1B2C3D4"]),
+      "nodes/E5/F6G7H8-constraint.md": constraint("E5F6G7H8", ["1A2B3C4D", "D4E5F6G7"]),
     });
     try {
       const { graph, issues } = await loadGraph(`${root}/.refino`);
@@ -22,7 +22,7 @@ describe("loadGraph", () => {
       expect(graph.dependents.get("A1B2C3D4")).toEqual(["D4E5F6G7"]);
       expect(graph.dependents.get("D4E5F6G7")).toEqual(["E5F6G7H8"]);
       expect(graph.dependents.get("1A2B3C4D")).toEqual(["E5F6G7H8"]);
-      expect(graph.nodes.get("E5F6G7H8")?.file).toBe("nodes/E5/F6G7H8.constraint.md");
+      expect(graph.nodes.get("E5F6G7H8")?.file).toBe("nodes/E5/F6G7H8-constraint.md");
       expect(graph.nodes.get("1A2B3C4D")?.type).toBe("premise");
       expect(graph.nodes.get("1A2B3C4D")?.confirmed).toBeUndefined();
     } finally {
@@ -32,7 +32,7 @@ describe("loadGraph", () => {
 
   it("derives the id from shard directory and file base name", async () => {
     const root = await createRefino({
-      "nodes/01/9ABCDE.constraint.md": constraint("019ABCDE", undefined),
+      "nodes/01/9ABCDE-constraint.md": constraint("019ABCDE", undefined),
     });
     try {
       const { graph, issues } = await loadGraph(`${root}/.refino`);
@@ -40,7 +40,7 @@ describe("loadGraph", () => {
       expect(graph.nodes.get("019ABCDE")).toMatchObject({
         id: "019ABCDE",
         type: "constraint",
-        file: "nodes/01/9ABCDE.constraint.md",
+        file: "nodes/01/9ABCDE-constraint.md",
       });
     } finally {
       await removeRefino(root);
@@ -49,8 +49,8 @@ describe("loadGraph", () => {
 
   it("reports duplicate ids across types and keeps the first node", async () => {
     const root = await createRefino({
-      "nodes/A1/B2C3D4.premise.md": premise("A1B2C3D4"),
-      "nodes/A1/B2C3D4.constraint.md": constraint("A1B2C3D4", undefined),
+      "nodes/A1/B2C3D4-premise.md": premise("A1B2C3D4"),
+      "nodes/A1/B2C3D4-constraint.md": constraint("A1B2C3D4", undefined),
     });
     try {
       const { graph, issues } = await loadGraph(`${root}/.refino`);
@@ -66,6 +66,7 @@ describe("loadGraph", () => {
     ["a stray top-level file", "nodes/A1B2C3D4.md"],
     ["a missing type segment", "nodes/A1/B2C3D4.md"],
     ["an invalid type segment", "nodes/A1/B2C3D4.decision.md"],
+    ["a dot instead of the id/type separator", "nodes/A1/B2C3D4.premise.md"],
   ])("reports %s as INVALID_NODE_PATH", async (_label, file) => {
     const root = await createRefino({ [file]: "Body.\n" });
     try {
@@ -79,15 +80,16 @@ describe("loadGraph", () => {
     }
   });
 
-  it("rejects shard file base names that are not 6 valid characters", async () => {
-    const root = await createRefino({
-      "nodes/A1/C-001.premise.md": "Body.\n",
-      "nodes/A1/TOOLON.constraint.md": "Body.\n",
-    });
+  it.each([
+    ["a lowercase id segment", "nodes/A1/b2c3d4-premise.md"],
+    ["an empty id segment", "nodes/A1/-premise.md"],
+    ["an overlong id", "nodes/A1/ABCDEFGHIJKLMNOPQ-premise.md"],
+  ])("reports %s as INVALID_ID", async (_label, file) => {
+    const root = await createRefino({ [file]: "Body.\n" });
     try {
       const { graph, issues } = await loadGraph(`${root}/.refino`);
       expect(graph.nodes.size).toBe(0);
-      expect(issues.map((i) => i.code)).toEqual(["INVALID_ID", "INVALID_ID"]);
+      expect(issues.map((i) => i.code)).toEqual(["INVALID_ID"]);
     } finally {
       await removeRefino(root);
     }
@@ -95,11 +97,11 @@ describe("loadGraph", () => {
 
   it("silently ignores non-shard directories and non-markdown files", async () => {
     const root = await createRefino({
-      "nodes/A1/B2C3D4.constraint.md": constraint("A1B2C3D4", undefined),
+      "nodes/A1/B2C3D4-constraint.md": constraint("A1B2C3D4", undefined),
       "nodes/notes/keep.md": "ignored",
       "nodes/TOOLONG1/ignored.md": "ignored",
       "nodes/A1/notes.txt": "ignored",
-      "nodes/A1/nested/B2C3D4.premise.md": premise("A1B2C3D4"),
+      "nodes/A1/nested/B2C3D4-premise.md": premise("A1B2C3D4"),
     });
     try {
       const { graph, issues } = await loadGraph(`${root}/.refino`);

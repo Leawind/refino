@@ -12,7 +12,7 @@ export type NodeType = "premise" | "constraint";
 export interface RefinoNode {
   id: string;
   type: NodeType;
-  /** Path relative to the `.refino` directory, with `/` as the separator regardless of platform, e.g. `nodes/01/9ABCDE.constraint.md`. */
+  /** Path relative to the `.refino` directory, with `/` as the separator regardless of platform, e.g. `nodes/01/9ABCDE-constraint.md`. */
   file: string;
   /** Independent summary attribute for quick relevance checks; the storage layer may derive it from the body's first paragraph when the file declares none. */
   summary: string;

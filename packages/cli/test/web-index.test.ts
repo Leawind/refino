@@ -20,8 +20,8 @@ const C1 = "A1B2C3D4";
 
 beforeAll(async () => {
   root = await createRefino({
-    "nodes/1A/2B3C4D.premise.md": premise(P1, "前提一。"),
-    "nodes/A1/B2C3D4.constraint.md": constraint(C1, [P1], "C1。"),
+    "nodes/1A/2B3C4D-premise.md": premise(P1, "前提一。"),
+    "nodes/A1/B2C3D4-constraint.md": constraint(C1, [P1], "C1。"),
   });
   refinoDir = join(root, ".refino");
 });
@@ -189,18 +189,18 @@ describe("GraphIndex incremental updates", () => {
     const index = new GraphIndex(refinoDir);
     await index.ready();
 
-    // A 7-char base name resolves to no id; the parse issue is keyed by file.
+    // A lowercase id segment cannot form a valid id; the parse issue is keyed by file.
     const shardDir = join(refinoDir, "nodes", "AA");
-    const badFile = join(shardDir, "7P8Q9R0S.constraint.md");
+    const badFile = join(shardDir, "zz-premise.md");
     await mkdir(shardDir, { recursive: true });
     await writeFile(badFile, "---\ntype: constraint\nsummary: 形状非法\n---\n正文。\n", "utf8");
     await index.reload();
     const invalidIssue = () => index.issues().find((i) => i.code === "INVALID_ID");
-    expect(invalidIssue()?.file).toBe("nodes/AA/7P8Q9R0S.constraint.md");
+    expect(invalidIssue()?.file).toBe("nodes/AA/zz-premise.md");
 
     // Renaming it into shape reports the new id; the touched shard lets the
     // index drop the stale file-keyed issue without a full reload.
-    await rename(badFile, join(shardDir, "7P8Q9R.constraint.md"));
+    await rename(badFile, join(shardDir, "7P8Q9R-premise.md"));
     const event = await index.applyChange({ changed: ["AA7P8Q9R"], shards: ["AA"] });
     expect(event).toBeDefined();
     expect(index.entry("AA7P8Q9R")).toBeDefined();

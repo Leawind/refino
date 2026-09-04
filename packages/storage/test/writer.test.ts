@@ -20,7 +20,7 @@ describe("writer", () => {
       const id = await createPremise(`${root}/.refino`, { body: "PostgreSQL 16.\n" });
       expect(id).toMatch(ID_RE);
       const source = await readFile(
-        `${root}/.refino/nodes/${id.slice(0, 2)}/${id.slice(2)}.premise.md`,
+        `${root}/.refino/nodes/${id.slice(0, 2)}/${id.slice(2)}-premise.md`,
         "utf8",
       );
       expect(source).toBe("PostgreSQL 16.\n");
@@ -40,7 +40,7 @@ describe("writer", () => {
         confirmed: "2026-05-01T00:00:00Z",
       });
       const source = await readFile(
-        `${root}/.refino/nodes/${id.slice(0, 2)}/${id.slice(2)}.premise.md`,
+        `${root}/.refino/nodes/${id.slice(0, 2)}/${id.slice(2)}-premise.md`,
         "utf8",
       );
       expect(source).toContain("confirmed:");
@@ -78,7 +78,7 @@ describe("writer", () => {
     try {
       const id = await createConstraint(`${root}/.refino`, { body: "Root decision." });
       const source = await readFile(
-        `${root}/.refino/nodes/${id.slice(0, 2)}/${id.slice(2)}.constraint.md`,
+        `${root}/.refino/nodes/${id.slice(0, 2)}/${id.slice(2)}-constraint.md`,
         "utf8",
       );
       expect(source).not.toContain("---");
@@ -110,7 +110,7 @@ describe("writer", () => {
         body: "Explicit id.",
       });
       expect(id).toBe("A1B2C3D4");
-      const source = await readFile(`${root}/.refino/nodes/A1/B2C3D4.constraint.md`, "utf8");
+      const source = await readFile(`${root}/.refino/nodes/A1/B2C3D4-constraint.md`, "utf8");
       expect(source).toBe("Explicit id.\n");
       const { graph, issues } = await loadGraph(`${root}/.refino`);
       expect(issues).toEqual([]);
@@ -120,7 +120,22 @@ describe("writer", () => {
     }
   });
 
-  it.each(["short", "TOOLONG1", "ILOU2345", "a1b2c3d4"])(
+  it("accepts the minimum 3-character id (a 1-character id_2 segment)", async () => {
+    const root = await createRefino({});
+    try {
+      const id = await createPremise(`${root}/.refino`, { id: "AB1", body: "Short id." });
+      expect(id).toBe("AB1");
+      const source = await readFile(`${root}/.refino/nodes/AB/1-premise.md`, "utf8");
+      expect(source).toBe("Short id.\n");
+      const { graph, issues } = await loadGraph(`${root}/.refino`);
+      expect(issues).toEqual([]);
+      expect(graph.nodes.get("AB1")?.summary).toBe("Short id.");
+    } finally {
+      await removeRefino(root);
+    }
+  });
+
+  it.each(["short", "A-B", "a1b2c3d4", "ABCDEFGHIJKLMNOPQ"])(
     "rejects explicit id %s as INVALID_ID",
     async (badId) => {
       const root = await createRefino({});
@@ -220,7 +235,7 @@ describe("writer", () => {
         summary: "Short relevance summary.",
       });
       const source = await readFile(
-        `${root}/.refino/nodes/${id.slice(0, 2)}/${id.slice(2)}.constraint.md`,
+        `${root}/.refino/nodes/${id.slice(0, 2)}/${id.slice(2)}-constraint.md`,
         "utf8",
       );
       expect(source).toContain("summary: Short relevance summary.");
@@ -262,7 +277,7 @@ describe("writer: update and delete", () => {
         summary: "New summary.",
       });
       const source = await readFile(
-        `${root}/.refino/nodes/${id.slice(0, 2)}/${id.slice(2)}.premise.md`,
+        `${root}/.refino/nodes/${id.slice(0, 2)}/${id.slice(2)}-premise.md`,
         "utf8",
       );
       expect(source).toContain("New body.");
@@ -359,7 +374,7 @@ describe("writer: atomic writes", () => {
       await updatePremise(`${root}/.refino`, id, { body: "Second." });
       const shard = `${root}/.refino/nodes/${id.slice(0, 2)}`;
       expect((await readdir(shard)).filter((name) => !name.endsWith(".md"))).toEqual([]);
-      const source = await readFile(`${shard}/${id.slice(2)}.premise.md`, "utf8");
+      const source = await readFile(`${shard}/${id.slice(2)}-premise.md`, "utf8");
       expect(source).toBe("Second.\n");
     } finally {
       await removeRefino(root);
@@ -371,9 +386,9 @@ describe("writer: atomic writes", () => {
     try {
       const dir = `${root}/.refino/nodes/A1`;
       // A directory occupying the target path makes the rename fail.
-      await mkdir(`${dir}/B2C3D4.premise.md`, { recursive: true });
-      await expect(atomicWriteFile(`${dir}/B2C3D4.premise.md`, "Body.\n")).rejects.toThrow();
-      expect(await readdir(dir)).toEqual(["B2C3D4.premise.md"]);
+      await mkdir(`${dir}/B2C3D4-premise.md`, { recursive: true });
+      await expect(atomicWriteFile(`${dir}/B2C3D4-premise.md`, "Body.\n")).rejects.toThrow();
+      expect(await readdir(dir)).toEqual(["B2C3D4-premise.md"]);
     } finally {
       await removeRefino(root);
     }
@@ -382,7 +397,7 @@ describe("writer: atomic writes", () => {
   it("atomicWriteFile replaces existing content and leaves no temp file", async () => {
     const root = await createRefino({});
     try {
-      const file = `${root}/.refino/nodes/A1/B2C3D4.premise.md`;
+      const file = `${root}/.refino/nodes/A1/B2C3D4-premise.md`;
       await mkdir(dirname(file), { recursive: true });
       await atomicWriteFile(file, "Old.\n");
       await atomicWriteFile(file, "New.\n");
@@ -401,7 +416,7 @@ describe("writer: atomic writes", () => {
       const id = await createPremise(`${root}/.refino`, { body: "Kept." });
       const shard = `${root}/.refino/nodes/${id.slice(0, 2)}`;
       // What a crashed process would leave behind (written, never renamed).
-      await writeFile(`${shard}/${id.slice(2)}.premise.md.4242-0.tmp`, "half-written", "utf8");
+      await writeFile(`${shard}/${id.slice(2)}-premise.md.4242-0.tmp`, "half-written", "utf8");
       const { graph, issues } = await loadGraph(`${root}/.refino`);
       expect(issues).toEqual([]);
       expect(graph.nodes.size).toBe(1);

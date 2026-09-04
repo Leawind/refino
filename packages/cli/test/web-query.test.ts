@@ -33,15 +33,15 @@ const C6 = "S4T5V6W7";
 
 beforeAll(async () => {
   root = await createRefino({
-    "nodes/1A/2B3C4D.premise.md": premise(P1, "前提一。"),
-    "nodes/1A/2B3C4E.premise.md": premise(P2, "前提二。"),
-    "nodes/1A/2B3C4F.premise.md": premise(P3, "前提三。"),
-    "nodes/A1/B2C3D4.constraint.md": constraint(C1, [P1], "C1。"),
-    "nodes/D4/E5F6G7.constraint.md": constraint(C2, [C1, P2], "C2。"),
-    "nodes/E5/F6G7H8.constraint.md": constraint(C3, [C2], "C3。"),
-    "nodes/H7/J8K9M0.constraint.md": constraint(C4, [C1, P2], "C4。"),
-    "nodes/N0/P1Q2R3.constraint.md": constraint(C5, [P3], "C5。"),
-    "nodes/S4/T5V6W7.constraint.md": constraint(C6, [P1, P2], "C6。"),
+    "nodes/1A/2B3C4D-premise.md": premise(P1, "前提一。"),
+    "nodes/1A/2B3C4E-premise.md": premise(P2, "前提二。"),
+    "nodes/1A/2B3C4F-premise.md": premise(P3, "前提三。"),
+    "nodes/A1/B2C3D4-constraint.md": constraint(C1, [P1], "C1。"),
+    "nodes/D4/E5F6G7-constraint.md": constraint(C2, [C1, P2], "C2。"),
+    "nodes/E5/F6G7H8-constraint.md": constraint(C3, [C2], "C3。"),
+    "nodes/H7/J8K9M0-constraint.md": constraint(C4, [C1, P2], "C4。"),
+    "nodes/N0/P1Q2R3-constraint.md": constraint(C5, [P3], "C5。"),
+    "nodes/S4/T5V6W7-constraint.md": constraint(C6, [P1, P2], "C6。"),
   });
   refinoDir = join(root, ".refino");
 });

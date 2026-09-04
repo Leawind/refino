@@ -1,6 +1,6 @@
 import { buildGraph, checkGroundsChange, isValidConfirmed, validateGraph } from "refino";
 import type { Graph, RefinoIssue, RefinoNode } from "refino";
-import { loadGraph, readNode } from "@refino/storage";
+import { loadGraph, nodeRelativeFile, readNode } from "@refino/storage";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -390,9 +390,7 @@ export class GraphIndex {
 
 /** Both candidate file paths of an id, in canonical `.refino`-relative form. */
 function candidateFiles(id: string): string[] {
-  return ["constraint", "premise"].map(
-    (type) => `nodes/${id.slice(0, 2)}/${id.slice(2)}.${type}.md` as const,
-  );
+  return (["constraint", "premise"] as const).map((type) => nodeRelativeFile(type, id));
 }
 
 /**

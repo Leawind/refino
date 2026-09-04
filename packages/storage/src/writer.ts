@@ -12,13 +12,16 @@ export const NODE_TYPES: ReadonlyArray<NodeType> = ["premise", "constraint"];
  * Node creation. This is the storage adapter's write path; everything else
  * stays read-only. Node ids are globally unique and map to exactly two
  * candidate file paths (path is identity): `nodes/<first 2 id
- * chars>/<last 6 id chars>.premise.md` and `...constraint.md`. Uniqueness
- * is therefore checked against those two paths only, never by scanning.
+ * chars>/<rest>-premise.md` and `...-constraint.md`. Uniqueness is therefore
+ * checked against those two paths only, never by scanning.
  */
 
 export interface CreateOptions {
   body: string;
-  /** Explicit node id (8-character Crockford base32); generated when omitted. */
+  /**
+   * Explicit node id, valid per the engine's id rule (3-16 characters of
+   * A-Z, 0-9, _); generated when omitted.
+   */
   id?: string;
   /**
    * Independent summary attribute; stored as a "summary" frontmatter field.
@@ -73,7 +76,7 @@ async function createNode(
     if (!ID_RE.test(explicitId)) {
       throw new RefinoError(
         "INVALID_ID",
-        `Node id must be an 8-character Crockford base32 id (0-9, A-Z minus I, L, O, U), got "${explicitId}".`,
+        `Node id must be 3-16 characters of A-Z, 0-9 or _, got "${explicitId}".`,
       );
     }
     if (await idExists(refinoDir, explicitId)) {
@@ -93,10 +96,11 @@ async function createNode(
 
 /**
  * Canonical `.refino`-relative path of a node, always forward-slash:
- * `nodes/<2 chars>/<6 chars>.<type>.md`.
+ * `nodes/<first 2 id chars>/<rest>-<type>.md`. The `-` separator is
+ * unambiguous because ids never contain `-` (engine id rule).
  */
 export function nodeRelativeFile(type: NodeType, id: string): string {
-  return `${NODES_DIR}/${id.slice(0, 2)}/${id.slice(2)}.${type}.md`;
+  return `${NODES_DIR}/${id.slice(0, 2)}/${id.slice(2)}-${type}.md`;
 }
 
 /** Absolute path of a node file of the given type (platform separators). */
@@ -194,7 +198,7 @@ function assertValidId(id: string): void {
   if (!ID_RE.test(id)) {
     throw new RefinoError(
       "INVALID_ID",
-      `Node id must be an 8-character Crockford base32 id (0-9, A-Z minus I, L, O, U), got "${id}".`,
+      `Node id must be 3-16 characters of A-Z, 0-9 or _, got "${id}".`,
     );
   }
 }
@@ -209,7 +213,7 @@ let tempSeq = 0;
  * Sole filesystem write primitive: write to a temp file in the target's
  * directory, then rename it into place, so readers (loader scans, directory
  * watchers) never observe a half-written node file. The temp name never
- * matches the `<id>.<type>.md` node shape, so the loader silently skips it.
+ * matches the `<id_2>-<type>.md` node shape, so the loader silently skips it.
  * Not part of the package's public API; exported for tests.
  */
 export async function atomicWriteFile(file: string, content: string): Promise<void> {

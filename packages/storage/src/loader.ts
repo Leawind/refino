@@ -1,17 +1,17 @@
 import { open, readdir, stat, type FileHandle } from "node:fs/promises";
 import { join } from "node:path";
-import { buildGraph, ID_RE, RefinoError } from "refino";
+import { buildGraph, ID_CHARSET, ID_RE, RefinoError } from "refino";
 import { parseNodeSource } from "./parser.js";
 import { nodeFilePath, nodeRelativeFile, NODE_TYPES } from "./writer.js";
 import type { Graph, NodeType, RefinoIssue, RefinoNode } from "refino";
 
 const NODES_DIR = "nodes";
 
-/** A shard directory name: the first 2 characters of a node id. */
-const SHARD_RE = /^[0-9A-HJKMNP-TV-Z]{2}$/;
-
-/** A node file base name: the last 6 characters of a node id. */
-const SHARD_FILE_RE = /^[0-9A-HJKMNP-TV-Z]{6}$/;
+/**
+ * A shard directory name: the first 2 characters of a node id, drawn from
+ * the engine's id charset (the id rule itself lives in the engine).
+ */
+const SHARD_RE = new RegExp(`^[${ID_CHARSET}]{2}$`);
 
 export interface LoadResult {
   graph: Graph;
@@ -75,7 +75,7 @@ export async function readNode(refinoDir: string, id: string): Promise<ReadNodeR
   if (!ID_RE.test(id)) {
     throw new RefinoError(
       "INVALID_ID",
-      `Node id must be an 8-character Crockford base32 id (0-9, A-Z minus I, L, O, U), got "${id}".`,
+      `Node id must be 3-16 characters of A-Z, 0-9 or _, got "${id}".`,
     );
   }
   const candidates = [...NODE_TYPES].sort().map((type) => ({
@@ -114,19 +114,19 @@ export async function readNode(refinoDir: string, id: string): Promise<ReadNodeR
  * Read every node file under `<refinoDir>/nodes/` and build the in-memory
  * graph. Loading is read-only; the only write path is `writer.ts`.
  *
- * Layout: `nodes/<2-char shard>/<6-char id>.<type>.md`, where `<type>` is
+ * Layout: `nodes/<2-char shard>/<rest>-<type>.md`, where `<type>` is
  * `premise` or `constraint`. The node id is derived from the file path
- * (path is identity): shard directory name + file base name, so shard and
- * base always combine into a valid id and the type travels in the file
- * name, never in the frontmatter.
+ * (path is identity): shard directory name + the segment before the `-`
+ * separator (ids never contain `-`, so the split is unambiguous), and the
+ * type travels in the file name, never in the frontmatter.
  *
  * Directory names that are not valid shards and non-markdown files are
  * silently ignored; nested files are ignored; stray markdown files at the
- * top of `nodes/` and files whose name has no valid `<base>.<type>` shape
- * are reported as INVALID_NODE_PATH; base names that are not 6 Crockford
- * base32 characters are reported as INVALID_ID. A missing `nodes/`
- * directory is an empty graph. Structural validation (unknown grounds,
- * cycles) is a separate step: `validateGraph`.
+ * top of `nodes/` and files whose name has no valid `<id_2>-<type>` shape
+ * are reported as INVALID_NODE_PATH; ids that fail the engine's id rule are
+ * reported as INVALID_ID. A missing `nodes/` directory is an empty graph.
+ * Structural validation (unknown grounds, cycles) is a separate step:
+ * `validateGraph`.
  */
 export async function loadGraph(refinoDir: string): Promise<LoadResult> {
   let dirStat;
@@ -159,7 +159,7 @@ export async function loadGraph(refinoDir: string): Promise<LoadResult> {
       const file = `${NODES_DIR}/${shard.name}`;
       issues.push({
         code: "INVALID_NODE_PATH",
-        message: `Node files must live at ${NODES_DIR}/<shard>/<id>.<type>.md, e.g. ${NODES_DIR}/01/9ABCDE.premise.md; got "${file}".`,
+        message: `Node files must live at ${NODES_DIR}/<shard>/<id_2>-<type>.md, e.g. ${NODES_DIR}/01/9ABCDE-premise.md; got "${file}".`,
         file,
       });
       continue;
@@ -182,21 +182,21 @@ export async function loadGraph(refinoDir: string): Promise<LoadResult> {
       if (!parsed) {
         issues.push({
           code: "INVALID_NODE_PATH",
-          message: `Node file names must be <6-char id>.<type>.md with <type> one of ${NODE_TYPES.join("|")}, got "${entry.name}".`,
+          message: `Node file names must be <id_2>-<type>.md with <type> one of ${NODE_TYPES.join("|")}, got "${entry.name}".`,
           file,
         });
         continue;
       }
-      const { base, type } = parsed;
-      if (!SHARD_FILE_RE.test(base)) {
+      const { id2, type } = parsed;
+      const id = shard.name + id2;
+      if (!ID_RE.test(id)) {
         issues.push({
           code: "INVALID_ID",
-          message: `Node file base name must be 6 Crockford base32 characters (the id is shard + base), got "${base}".`,
+          message: `Node id must be 3-16 characters of A-Z, 0-9 or _ (the id is shard + id_2), got "${id}".`,
           file,
         });
         continue;
       }
-      const id = shard.name + base;
       const { node, issues: parseIssues } = parseNodeSource(id, file, type, read.source);
       issues.push(...parseIssues);
       if (!node) continue;
@@ -219,13 +219,17 @@ export async function loadGraph(refinoDir: string): Promise<LoadResult> {
   return { graph: buildGraph(refinoDir, nodes), issues, mtimes };
 }
 
-/** Split `<base>.<type>` into its parts; null when the shape is wrong. */
-function parseFileName(name: string): { base: string; type: NodeType } | null {
-  const dot = name.lastIndexOf(".");
-  if (dot === -1) return null;
-  const type = name.slice(dot + 1);
+/**
+ * Split `<id_2>-<type>` into its parts; null when the shape is wrong. The
+ * split is unambiguous: ids never contain `-` (engine id rule), so the last
+ * `-` is always the id/type separator.
+ */
+function parseFileName(name: string): { id2: string; type: NodeType } | null {
+  const dash = name.lastIndexOf("-");
+  if (dash === -1) return null;
+  const type = name.slice(dash + 1);
   if (type !== "premise" && type !== "constraint") return null;
-  return { base: name.slice(0, dot), type };
+  return { id2: name.slice(0, dash), type };
 }
 
 function byName(a: { name: string }, b: { name: string }): number {

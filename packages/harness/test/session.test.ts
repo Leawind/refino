@@ -9,7 +9,7 @@ function node(id: string, type: NodeType, grounds?: string[]): RefinoNode {
   return {
     id,
     type,
-    file: `nodes/${id.slice(0, 2)}/${id.slice(2)}.${type}.md`,
+    file: `nodes/${id.slice(0, 2)}/${id.slice(2)}-${type}.md`,
     summary: "Body.",
     body: "Body.",
     ...(grounds !== undefined && { grounds }),

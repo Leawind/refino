@@ -27,8 +27,8 @@ let running: RunningWebServer;
 
 beforeAll(async () => {
   root = await createRefino({
-    "nodes/1A/2B3C4D.premise.md": premise(P1, "前提一。"),
-    "nodes/A1/B2C3D4.constraint.md": constraint("A1B2C3D4", [P1], "C1。"),
+    "nodes/1A/2B3C4D-premise.md": premise(P1, "前提一。"),
+    "nodes/A1/B2C3D4-constraint.md": constraint("A1B2C3D4", [P1], "C1。"),
   });
   refinoDir = join(root, ".refino");
   running = await startWebServer({

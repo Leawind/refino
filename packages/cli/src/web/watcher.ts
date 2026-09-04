@@ -1,23 +1,24 @@
 import { watch, readdirSync, type FSWatcher } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
+import { ID_CHARSET } from "refino";
 
 /**
  * Watches the sharded node directory for external changes (docs/design.md,
  * "外部变更同步"). Non-recursive on purpose: recursive watching is
  * unavailable on Linux, so there is one watch on `nodes/` plus one per shard
- * directory — at most 1025 watches, and shard directories are created
- * lazily as ids are generated.
+ * directory — the watch count stays bounded by the shard count, and shard
+ * directories are created lazily as ids are generated.
  *
- * File events report the affected node id (shard name + file base) plus the
- * shard directory itself. Ids cover everything that matches the node file
- * shape; the shard names let the index drop parse issues keyed by files that
- * no longer exist (an ill-shaped file is never reported as an id, so a
- * rename or delete of one would otherwise leave its load-phase issue stuck).
- * A newly created shard is scanned wholesale because its first files may
- * predate the shard's own watcher. Events are debounced: after a quiet
- * period the accumulated ids flush as one batch into the index's unified
- * update entry.
+ * File events report the affected node id (shard name + the id segment of
+ * the file name) plus the shard directory itself. Ids cover everything that
+ * matches the node file shape; the shard names let the index drop parse
+ * issues keyed by files that no longer exist (an ill-shaped file is never
+ * reported as an id, so a rename or delete of one would otherwise leave its
+ * load-phase issue stuck). A newly created shard is scanned wholesale
+ * because its first files may predate the shard's own watcher. Events are
+ * debounced: after a quiet period the accumulated ids flush as one batch
+ * into the index's unified update entry.
  *
  * Watch initialization failures return undefined — the server silently
  * degrades to manual refresh (POST /api/reload). Removing a whole shard
@@ -25,10 +26,10 @@ import { join } from "node:path";
  */
 
 /** A shard directory name: the first 2 characters of a node id. */
-const SHARD_RE = /^[0-9A-HJKMNP-TV-Z]{2}$/;
+const SHARD_RE = new RegExp(`^[${ID_CHARSET}]{2}$`);
 
-/** A node file base name inside a shard: the last 6 characters of a node id. */
-const FILE_RE = /^[0-9A-HJKMNP-TV-Z]{6}\.(premise|constraint)\.md$/;
+/** A node file name inside a shard: `<id_2>-<type>.md`, id_2 = id minus its first 2 characters. */
+const FILE_RE = new RegExp(`^[${ID_CHARSET}]+-(premise|constraint)\\.md$`);
 
 export interface NodeWatcher {
   close(): void;
@@ -87,7 +88,7 @@ export function startNodeWatcher(
     void readdir(join(nodesDir, name))
       .then((files) => {
         for (const file of files) {
-          if (FILE_RE.test(file)) queue(name + file.slice(0, 6));
+          if (FILE_RE.test(file)) queue(name + file.slice(0, file.lastIndexOf("-")));
         }
       })
       .catch(() => {}); // vanished mid-scan: deletion surfaces via id events or reload
@@ -112,7 +113,7 @@ export function startNodeWatcher(
         return;
       }
       const file = filename.toString();
-      if (FILE_RE.test(file)) queue(name + file.slice(0, 6));
+      if (FILE_RE.test(file)) queue(name + file.slice(0, file.lastIndexOf("-")));
       // Temp files from atomic writes never match the node shape and are ignored.
     };
     shard.on("change", onFileEvent);
@@ -124,9 +125,9 @@ export function startNodeWatcher(
     shards.delete(name);
   };
 
-  // Attach a watcher to every shard that already exists (at most 1024 shard
-  // watches plus the root watch); shards are created lazily as ids are
-  // generated. Writes into a pre-existing shard are invisible otherwise.
+  // Attach a watcher to every shard that already exists (one watch per shard
+  // plus the root watch); shards are created lazily as ids are generated.
+  // Writes into a pre-existing shard are invisible otherwise.
   for (const entry of readdirSync(nodesDir, { withFileTypes: true })) {
     if (entry.isDirectory() && SHARD_RE.test(entry.name)) watchShard(entry.name);
   }

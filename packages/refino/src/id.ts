@@ -1,10 +1,21 @@
 /**
- * Node ids are 8-character Crockford base32 strings derived from the node
- * file name (without the `.md` suffix). The alphabet excludes I, L, O and U.
+ * Node id rule, defined and validated here; every package checks ids against
+ * `ID_RE` instead of redefining the rule (see this package's README, "ID
+ * 规则"). Ids are 3-16 characters of uppercase letters, digits and
+ * underscores; hyphens, dots, spaces and lowercase are invalid. Storage paths
+ * rely on ids containing neither `-` (the id/type separator) nor `.` (the
+ * file extension).
  */
-export const ID_RE = /^[0-9A-HJKMNP-TV-Z]{8}$/;
+export const ID_RE = /^[A-Z0-9_]{3,16}$/;
 
-/** Crockford base32 alphabet: digits and A-Z minus I, L, O, U. */
+/** Character class matching a single id character, for building segment regexes. */
+export const ID_CHARSET = "A-Z0-9_";
+
+/**
+ * Random generation uses Crockford base32 (8 characters) — an internal
+ * detail, not part of the exposed id rule: the Crockford alphabet is a
+ * subset of the id charset, so generated ids are valid by construction.
+ */
 const CROCKFORD_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
 /** Generate a random 8-character Crockford base32 id via Web Crypto. */

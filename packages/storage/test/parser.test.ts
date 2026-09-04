@@ -5,12 +5,12 @@ describe("parseNodeSource", () => {
   it("accepts both separator styles and stores the canonical forward-slash form", () => {
     const { node, issues } = parseNodeSource(
       "E5F6G7H8",
-      "nodes\\E5\\F6G7H8.constraint.md",
+      "nodes\\E5\\F6G7H8-constraint.md",
       "constraint",
       "Body.",
     );
     expect(issues).toEqual([]);
-    expect(node).toMatchObject({ id: "E5F6G7H8", file: "nodes/E5/F6G7H8.constraint.md" });
+    expect(node).toMatchObject({ id: "E5F6G7H8", file: "nodes/E5/F6G7H8-constraint.md" });
   });
 
   it("parses a constraint with grounds, summary and body", () => {
@@ -27,7 +27,7 @@ describe("parseNodeSource", () => {
 
     const { node, issues } = parseNodeSource(
       "E5F6G7H8",
-      "nodes/E5/F6G7H8.constraint.md",
+      "nodes/E5/F6G7H8-constraint.md",
       "constraint",
       source,
     );
@@ -35,7 +35,7 @@ describe("parseNodeSource", () => {
     expect(node).toEqual({
       id: "E5F6G7H8",
       type: "constraint",
-      file: "nodes/E5/F6G7H8.constraint.md",
+      file: "nodes/E5/F6G7H8-constraint.md",
       summary: "实现必须通过 Repository 层。",
       body: "实现必须通过 Repository 层。\n\n完整的推导与权衡过程。",
       grounds: ["1A2B3C4D", "D4E5F6G7"],
@@ -46,7 +46,7 @@ describe("parseNodeSource", () => {
   it("accepts an empty frontmatter block", () => {
     const { node, issues } = parseNodeSource(
       "1A2B3C4D",
-      "nodes/1A/2B3C4D.premise.md",
+      "nodes/1A/2B3C4D-premise.md",
       "premise",
       "---\n---\n\nBody.\n",
     );
@@ -57,7 +57,7 @@ describe("parseNodeSource", () => {
   it("derives type from the caller, not from frontmatter", () => {
     const { node } = parseNodeSource(
       "1A2B3C4D",
-      "nodes/1A/2B3C4D.constraint.md",
+      "nodes/1A/2B3C4D-constraint.md",
       "constraint",
       "Body.\n",
     );
@@ -67,7 +67,7 @@ describe("parseNodeSource", () => {
   it("silently ignores unknown frontmatter fields", () => {
     const { node, issues } = parseNodeSource(
       "1A2B3C4D",
-      "nodes/1A/2B3C4D.premise.md",
+      "nodes/1A/2B3C4D-premise.md",
       "premise",
       "---\nsource: somewhere\ncustom: [1, 2]\n---\n\nBody.\n",
     );
@@ -78,7 +78,7 @@ describe("parseNodeSource", () => {
   it("omits grounds for a root constraint declared without the field", () => {
     const { node } = parseNodeSource(
       "A1B2C3D4",
-      "nodes/A1/B2C3D4.constraint.md",
+      "nodes/A1/B2C3D4-constraint.md",
       "constraint",
       "Root decision.\n",
     );
@@ -88,7 +88,7 @@ describe("parseNodeSource", () => {
   it("deduplicates grounds while preserving order", () => {
     const { node, issues } = parseNodeSource(
       "A1B2C3D4",
-      "nodes/A1/B2C3D4.constraint.md",
+      "nodes/A1/B2C3D4-constraint.md",
       "constraint",
       "---\ngrounds: [B2C3D4E5, C3D4E5F6, B2C3D4E5]\n---\n\nBody.\n",
     );
@@ -99,7 +99,7 @@ describe("parseNodeSource", () => {
   it("accepts an explicit empty grounds list", () => {
     const { node, issues } = parseNodeSource(
       "A1B2C3D4",
-      "nodes/A1/B2C3D4.constraint.md",
+      "nodes/A1/B2C3D4-constraint.md",
       "constraint",
       "---\ngrounds: []\n---\n\nBody.\n",
     );
@@ -111,7 +111,7 @@ describe("parseNodeSource", () => {
     const source = `\uFEFF---\r\ngrounds: []\r\n---\r\n\r\nFirst\r\nparagraph continues.\r\n\r\nRationale.\r\n`;
     const { node, issues } = parseNodeSource(
       "A1B2C3D4",
-      "nodes/A1/B2C3D4.constraint.md",
+      "nodes/A1/B2C3D4-constraint.md",
       "constraint",
       source,
     );
@@ -123,7 +123,7 @@ describe("parseNodeSource", () => {
   it("uses the first paragraph as summary, collapsing internal whitespace", () => {
     const { node } = parseNodeSource(
       "A1B2C3D4",
-      "nodes/A1/B2C3D4.constraint.md",
+      "nodes/A1/B2C3D4-constraint.md",
       "constraint",
       "Line one.\nLine two continues.\n\nRationale.\n",
     );
@@ -133,7 +133,7 @@ describe("parseNodeSource", () => {
   it("prefers an explicit summary frontmatter field over the first paragraph", () => {
     const { node, issues } = parseNodeSource(
       "A1B2C3D4",
-      "nodes/A1/B2C3D4.constraint.md",
+      "nodes/A1/B2C3D4-constraint.md",
       "constraint",
       '---\nsummary: "Short relevance summary."\n---\n\nFirst paragraph that is not the summary.\n',
     );
@@ -145,7 +145,7 @@ describe("parseNodeSource", () => {
   it("accepts a summary frontmatter field on premise nodes", () => {
     const { node, issues } = parseNodeSource(
       "1A2B3C4D",
-      "nodes/1A/2B3C4D.premise.md",
+      "nodes/1A/2B3C4D-premise.md",
       "premise",
       '---\nsummary: "PostgreSQL version fact."\n---\n\nLong fact body.\n',
     );
@@ -156,7 +156,7 @@ describe("parseNodeSource", () => {
   it("reports an issue and falls back for a non-string summary field", () => {
     const { node, issues } = parseNodeSource(
       "A1B2C3D4",
-      "nodes/A1/B2C3D4.constraint.md",
+      "nodes/A1/B2C3D4-constraint.md",
       "constraint",
       "---\nsummary: 42\n---\n\nFallback paragraph.\n",
     );
@@ -169,7 +169,7 @@ describe("parseNodeSource", () => {
     const longParagraph = "x".repeat(SUMMARY_MAX_LENGTH + 10);
     const { node } = parseNodeSource(
       "A1B2C3D4",
-      "nodes/A1/B2C3D4.constraint.md",
+      "nodes/A1/B2C3D4-constraint.md",
       "constraint",
       `${longParagraph}\n`,
     );
@@ -180,7 +180,7 @@ describe("parseNodeSource", () => {
   it("reports INVALID_FRONTMATTER for broken YAML", () => {
     const { node, issues } = parseNodeSource(
       "A1B2C3D4",
-      "nodes/A1/B2C3D4.constraint.md",
+      "nodes/A1/B2C3D4-constraint.md",
       "constraint",
       "---\ngrounds: [unclosed\n---\n\nBody.\n",
     );
@@ -191,7 +191,7 @@ describe("parseNodeSource", () => {
   it("reports INVALID_FRONTMATTER when the frontmatter is not a mapping", () => {
     const { issues } = parseNodeSource(
       "A1B2C3D4",
-      "nodes/A1/B2C3D4.constraint.md",
+      "nodes/A1/B2C3D4-constraint.md",
       "constraint",
       "---\n- a\n- b\n---\n\nBody.\n",
     );
@@ -201,21 +201,21 @@ describe("parseNodeSource", () => {
   it.each([
     [
       "premise with grounds",
-      "nodes/1A/2B3C4D.premise.md",
+      "nodes/1A/2B3C4D-premise.md",
       "premise",
       "---\ngrounds: [A1B2C3D4]\n---\n\nBody.\n",
       "PREMISE_WITH_GROUNDS",
     ],
     [
       "grounds not a list",
-      "nodes/A1/B2C3D4.constraint.md",
+      "nodes/A1/B2C3D4-constraint.md",
       "constraint",
       "---\ngrounds: B2C3D4E5\n---\n\nBody.\n",
       "INVALID_GROUNDS",
     ],
     [
       "grounds entry not a string",
-      "nodes/A1/B2C3D4.constraint.md",
+      "nodes/A1/B2C3D4-constraint.md",
       "constraint",
       "---\ngrounds: [3]\n---\n\nBody.\n",
       "INVALID_GROUNDS",
