@@ -1,29 +1,28 @@
 import type { LayoutDirection } from "../../types";
 
 /**
- * Incremental layered layout (ui README, "布局：增量分层").
+ * Stateless layered layout (ui README, "布局").
  *
- * Layers follow the grounds edges; the chosen direction only maps canonical
- * (layer, order) coordinates to x/y, so switching direction never re-lays
- * out. Virtual coordinates are stable: once a node is placed it keeps its
- * (layer, order) until it leaves the working set, and re-entering nodes
- * restore their previous position. New nodes attach relative to their
- * already-placed neighbors — a node with placed grounds sits one layer below
- * the deepest of them, a node pulled in as a ground sits one layer above its
- * shallowest placed dependent (clamped at 0) — and take the slot nearest to
- * the average of their anchors' rows, so a family spreads symmetrically
- * around its ground instead of drifting to one side. Disjoint additions have
- * no placed neighbor to attach to and are laid out as independent components
- * below the existing content.
+ * Every call computes the layout of exactly the given subgraph from
+ * scratch: the whole working set is laid out as if drawn anew, so relative
+ * positions always reflect the current structure. Nodes keep no coordinate
+ * history across calls.
  *
- * Satellite nodes (`beside`) are display copies that follow a regular node —
- * premise instances shown next to the constraint that needs them. They sit
- * one layer before their anchor in the anchor's row and never join the
- * layered flow themselves.
+ * Layers follow the grounds edges (longest-path layering, sources at
+ * layer 0); the chosen direction only maps canonical (layer, order)
+ * coordinates to x/y, so switching direction never re-lays out. Within a
+ * layer each node takes the row nearest to the average of its grounds'
+ * rows, so a family spreads symmetrically around its ground instead of
+ * drifting to one side. Disjoint groups are laid out as independent
+ * components stacked in row ranges (README: 无重叠则作为独立分量排布).
  *
- * The result is a deterministic function of the current placements and the
- * incoming working set (ties ordered by id); it is not path-independent —
- * that is the price of coordinate stability.
+ * Satellite nodes (`beside`) are display copies that follow a regular
+ * node — premise instances shown next to the constraint that needs them.
+ * They sit one layer before their anchor in the anchor's row and never
+ * join the layered flow themselves.
+ *
+ * The result is a pure function of the input node set (ties ordered by
+ * id): the same set always yields the same layout, in any input order.
  */
 
 /** Minimal read-only node shape the layout needs. */
@@ -47,7 +46,7 @@ const NODE_WIDTH = 150;
 const NODE_HEIGHT = 44;
 const LAYER_GAP = 90;
 const CROSS_GAP = 32;
-/** Empty rows between the existing content and an independent component. */
+/** Empty rows between consecutive independent components. */
 const COMPONENT_GAP = 4;
 
 interface Placement {
@@ -55,271 +54,28 @@ interface Placement {
   order: number;
 }
 
-export class IncrementalLayout {
-  #placed = new Map<string, Placement>();
-  /** Positions of nodes that left the working set, restored on re-entry. */
-  #retired = new Map<string, Placement>();
-  /** Layer → orders in use; the collision index for new placements. */
-  #occupied = new Map<number, Set<number>>();
-  #nodes = new Map<string, LayoutNode>();
+/** Computes the layered layout of the given subgraph from scratch. */
+export function layeredLayout(
+  nodes: readonly LayoutNode[],
+  direction: LayoutDirection,
+): LaidOutNode[] {
+  const graph = new Map(nodes.map((node) => [node.id, node] as const));
+  const ids = [...graph.keys()].sort();
 
-  /**
-   * Absorbs a working-set snapshot and returns the mapped geometry for it.
-   * Placement state persists across calls; passing the same nodes again
-   * only re-applies the direction mapping.
-   */
-  sync(nodes: readonly LayoutNode[], direction: LayoutDirection): LaidOutNode[] {
-    this.#nodes = new Map(nodes.map((node) => [node.id, node] as const));
-    const ids = new Set(this.#nodes.keys());
-
-    // Nodes that left keep their slot in #retired for a cheap restore.
-    for (const [id, placement] of this.#placed) {
-      if (!ids.has(id)) {
-        this.#placed.delete(id);
-        this.#occupied.get(placement.layer)?.delete(placement.order);
-        this.#retired.set(id, placement);
-      }
-    }
-    for (const [id, placement] of this.#retired) {
-      if (ids.has(id)) {
-        this.#retired.delete(id);
-        // The slot may have been taken while the node was away.
-        const bucket = this.#occupied.get(placement.layer);
-        const order =
-          bucket !== undefined && bucket.has(placement.order)
-            ? this.#freeOrder(placement.layer, placement.order)
-            : placement.order;
-        this.#place(id, { layer: placement.layer, order });
-      }
-    }
-
-    const dependents = new Map<string, string[]>();
-    for (const node of this.#nodes.values()) {
-      for (const ground of node.grounds ?? []) {
-        if (!ids.has(ground)) continue;
-        const list = dependents.get(ground);
-        if (list) list.push(node.id);
-        else dependents.set(ground, [node.id]);
-      }
-    }
-
-    const pending = [...ids].filter((id) => !this.#placed.has(id)).sort();
-    // Satellites place last: their anchors are regular nodes placed by the
-    // phases below (or in an earlier sync).
-    const attached = pending.filter((id) => this.#nodes.get(id)!.beside === undefined);
-    const satellites = pending.filter((id) => this.#nodes.get(id)!.beside !== undefined);
-    this.#attachPending(attached, dependents);
-    this.#placeComponents(attached);
-    this.#attachSatellites(satellites);
-
-    const horizontal = direction === "LR" || direction === "RL";
-    const result: LaidOutNode[] = [];
-    for (const [id] of this.#nodes) {
-      const placement = this.#placed.get(id)!;
-      const main =
-        placement.layer * (horizontal ? NODE_WIDTH + LAYER_GAP : NODE_HEIGHT + LAYER_GAP);
-      const cross =
-        placement.order * (horizontal ? NODE_HEIGHT + CROSS_GAP : NODE_WIDTH + CROSS_GAP);
-      const [x, y] =
-        direction === "LR"
-          ? [main, cross]
-          : direction === "RL"
-            ? [-main - NODE_WIDTH, cross]
-            : direction === "TB"
-              ? [cross, main]
-              : [cross, -main - NODE_HEIGHT];
-      result.push({ id, x, y, width: NODE_WIDTH, height: NODE_HEIGHT });
-    }
-    return result;
-  }
-
-  /** Places every pending node that has a placed neighbor, in rounds so
-   * chains entering together resolve. Unattached leftovers are independent
-   * components. */
-  #attachPending(pending: string[], dependents: ReadonlyMap<string, string[]>): void {
-    const left = new Set(pending);
-    let progressed = true;
-    while (left.size > 0 && progressed) {
-      progressed = false;
-      for (const id of [...left].sort()) {
-        const node = this.#nodes.get(id)!;
-        const grounds = (node.grounds ?? []).filter((g) => this.#placed.has(g));
-        if (grounds.length > 0) {
-          let layer = 0;
-          let orderSum = 0;
-          for (const ground of grounds) {
-            const placement = this.#placed.get(ground)!;
-            layer = Math.max(layer, placement.layer + 1);
-            orderSum += placement.order;
-          }
-          this.#place(id, { layer, order: this.#freeOrder(layer, orderSum / grounds.length) });
-        } else {
-          const deps = (dependents.get(id) ?? []).filter((d) => this.#placed.has(d));
-          if (deps.length === 0) continue;
-          // Layers may go negative: a predecessor chain pulled in above a
-          // node placed at layer 0 keeps its layered shape instead of being
-          // crushed into one layer (stability forbids shifting the placed
-          // side down).
-          let layer = Number.POSITIVE_INFINITY;
-          let orderSum = 0;
-          for (const dependent of deps) {
-            const placement = this.#placed.get(dependent)!;
-            layer = Math.min(layer, placement.layer);
-            orderSum += placement.order;
-          }
-          layer -= 1;
-          this.#place(id, { layer, order: this.#freeOrder(layer, orderSum / deps.length) });
-        }
-        left.delete(id);
-        progressed = true;
-      }
-    }
-    pending.length = 0;
-    pending.push(...[...left].sort());
-  }
-
-  /** Places satellite nodes one layer before their anchor, in the anchor's
-   * row (nearest free slot), so they display beside it without joining the
-   * layered flow. Anchors are regular nodes of the same snapshot and are
-   * always placed by the time this runs. */
-  #attachSatellites(satellites: string[]): void {
-    for (const id of satellites) {
-      const anchor = this.#placed.get(this.#nodes.get(id)!.beside!);
-      if (anchor === undefined) continue; // anchor absent: nothing to attach to
-      this.#place(id, {
-        layer: anchor.layer - 1,
-        order: this.#freeOrder(anchor.layer - 1, anchor.order),
-      });
-    }
-  }
-
-  /** Lays out each still-unplaced connected group as an independent
-   * component below the existing content (README: 无重叠则作为独立分量排布). */
-  #placeComponents(pending: string[]): void {
-    const pendingSet = new Set(pending);
-    const groundsIn = new Map<string, string[]>();
-    for (const id of pending) {
-      const node = this.#nodes.get(id)!;
-      groundsIn.set(
-        id,
-        (node.grounds ?? []).filter((g) => pendingSet.has(g)),
-      );
-    }
-    // Dependents within the pending set (not covered by the sync-level index,
-    // which only tracks placed neighbors).
-    const depsIn = new Map<string, string[]>();
-    for (const [ground, list] of groundsIn) {
-      for (const g of list) {
-        const entry = depsIn.get(g);
-        if (entry) entry.push(ground);
-        else depsIn.set(g, [ground]);
-      }
-    }
-
-    const visited = new Set<string>();
-    for (const root of pending) {
-      if (visited.has(root)) continue;
-      // Collect the component via BFS over grounds + dependents.
-      const component = [root];
-      visited.add(root);
-      for (let head = 0; head < component.length; head++) {
-        const id = component[head]!;
-        for (const neighbor of [...(groundsIn.get(id) ?? []), ...(depsIn.get(id) ?? [])]) {
-          if (!visited.has(neighbor)) {
-            visited.add(neighbor);
-            component.push(neighbor);
-          }
-        }
-      }
-      this.#placeComponent(component.sort(), groundsIn);
-    }
-  }
-
-  /** Longest-path layering inside the component, BFS-derived order per
-   * layer, then an offset below everything already placed. */
-  #placeComponent(component: readonly string[], groundsIn: ReadonlyMap<string, string[]>): void {
-    const layers = new Map<string, number>();
-    let progressed = true;
-    while (layers.size < component.length && progressed) {
-      progressed = false;
-      for (const id of component) {
-        if (layers.has(id)) continue;
-        const grounds = (groundsIn.get(id) ?? []).filter((g) => layers.has(g));
-        if ((groundsIn.get(id) ?? []).length > grounds.length) continue;
-        let layer = 0;
-        for (const g of grounds) layer = Math.max(layer, layers.get(g)! + 1);
-        layers.set(id, layer);
-        progressed = true;
-      }
-    }
-
-    let orderBase = COMPONENT_GAP;
-    for (const placement of this.#placed.values()) {
-      orderBase = Math.max(orderBase, placement.order + 1 + COMPONENT_GAP);
-    }
-    for (const placement of this.#retired.values()) {
-      // Keep the region stable across churn: retired slots still reserve it.
-      orderBase = Math.max(orderBase, placement.order + 1 + COMPONENT_GAP);
-    }
-
-    const byLayer = new Map<number, string[]>();
-    for (const id of component) {
-      const layer = layers.get(id)!;
-      const bucket = byLayer.get(layer);
-      if (bucket) bucket.push(id);
-      else byLayer.set(layer, [id]);
-    }
-    // Buckets are sorted by their parents' orders (min ground order, then
-    // id) so adjacent nodes land close together. Each node takes the free
-    // slot nearest to the average of its grounds' rows: a family centers on
-    // its ground instead of drifting to one side of it (README: 相邻层中点
-    // 对齐). Roots of the component stack below the existing content.
-    const assigned = new Map<string, number>();
-    let rootCount = 0;
-    for (const layer of [...byLayer.keys()].sort((a, b) => a - b)) {
-      const bucket = byLayer.get(layer)!.sort((a, b) => {
-        const orderOf = (id: string): number => {
-          let best = Number.POSITIVE_INFINITY;
-          for (const g of groundsIn.get(id) ?? []) {
-            const order = assigned.get(g);
-            if (order !== undefined) best = Math.min(best, order);
-          }
-          return best;
-        };
-        const oa = orderOf(a);
-        const ob = orderOf(b);
-        return oa !== ob ? oa - ob : a < b ? -1 : 1;
-      });
-      for (const id of bucket) {
-        const grounds = (groundsIn.get(id) ?? [])
-          .map((g) => assigned.get(g))
-          .filter((order): order is number => order !== undefined);
-        const desired =
-          grounds.length > 0
-            ? grounds.reduce((sum, order) => sum + order, 0) / grounds.length
-            : orderBase + rootCount++;
-        const order = this.#freeOrder(layer, desired);
-        assigned.set(id, order);
-        // Placing immediately keeps later nodes in this layer off the slot.
-        this.#place(id, { layer, order });
-      }
-    }
-  }
-
-  /** Registers a placement and marks its slot occupied. */
-  #place(id: string, placement: Placement): void {
-    this.#placed.set(id, placement);
-    const bucket = this.#occupied.get(placement.layer);
+  const placed = new Map<string, Placement>();
+  /** Layer → rows in use; the collision index for new placements. */
+  const occupied = new Map<number, Set<number>>();
+  const place = (id: string, placement: Placement): void => {
+    placed.set(id, placement);
+    const bucket = occupied.get(placement.layer);
     if (bucket) bucket.add(placement.order);
-    else this.#occupied.set(placement.layer, new Set([placement.order]));
-  }
-
-  /** The free order in `layer` nearest to `desired` (ties toward the
-   * smaller order), so attached nodes cluster around their anchors —
-   * symmetrically, on either side of the anchor's row — without ever
-   * colliding with a placed node. */
-  #freeOrder(layer: number, desired: number): number {
-    const bucket = this.#occupied.get(layer);
+    else occupied.set(placement.layer, new Set([placement.order]));
+  };
+  /** The free row in `layer` nearest to `desired` (ties toward the smaller
+   * row), so nodes cluster around their anchors — symmetrically, on either
+   * side — without ever colliding with a placed node. */
+  const freeOrder = (layer: number, desired: number): number => {
+    const bucket = occupied.get(layer);
     const base = Math.round(desired);
     if (!bucket || !bucket.has(base)) return base;
     for (let distance = 1; ; distance++) {
@@ -328,5 +84,178 @@ export class IncrementalLayout {
       const above = base + distance;
       if (!bucket.has(above)) return above;
     }
+  };
+
+  const dependents = new Map<string, string[]>();
+  for (const id of ids) {
+    for (const ground of graph.get(id)!.grounds ?? []) {
+      if (!graph.has(ground)) continue;
+      const list = dependents.get(ground);
+      if (list) list.push(id);
+      else dependents.set(ground, [id]);
+    }
+  }
+
+  // Satellites place last: their anchors are regular nodes placed first.
+  const regular = ids.filter((id) => graph.get(id)!.beside === undefined);
+  const satellites = ids.filter((id) => graph.get(id)!.beside !== undefined);
+  placeComponents(regular, graph, placed, place, freeOrder);
+  attachSatellites(satellites, graph, placed, place, freeOrder);
+
+  const horizontal = direction === "LR" || direction === "RL";
+  const result: LaidOutNode[] = [];
+  for (const id of ids) {
+    const placement = placed.get(id)!;
+    const main =
+      placement.layer * (horizontal ? NODE_WIDTH + LAYER_GAP : NODE_HEIGHT + LAYER_GAP);
+    const cross =
+      placement.order * (horizontal ? NODE_HEIGHT + CROSS_GAP : NODE_WIDTH + CROSS_GAP);
+    const [x, y] =
+      direction === "LR"
+        ? [main, cross]
+        : direction === "RL"
+          ? [-main - NODE_WIDTH, cross]
+          : direction === "TB"
+            ? [cross, main]
+            : [cross, -main - NODE_HEIGHT];
+    result.push({ id, x, y, width: NODE_WIDTH, height: NODE_HEIGHT });
+  }
+  return result;
+}
+
+/** Lays out each connected group of the regular nodes as an independent
+ * component in its own row range. */
+function placeComponents(
+  regular: readonly string[],
+  graph: ReadonlyMap<string, LayoutNode>,
+  placed: ReadonlyMap<string, Placement>,
+  place: (id: string, placement: Placement) => void,
+  freeOrder: (layer: number, desired: number) => number,
+): void {
+  const regularSet = new Set(regular);
+  const groundsIn = new Map<string, string[]>();
+  for (const id of regular) {
+    groundsIn.set(id, (graph.get(id)!.grounds ?? []).filter((g) => regularSet.has(g)));
+  }
+  const depsIn = new Map<string, string[]>();
+  for (const [id, list] of groundsIn) {
+    for (const g of list) {
+      const entry = depsIn.get(g);
+      if (entry) entry.push(id);
+      else depsIn.set(g, [id]);
+    }
+  }
+
+  const visited = new Set<string>();
+  for (const root of regular) {
+    if (visited.has(root)) continue;
+    // Collect the component via BFS over grounds + dependents.
+    const component = [root];
+    visited.add(root);
+    for (let head = 0; head < component.length; head++) {
+      const id = component[head]!;
+      for (const neighbor of [...(groundsIn.get(id) ?? []), ...(depsIn.get(id) ?? [])]) {
+        if (!visited.has(neighbor)) {
+          visited.add(neighbor);
+          component.push(neighbor);
+        }
+      }
+    }
+    placeComponent(component.sort(), groundsIn, placed, place, freeOrder);
+  }
+}
+
+/** Longest-path layering inside the component, then BFS-derived row order
+ * per layer with the family-centering placement. */
+function placeComponent(
+  component: readonly string[],
+  groundsIn: ReadonlyMap<string, string[]>,
+  placed: ReadonlyMap<string, Placement>,
+  place: (id: string, placement: Placement) => void,
+  freeOrder: (layer: number, desired: number) => number,
+): void {
+  const layers = new Map<string, number>();
+  let progressed = true;
+  while (layers.size < component.length && progressed) {
+    progressed = false;
+    for (const id of component) {
+      if (layers.has(id)) continue;
+      const grounds = (groundsIn.get(id) ?? []).filter((g) => layers.has(g));
+      if ((groundsIn.get(id) ?? []).length > grounds.length) continue;
+      let layer = 0;
+      for (const g of grounds) layer = Math.max(layer, layers.get(g)! + 1);
+      layers.set(id, layer);
+      progressed = true;
+    }
+  }
+
+  // Components stack in disjoint row ranges: this one starts below every
+  // row placed so far (the first component's roots start at row 0).
+  let orderBase = 0;
+  for (const placement of placed.values()) {
+    orderBase = Math.max(orderBase, placement.order + 1 + COMPONENT_GAP);
+  }
+
+  const byLayer = new Map<number, string[]>();
+  for (const id of component) {
+    const layer = layers.get(id)!;
+    const bucket = byLayer.get(layer);
+    if (bucket) bucket.push(id);
+    else byLayer.set(layer, [id]);
+  }
+  // Buckets are sorted by their parents' rows (min ground order, then id)
+  // so adjacent nodes land close together. Each node takes the free slot
+  // nearest to the average of its grounds' rows: a family centers on its
+  // ground instead of drifting to one side of it (README: 相邻层中点对齐).
+  const assigned = new Map<string, number>();
+  let rootCount = 0;
+  for (const layer of [...byLayer.keys()].sort((a, b) => a - b)) {
+    const bucket = byLayer.get(layer)!.sort((a, b) => {
+      const orderOf = (id: string): number => {
+        let best = Number.POSITIVE_INFINITY;
+        for (const g of groundsIn.get(id) ?? []) {
+          const order = assigned.get(g);
+          if (order !== undefined) best = Math.min(best, order);
+        }
+        return best;
+      };
+      const oa = orderOf(a);
+      const ob = orderOf(b);
+      return oa !== ob ? oa - ob : a < b ? -1 : 1;
+    });
+    for (const id of bucket) {
+      const grounds = (groundsIn.get(id) ?? [])
+        .map((g) => assigned.get(g))
+        .filter((order): order is number => order !== undefined);
+      const desired =
+        grounds.length > 0
+          ? grounds.reduce((sum, order) => sum + order, 0) / grounds.length
+          : orderBase + rootCount++;
+      const order = freeOrder(layer, desired);
+      assigned.set(id, order);
+      // Placing immediately keeps later nodes in this layer off the slot.
+      place(id, { layer, order });
+    }
+  }
+}
+
+/** Places satellite nodes one layer before their anchor, in the anchor's
+ * row (nearest free slot), so they display beside it without joining the
+ * layered flow. Anchors are regular nodes of the same snapshot and are
+ * always placed by the time this runs. */
+function attachSatellites(
+  satellites: readonly string[],
+  graph: ReadonlyMap<string, LayoutNode>,
+  placed: ReadonlyMap<string, Placement>,
+  place: (id: string, placement: Placement) => void,
+  freeOrder: (layer: number, desired: number) => number,
+): void {
+  for (const id of satellites) {
+    const anchor = placed.get(graph.get(id)!.beside!);
+    if (anchor === undefined) continue; // anchor absent: nothing to attach to
+    place(id, {
+      layer: anchor.layer - 1,
+      order: freeOrder(anchor.layer - 1, anchor.order),
+    });
   }
 }

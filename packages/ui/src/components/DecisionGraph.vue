@@ -16,7 +16,7 @@ import {
   premiseInstanceId,
   workspace,
 } from "../workspace";
-import { IncrementalLayout } from "../graph/layout/engine";
+import { layeredLayout } from "../graph/layout/engine";
 import type { LaidOutNode } from "../graph/layout/engine";
 import {
   CULL_FOCUS,
@@ -44,10 +44,9 @@ const glFailed = ref(false);
 let renderer: GraphRenderer | null = null;
 let budget: AdaptiveBudget | null = null;
 
-// The layout engine owns the stable virtual coordinates; the display list
-// re-maps them whenever the working set or the direction changes. Premise
+// The layout is recomputed from the displayed subgraph whenever it or the
+// direction changes; the camera keeps the focus node in place. Premise
 // instances enter the layout as satellites beside their constraint.
-const layoutEngine = new IncrementalLayout();
 const layout = ref<LaidOutNode[]>([]);
 watch(
   () => [workspace.displayed.value, props.direction] as const,
@@ -56,7 +55,7 @@ watch(
       const anchor = instanceConstraintId(node.id);
       return anchor === null ? node : { id: node.id, beside: anchor };
     });
-    layout.value = layoutEngine.sync(laidOut, direction);
+    layout.value = layeredLayout(laidOut, direction);
   },
   { immediate: true },
 );
