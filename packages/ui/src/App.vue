@@ -19,7 +19,7 @@ import {
   dateEnUS,
 } from "naive-ui";
 import { store } from "./store";
-import { workspace } from "./workspace";
+import { premiseIdOf, workspace } from "./workspace";
 import { i18n } from "./i18n";
 import AppHeader from "./components/AppHeader.vue";
 import NodeListPanel from "./components/NodeListPanel.vue";
@@ -35,9 +35,15 @@ const { t } = useI18n();
 const constraintCount = computed(
   () => workspace.displayed.value.filter((n) => n.type === "constraint").length,
 );
-const premiseCount = computed(
-  () => workspace.displayed.value.filter((n) => n.type === "premise").length,
-);
+const premiseCount = computed(() => {
+  // Premise instances repeat the same premise beside several constraints;
+  // the status counts unique premises.
+  const ids = new Set<string>();
+  for (const node of workspace.displayed.value) {
+    if (node.type === "premise") ids.add(premiseIdOf(node.id));
+  }
+  return ids.size;
+});
 
 const renderCulled = ref(false);
 

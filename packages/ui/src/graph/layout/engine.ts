@@ -10,10 +10,16 @@ import type { LayoutDirection } from "../../types";
  * restore their previous position. New nodes attach relative to their
  * already-placed neighbors — a node with placed grounds sits one layer below
  * the deepest of them, a node pulled in as a ground sits one layer above its
- * shallowest placed dependent (clamped at 0) — and take the nearest free
- * slot in their layer's order, so nothing already placed ever moves.
- * Disjoint additions have no placed neighbor to attach to and are laid out
- * as independent components below the existing content.
+ * shallowest placed dependent (clamped at 0) — and take the slot nearest to
+ * the average of their anchors' rows, so a family spreads symmetrically
+ * around its ground instead of drifting to one side. Disjoint additions have
+ * no placed neighbor to attach to and are laid out as independent components
+ * below the existing content.
+ *
+ * Satellite nodes (`beside`) are display copies that follow a regular node —
+ * premise instances shown next to the constraint that needs them. They sit
+ * one layer before their anchor in the anchor's row and never join the
+ * layered flow themselves.
  *
  * The result is a deterministic function of the current placements and the
  * incoming working set (ties ordered by id); it is not path-independent —
@@ -24,6 +30,8 @@ import type { LayoutDirection } from "../../types";
 export interface LayoutNode {
   id: string;
   grounds?: readonly string[];
+  /** Place this node one layer before `beside`, in its row. */
+  beside?: string;
 }
 
 /** Mapped node geometry in virtual space. */
@@ -38,7 +46,7 @@ export interface LaidOutNode {
 const NODE_WIDTH = 150;
 const NODE_HEIGHT = 44;
 const LAYER_GAP = 90;
-const CROSS_GAP = 16;
+const CROSS_GAP = 32;
 /** Empty rows between the existing content and an independent component. */
 const COMPONENT_GAP = 4;
 
@@ -75,7 +83,13 @@ export class IncrementalLayout {
     for (const [id, placement] of this.#retired) {
       if (ids.has(id)) {
         this.#retired.delete(id);
-        this.#place(id, placement);
+        // The slot may have been taken while the node was away.
+        const bucket = this.#occupied.get(placement.layer);
+        const order =
+          bucket !== undefined && bucket.has(placement.order)
+            ? this.#freeOrder(placement.layer, placement.order)
+            : placement.order;
+        this.#place(id, { layer: placement.layer, order });
       }
     }
 
@@ -90,8 +104,13 @@ export class IncrementalLayout {
     }
 
     const pending = [...ids].filter((id) => !this.#placed.has(id)).sort();
-    this.#attachPending(pending, dependents);
-    this.#placeComponents(pending);
+    // Satellites place last: their anchors are regular nodes placed by the
+    // phases below (or in an earlier sync).
+    const attached = pending.filter((id) => this.#nodes.get(id)!.beside === undefined);
+    const satellites = pending.filter((id) => this.#nodes.get(id)!.beside !== undefined);
+    this.#attachPending(attached, dependents);
+    this.#placeComponents(attached);
+    this.#attachSatellites(satellites);
 
     const horizontal = direction === "LR" || direction === "RL";
     const result: LaidOutNode[] = [];
@@ -157,6 +176,21 @@ export class IncrementalLayout {
     }
     pending.length = 0;
     pending.push(...[...left].sort());
+  }
+
+  /** Places satellite nodes one layer before their anchor, in the anchor's
+   * row (nearest free slot), so they display beside it without joining the
+   * layered flow. Anchors are regular nodes of the same snapshot and are
+   * always placed by the time this runs. */
+  #attachSatellites(satellites: string[]): void {
+    for (const id of satellites) {
+      const anchor = this.#placed.get(this.#nodes.get(id)!.beside!);
+      if (anchor === undefined) continue; // anchor absent: nothing to attach to
+      this.#place(id, {
+        layer: anchor.layer - 1,
+        order: this.#freeOrder(anchor.layer - 1, anchor.order),
+      });
+    }
   }
 
   /** Lays out each still-unplaced connected group as an independent
@@ -235,12 +269,13 @@ export class IncrementalLayout {
       if (bucket) bucket.push(id);
       else byLayer.set(layer, [id]);
     }
-    // Orders are component-global and strictly increasing: buckets are
-    // sorted by their parents' orders (min ground order, then id) so
-    // adjacent nodes land close together, and every node gets a fresh slot
-    // (per-bucket restarts would collide orders across layers).
+    // Buckets are sorted by their parents' orders (min ground order, then
+    // id) so adjacent nodes land close together. Each node takes the free
+    // slot nearest to the average of its grounds' rows: a family centers on
+    // its ground instead of drifting to one side of it (README: 相邻层中点
+    // 对齐). Roots of the component stack below the existing content.
     const assigned = new Map<string, number>();
-    let nextOrder = orderBase;
+    let rootCount = 0;
     for (const layer of [...byLayer.keys()].sort((a, b) => a - b)) {
       const bucket = byLayer.get(layer)!.sort((a, b) => {
         const orderOf = (id: string): number => {
@@ -255,11 +290,19 @@ export class IncrementalLayout {
         const ob = orderOf(b);
         return oa !== ob ? oa - ob : a < b ? -1 : 1;
       });
-      for (const id of bucket) assigned.set(id, nextOrder++);
-    }
-
-    for (const id of component) {
-      this.#place(id, { layer: layers.get(id)!, order: assigned.get(id)! });
+      for (const id of bucket) {
+        const grounds = (groundsIn.get(id) ?? [])
+          .map((g) => assigned.get(g))
+          .filter((order): order is number => order !== undefined);
+        const desired =
+          grounds.length > 0
+            ? grounds.reduce((sum, order) => sum + order, 0) / grounds.length
+            : orderBase + rootCount++;
+        const order = this.#freeOrder(layer, desired);
+        assigned.set(id, order);
+        // Placing immediately keeps later nodes in this layer off the slot.
+        this.#place(id, { layer, order });
+      }
     }
   }
 
@@ -272,15 +315,16 @@ export class IncrementalLayout {
   }
 
   /** The free order in `layer` nearest to `desired` (ties toward the
-   * smaller order), so attached nodes cluster around their anchors without
-   * ever colliding with a placed node. */
+   * smaller order), so attached nodes cluster around their anchors —
+   * symmetrically, on either side of the anchor's row — without ever
+   * colliding with a placed node. */
   #freeOrder(layer: number, desired: number): number {
     const bucket = this.#occupied.get(layer);
-    const base = Math.max(0, Math.round(desired));
+    const base = Math.round(desired);
     if (!bucket || !bucket.has(base)) return base;
     for (let distance = 1; ; distance++) {
       const below = base - distance;
-      if (below >= 0 && !bucket.has(below)) return below;
+      if (!bucket.has(below)) return below;
       const above = base + distance;
       if (!bucket.has(above)) return above;
     }

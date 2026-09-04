@@ -11,6 +11,14 @@ export const EDGE_QUAD = new Float32Array([0, -0.5, 1, -0.5, 0, 0.5, 0, -0.5, 1,
 /** Unit square for nodes and glyphs (two triangles covering it exactly). */
 export const UNIT_QUAD = new Float32Array([0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1]);
 
+/** Arrowhead geometry in CSS px: length along the segment, half width. */
+const ARROW_LEN = 9;
+const ARROW_HALF_W = 5;
+const EDGE_GLSL_CONSTANTS = /* glsl */ `
+  const float ARROW_LEN = ${ARROW_LEN}.0;
+  const float ARROW_HALF_W = ${ARROW_HALF_W}.0;
+`;
+
 const COMMON_VERTEX_FOOT = /* glsl */ `
   vec2 toClip(vec2 cssPoint) {
     vec2 px = cssPoint * u_dpr;
@@ -27,27 +35,54 @@ const EDGE_VERTEX = /* glsl */ `#version 300 es
   layout(location = 4) in vec4 a_color;
   uniform vec2 u_resolution;
   uniform float u_dpr;
+  out vec2 v_frame;   // px along / across the segment, from its start
+  out float v_len;    // segment length in px
+  out float v_half;   // shaft half width in px
   out vec4 v_color;
+  ${EDGE_GLSL_CONSTANTS}
   ${COMMON_VERTEX_FOOT}
   void main() {
     vec2 dir = a_to - a_from;
     float len = length(dir);
     dir = len > 0.0 ? dir / len : vec2(1.0, 0.0);
     vec2 normal = vec2(-dir.y, dir.x);
-    vec2 p = a_from - dir * a_width * 0.5
-           + dir * (len + a_width) * a_corner.x
-           + normal * (a_width * a_corner.y);
+    // The quad also carries the arrowhead, so it is wider and longer than
+    // the shaft; the fragment shader carves the actual shape.
+    float ext = max(a_width * 0.5, ARROW_HALF_W);
+    float along = mix(-a_width * 0.5, len, a_corner.x);
+    vec2 p = a_from + dir * along + normal * (a_corner.y * 2.0 * ext);
     gl_Position = vec4(toClip(p), 0.0, 1.0);
+    v_frame = vec2(along, a_corner.y * 2.0 * ext);
+    v_len = len;
+    v_half = a_width * 0.5;
     v_color = a_color;
   }
 `;
 
 const EDGE_FRAGMENT = /* glsl */ `#version 300 es
   precision mediump float;
+  in vec2 v_frame;
+  in float v_len;
+  in float v_half;
   in vec4 v_color;
   out vec4 outColor;
+  ${EDGE_GLSL_CONSTANTS}
   void main() {
-    outColor = vec4(v_color.rgb * v_color.a, v_color.a);
+    float aa = 0.75;
+    // Shaft with a round start cap, ending where the head begins.
+    float shaft = (1.0 - smoothstep(v_half - aa, v_half + aa, abs(v_frame.y)))
+                * smoothstep(-v_half - aa, -v_half + aa, v_frame.x)
+                * (1.0 - smoothstep(v_len - ARROW_LEN - aa, v_len - ARROW_LEN + aa, v_frame.x));
+    // Head: a triangle from the base at half width to the tip on the border
+    // of the downstream node (direction ground -> constraint).
+    float t = clamp((v_frame.x - (v_len - ARROW_LEN)) / ARROW_LEN, 0.0, 1.0);
+    float headHalf = mix(ARROW_HALF_W, 0.0, t);
+    float along = v_frame.x - (v_len - ARROW_LEN);
+    float head = (1.0 - smoothstep(headHalf - aa, headHalf + aa, abs(v_frame.y)))
+               * smoothstep(-aa, aa, along)
+               * (1.0 - smoothstep(ARROW_LEN - aa, ARROW_LEN + aa, along));
+    float alpha = max(shaft, head) * v_color.a;
+    outColor = vec4(v_color.rgb * alpha, alpha);
   }
 `;
 

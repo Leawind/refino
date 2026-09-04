@@ -428,9 +428,31 @@ function setConfig(patch: Partial<CanvasConfig>): void {
 }
 
 /**
- * Nodes the canvas draws: every constraint of the working set, plus premises
- * that are selected or directly ground a selected/hovered constraint
- * (README, "显示规则与样式"). Edges come from the grounds of the displayed
+ * Premise instances display beside the constraint that needs them and carry
+ * the composite id "<premise>@<constraint>" (ui README, "显示规则与样式");
+ * refino ids never contain "@" (engine ID_RE), so the split is safe.
+ */
+export function premiseInstanceId(premiseId: string, constraintId: string): string {
+  return `${premiseId}@${constraintId}`;
+}
+
+/** The real premise id behind an instance id; regular ids pass through. */
+export function premiseIdOf(id: string): string {
+  const at = id.indexOf("@");
+  return at > 0 ? id.slice(0, at) : id;
+}
+
+/** The constraint an instance displays beside; null for regular ids. */
+export function instanceConstraintId(id: string): string | null {
+  const at = id.indexOf("@");
+  return at > 0 ? id.slice(at + 1) : null;
+}
+
+/**
+ * Nodes the canvas draws: every constraint of the working set, plus — for
+ * each selected or hovered constraint — one display instance per premise
+ * ground, shown beside that constraint and connected only to it (ui README,
+ * "显示规则与样式"). Edges come from the grounds of the displayed
  * constraints, so both endpoints are always present.
  */
 const displayed = computed<NodeLite[]>(() => {
@@ -439,17 +461,16 @@ const displayed = computed<NodeLite[]>(() => {
   const pinned = new Set(state.selection);
   if (state.hoveredId !== null) pinned.add(state.hoveredId);
 
-  const constraints: NodeLite[] = [];
-  const showPremise = new Set<string>();
+  const result: NodeLite[] = [];
   for (const node of merged.values()) {
     if (node.type !== "constraint") continue;
-    constraints.push(node);
-    if (pinned.has(node.id)) for (const ground of node.grounds ?? []) showPremise.add(ground);
-  }
-  const result = [...constraints];
-  for (const node of merged.values()) {
-    if (node.type === "premise" && (pinned.has(node.id) || showPremise.has(node.id)))
-      result.push(node);
+    result.push(node);
+    if (!pinned.has(node.id)) continue;
+    for (const ground of node.grounds ?? []) {
+      const lite = merged.get(ground);
+      if (lite?.type !== "premise") continue;
+      result.push({ ...lite, id: premiseInstanceId(ground, node.id) });
+    }
   }
   return result;
 });

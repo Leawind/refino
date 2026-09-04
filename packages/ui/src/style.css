@@ -7,11 +7,15 @@
    * floating layers read as objects lying on it. */
   --refino-canvas-bg: #eff1f4;
   /* Constraint nodes are opaque cards; premises carry the primary tint so
-   * grounds are traceable at a glance. */
+   * grounds are traceable at a glance. Premises shown beside a single
+   * constraint use the desaturated variant instead (README, "显示规则与
+   * 样式": 多处显示的前提同色，单处显示的前提低饱和). */
   --refino-node-bg: #ffffff;
   --refino-node-border: rgba(15, 23, 42, 0.3);
   --refino-premise-bg: #e5f3ec;
   --refino-premise-border: rgba(24, 160, 88, 0.55);
+  --refino-premise-muted-bg: #edf0f2;
+  --refino-premise-muted-border: rgba(100, 116, 139, 0.38);
   --refino-edge: rgba(15, 23, 42, 0.35);
   /* Labels read this token instead of body color: custom properties are not
    * transitioned, so the WebGL palette never sees a mid-animation value. */
@@ -26,6 +30,8 @@
   --refino-node-border: rgba(255, 255, 255, 0.28);
   --refino-premise-bg: rgba(24, 160, 88, 0.2);
   --refino-premise-border: rgba(24, 160, 88, 0.6);
+  --refino-premise-muted-bg: rgba(148, 163, 184, 0.12);
+  --refino-premise-muted-border: rgba(148, 163, 184, 0.38);
   --refino-edge: rgba(255, 255, 255, 0.32);
   --refino-node-text: rgba(255, 255, 255, 0.85);
 }

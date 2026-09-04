@@ -42,6 +42,9 @@ export interface ThemeColors {
   nodeBorder: RGBA;
   premiseBg: RGBA;
   premiseBorder: RGBA;
+  /** Low-saturation variant for premises displayed in a single place. */
+  premiseMutedBg: RGBA;
+  premiseMutedBorder: RGBA;
   edge: RGBA;
   primary: RGBA;
   text: RGBA;
@@ -57,6 +60,8 @@ export interface RenderNodeInput {
   /** Decides shape (constraints round their corners, premises are square)
    * and palette (premises carry the premise tint). */
   kind: NodeKind;
+  /** Low-saturation premise palette (single-display premise instances). */
+  muted?: boolean;
   label: string;
   selected: boolean;
   focus: boolean;
@@ -142,6 +147,8 @@ export function readThemeColors(): ThemeColors {
     nodeBorder: token("--refino-node-border", "rgba(15, 23, 42, 0.3)"),
     premiseBg: token("--refino-premise-bg", "#e5f3ec"),
     premiseBorder: token("--refino-premise-border", "rgba(24, 160, 88, 0.55)"),
+    premiseMutedBg: token("--refino-premise-muted-bg", "#edf0f2"),
+    premiseMutedBorder: token("--refino-premise-muted-border", "rgba(100, 116, 139, 0.38)"),
     edge: token("--refino-edge", "rgba(15, 23, 42, 0.35)"),
     primary: token("--refino-primary", "#18a058"),
     text: token("--refino-node-text", "rgba(0, 0, 0, 0.9)"),
@@ -152,6 +159,25 @@ interface Entry {
   node: RenderNodeInput;
   alpha: number;
   target: number;
+}
+
+/** The point where the segment c -> t exits the axis-aligned rect centered
+ * at c with the given half sizes; c itself when the segment is degenerate. */
+function borderPoint(
+  cx: number,
+  cy: number,
+  tx: number,
+  ty: number,
+  hw: number,
+  hh: number,
+): [number, number] {
+  const dx = tx - cx;
+  const dy = ty - cy;
+  const sx = dx !== 0 ? hw / Math.abs(dx) : Number.POSITIVE_INFINITY;
+  const sy = dy !== 0 ? hh / Math.abs(dy) : Number.POSITIVE_INFINITY;
+  const s = Math.min(sx, sy);
+  if (!Number.isFinite(s)) return [cx, cy];
+  return [cx + dx * s, cy + dy * s];
 }
 
 function grow(source: Float32Array): Float32Array<ArrayBuffer> {
@@ -179,6 +205,8 @@ export class GraphRenderer {
     nodeBorder: [0.06, 0.09, 0.16, 0.3],
     premiseBg: [0.9, 0.95, 0.93, 1],
     premiseBorder: [0.09, 0.63, 0.35, 0.55],
+    premiseMutedBg: [0.93, 0.94, 0.95, 1],
+    premiseMutedBorder: [0.39, 0.45, 0.55, 0.38],
     edge: [0.06, 0.09, 0.16, 0.35],
     primary: [0.09, 0.63, 0.35, 1],
     text: [0.1, 0.1, 0.1, 0.9],
@@ -225,7 +253,15 @@ export class GraphRenderer {
       // snapshot the canvas outside the drawing frame.
       preserveDrawingBuffer: true,
     });
-    return gl === null ? null : new GraphRenderer(canvas, gl, budget);
+    if (gl === null) return null;
+    try {
+      return new GraphRenderer(canvas, gl, budget);
+    } catch (error) {
+      // A failed program leaves the canvas blank with no signal; surface it
+      // and let the component fall back to its DOM message.
+      console.error("graph renderer initialization failed", error);
+      return null;
+    }
   }
 
   private constructor(
@@ -633,12 +669,34 @@ export class GraphRenderer {
       const width = edge.emphasized ? EDGE_WIDTH_EMPHASIZED : lowLod ? EDGE_WIDTH_LOD : EDGE_WIDTH;
       const color = edge.emphasized ? this.#theme.primary : this.#theme.edge;
       const base = count * 9;
+      // Trim both ends to the node borders: the shaft must not run under the
+      // opaque cards, and the arrow tip lands on the downstream border.
+      const fx = (from.node.x + from.node.width / 2) * scale + tx;
+      const fy = (from.node.y + from.node.height / 2) * scale + ty;
+      const sx = (to.node.x + to.node.width / 2) * scale + tx;
+      const sy = (to.node.y + to.node.height / 2) * scale + ty;
+      const [x1, y1] = borderPoint(
+        fx,
+        fy,
+        sx,
+        sy,
+        (from.node.width * scale) / 2,
+        (from.node.height * scale) / 2,
+      );
+      const [x2, y2] = borderPoint(
+        sx,
+        sy,
+        fx,
+        fy,
+        (to.node.width * scale) / 2,
+        (to.node.height * scale) / 2,
+      );
       // Virtual layout coordinates go through the camera; the shader only
       // knows CSS pixels.
-      this.#edgeData[base] = (from.node.x + from.node.width / 2) * scale + tx;
-      this.#edgeData[base + 1] = (from.node.y + from.node.height / 2) * scale + ty;
-      this.#edgeData[base + 2] = (to.node.x + to.node.width / 2) * scale + tx;
-      this.#edgeData[base + 3] = (to.node.y + to.node.height / 2) * scale + ty;
+      this.#edgeData[base] = x1;
+      this.#edgeData[base + 1] = y1;
+      this.#edgeData[base + 2] = x2;
+      this.#edgeData[base + 3] = y2;
       this.#edgeData[base + 4] = width;
       this.#edgeData.set(color, base + 5);
       count++;
@@ -677,7 +735,9 @@ export class GraphRenderer {
         node.selected || node.focus || node.hovered
           ? this.#theme.primary
           : premise
-            ? this.#theme.premiseBorder
+            ? node.muted
+              ? this.#theme.premiseMutedBorder
+              : this.#theme.premiseBorder
             : this.#theme.nodeBorder;
       const base = count * 16;
       this.#nodeData[base] = (node.x + node.width / 2) * scale + tx;
@@ -686,7 +746,10 @@ export class GraphRenderer {
       this.#nodeData[base + 3] = node.height * scale;
       this.#nodeData[base + 4] = premise ? 0 : CORNER_RADIUS;
       this.#nodeData[base + 5] = borderWidth;
-      this.#nodeData.set(premise ? this.#theme.premiseBg : this.#theme.nodeBg, base + 6);
+      this.#nodeData.set(
+        premise ? (node.muted ? this.#theme.premiseMutedBg : this.#theme.premiseBg) : this.#theme.nodeBg,
+        base + 6,
+      );
       this.#nodeData.set(borderColor, base + 10);
       this.#nodeData[base + 14] = node.selected ? 1 : 0;
       this.#nodeData[base + 15] = entry.alpha;

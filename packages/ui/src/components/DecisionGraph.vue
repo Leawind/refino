@@ -10,7 +10,12 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { store } from "../store";
-import { workspace } from "../workspace";
+import {
+  instanceConstraintId,
+  premiseIdOf,
+  premiseInstanceId,
+  workspace,
+} from "../workspace";
 import { IncrementalLayout } from "../graph/layout/engine";
 import type { LaidOutNode } from "../graph/layout/engine";
 import {
@@ -26,7 +31,7 @@ import {
 import type { AdaptiveBudget } from "../graph/render/budget";
 import { GraphRenderer, readThemeColors } from "../graph/render/renderer";
 import type { RenderEdgeInput, RenderNodeInput, SceneInput } from "../graph/render/renderer";
-import type { LayoutDirection, NodeLite } from "../types";
+import type { LayoutDirection } from "../types";
 
 const props = defineProps<{ direction: LayoutDirection }>();
 
@@ -40,13 +45,18 @@ let renderer: GraphRenderer | null = null;
 let budget: AdaptiveBudget | null = null;
 
 // The layout engine owns the stable virtual coordinates; the display list
-// re-maps them whenever the working set or the direction changes.
+// re-maps them whenever the working set or the direction changes. Premise
+// instances enter the layout as satellites beside their constraint.
 const layoutEngine = new IncrementalLayout();
 const layout = ref<LaidOutNode[]>([]);
 watch(
   () => [workspace.displayed.value, props.direction] as const,
   ([nodes, direction]) => {
-    layout.value = layoutEngine.sync(nodes, direction);
+    const laidOut = nodes.map((node) => {
+      const anchor = instanceConstraintId(node.id);
+      return anchor === null ? node : { id: node.id, beside: anchor };
+    });
+    layout.value = layoutEngine.sync(laidOut, direction);
   },
   { immediate: true },
 );
@@ -57,50 +67,51 @@ const byId = computed(() => new Map(workspace.displayed.value.map((n) => [n.id, 
 const scene = computed<SceneInput>(() => {
   const { selection, focusId, hoveredId } = workspace.state;
   const selectionSet = new Set(selection);
-  const hovered = hoveredId !== null ? byId.value.get(hoveredId) : undefined;
   const positions = new Map(layout.value.map((n) => [n.id, n] as const));
-  const selectedCenters = selection.flatMap((id) => {
-    const node = positions.get(id);
-    return node === undefined ? [] : [{ x: node.x + node.width / 2, y: node.y + node.height / 2 }];
-  });
-  const groundsOf = (nodes: Array<NodeLite | undefined>): Set<string> => {
-    const grounds = new Set<string>();
-    for (const node of nodes) {
-      if (node?.type !== "constraint") continue;
-      for (const ground of node.grounds ?? []) grounds.add(ground);
-    }
-    return grounds;
-  };
-  const groundsOfSelected = groundsOf([...selectionSet].map((id) => byId.value.get(id)));
-  const groundsOfHovered = groundsOf([hovered]);
   const distanceToSelection = (node: { x: number; y: number; width: number; height: number }) => {
     const cx = node.x + node.width / 2;
     const cy = node.y + node.height / 2;
     let best = Infinity;
-    for (const center of selectedCenters) {
-      best = Math.min(best, Math.hypot(cx - center.x, cy - center.y));
+    for (const id of selectionSet) {
+      const center = positions.get(id);
+      if (center === undefined) continue;
+      best = Math.min(
+        best,
+        Math.hypot(cx - (center.x + center.width / 2), cy - (center.y + center.height / 2)),
+      );
     }
     return best;
   };
 
   const nodes: RenderNodeInput[] = [];
   const displayedIds = new Set<string>();
+  const instanceCounts = new Map<string, number>();
+  for (const lite of workspace.displayed.value) {
+    displayedIds.add(lite.id);
+    if (lite.type === "premise") {
+      const premise = premiseIdOf(lite.id);
+      instanceCounts.set(premise, (instanceCounts.get(premise) ?? 0) + 1);
+    }
+  }
   for (const lite of workspace.displayed.value) {
     const node = positions.get(lite.id);
     if (node === undefined) continue;
-    displayedIds.add(lite.id);
+    const anchor = lite.type === "premise" ? instanceConstraintId(lite.id) : null;
+    // Instances exist only for selected/hovered constraints; their class —
+    // and the hover fade-in — follows the anchor's status.
+    const grounded = anchor !== null && selectionSet.has(anchor);
     const cls =
-      lite.id === focusId
-        ? CULL_FOCUS
-        : selectionSet.has(lite.id)
-          ? CULL_SELECTED
-          : lite.id === hoveredId
-            ? CULL_HOVERED
-            : lite.type === "premise" && groundsOfSelected.has(lite.id)
-              ? CULL_GROUND_OF_SELECTED
-              : lite.type === "premise" && groundsOfHovered.has(lite.id)
-                ? CULL_GROUND_OF_HOVERED
-                : CULL_OTHER;
+      anchor !== null
+        ? grounded
+          ? CULL_GROUND_OF_SELECTED
+          : CULL_GROUND_OF_HOVERED
+        : lite.id === focusId
+          ? CULL_FOCUS
+          : selectionSet.has(lite.id)
+            ? CULL_SELECTED
+            : lite.id === hoveredId
+              ? CULL_HOVERED
+              : CULL_OTHER;
     nodes.push({
       id: lite.id,
       x: node.x,
@@ -108,6 +119,9 @@ const scene = computed<SceneInput>(() => {
       width: node.width,
       height: node.height,
       kind: lite.type,
+      // A premise displayed beside several constraints at once keeps the
+      // same premise palette everywhere; a single display is desaturated.
+      muted: lite.type === "premise" && (instanceCounts.get(premiseIdOf(lite.id)) ?? 0) === 1,
       label: lite.summary === "" ? t("node.untitled") : lite.summary,
       selected: selectionSet.has(lite.id),
       focus: lite.id === focusId,
@@ -121,8 +135,11 @@ const scene = computed<SceneInput>(() => {
   for (const lite of workspace.displayed.value) {
     if (lite.type !== "constraint") continue;
     for (const ground of lite.grounds ?? []) {
-      if (!displayedIds.has(ground)) continue;
-      edges.push({ fromId: ground, toId: lite.id, emphasized: lite.id === hoveredId });
+      // Premise grounds connect through their per-constraint instance.
+      const instance = premiseInstanceId(ground, lite.id);
+      const fromId = displayedIds.has(instance) ? instance : ground;
+      if (!displayedIds.has(fromId)) continue;
+      edges.push({ fromId, toId: lite.id, emphasized: lite.id === hoveredId });
     }
   }
   return { nodes, edges, focusId };
@@ -205,14 +222,18 @@ function onClick(event: MouseEvent): void {
   if (id === null) return;
   const lite = byId.value.get(id);
   if (lite === undefined) return;
-  if (event.shiftKey) void workspace.rangeSelect(lite);
-  else if (event.ctrlKey || event.metaKey) workspace.toggle(lite);
-  else workspace.select(lite);
+  // Premise instances stand in for the real premise; selection and range
+  // selection work on real ids.
+  const target =
+    lite.type === "premise" ? { ...lite, id: premiseIdOf(lite.id) } : lite;
+  if (event.shiftKey) void workspace.rangeSelect(target);
+  else if (event.ctrlKey || event.metaKey) workspace.toggle(target);
+  else workspace.select(target);
 }
 
 function onDoubleClick(event: MouseEvent): void {
   const id = pickAt(event);
-  if (id !== null) store.openDetail(id);
+  if (id !== null) store.openDetail(premiseIdOf(id));
 }
 
 let hoveredNode: string | null = null;

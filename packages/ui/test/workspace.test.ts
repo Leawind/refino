@@ -306,21 +306,35 @@ describe("select expands the working set", () => {
   it("evicts nodes that leave all coverage when the selection moves", async () => {
     await select(C3);
     await select(C5);
-    expect(displayedIds()).toEqual([C5, P3]);
+    // The premise shows beside C5 as a display instance of it alone.
+    expect(displayedIds()).toEqual([C5, `${P3}@${C5}`]);
   });
 
   it("includes strong siblings and their vertical neighborhoods", async () => {
     await select(C2);
     expect(lastCall("/api/query/neighbors").body).toMatchObject({ ids: [C2, C4, C6] });
-    // P1 stays hidden: only premises of selected/hovered constraints display.
-    expect(new Set(displayedIds())).toEqual(new Set([C2, C1, C3, C4, C6, P2]));
+    // Only the selected constraint's premises display, as instances beside
+    // it: P1 stays hidden even though C1, C4 and C6 are on the canvas.
+    expect(new Set(displayedIds())).toEqual(
+      new Set([C2, C1, C3, C4, C6, `${P2}@${C2}`]),
+    );
   });
 
   it("skips siblings when disabled in the config", async () => {
     workspace.setConfig({ showSiblings: false });
     await select(C2);
     expect(lastCall("/api/query/neighbors").body).toMatchObject({ ids: [C2] });
-    expect(displayedIds()).toEqual([C2, C1, C3, C4, P2]);
+    expect(displayedIds()).toEqual([C2, `${P2}@${C2}`, C1, C3, C4]);
+  });
+
+  it("shows separate instances of one premise beside each selected constraint", async () => {
+    await select(C2);
+    workspace.toggle(lite[C4]!);
+    await vi.waitFor(() => expect(workspace.state.selection).toEqual([C2, C4]));
+    // C2 and C4 both ground on P2: each displays its own instance beside it.
+    expect(new Set(displayedIds())).toEqual(
+      new Set([C2, C1, C3, C4, C6, `${P2}@${C2}`, `${P2}@${C4}`]),
+    );
   });
 
   it("surfaces the neighborhood truncation flag", async () => {
@@ -378,13 +392,24 @@ describe("selection model", () => {
 describe("hover grounds", () => {
   it("adds the hovered node's direct grounds temporarily", async () => {
     await select(C1);
-    expect(displayedIds()).toEqual([C1, C6, C2, C4, C3, P1]);
+    expect(displayedIds()).toEqual([C1, `${P1}@${C1}`, C6, C2, C4, C3]);
     workspace.hover(C2);
-    await vi.waitFor(() => expect(displayedIds()).toContain(P2));
-    // C2's grounds [C1, P2]: the premise P2 becomes visible while hovering.
-    expect(displayedIds()).toEqual([C1, C6, C2, C4, C3, P1, P2]);
+    await vi.waitFor(() => expect(displayedIds()).toContain(`${P2}@${C2}`));
+    // C2's grounds [C1, P2]: the premise P2 becomes visible beside C2 while
+    // hovering, as a separate instance from P1 beside C1.
+    expect(displayedIds()).toEqual([
+      C1,
+      `${P1}@${C1}`,
+      C6,
+      C2,
+      `${P2}@${C2}`,
+      C4,
+      C3,
+    ]);
     workspace.unhover();
-    await vi.waitFor(() => expect(displayedIds()).toEqual([C1, C6, C2, C4, C3, P1]));
+    await vi.waitFor(() =>
+      expect(displayedIds()).toEqual([C1, `${P1}@${C1}`, C6, C2, C4, C3]),
+    );
   });
 });
 
