@@ -1,7 +1,7 @@
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { ID_RE, validateGraph } from "refino";
+import { ID_RE, IssueCode, validateGraph } from "refino";
 import { loadGraph } from "../src/loader.js";
 import {
   atomicWriteFile,
@@ -142,7 +142,7 @@ describe("writer", () => {
       try {
         await expect(
           createPremise(`${root}/.refino`, { id: badId, body: "Body." }),
-        ).rejects.toMatchObject({ name: "RefinoError", code: "INVALID_ID" });
+        ).rejects.toMatchObject({ name: "RefinoError", code: IssueCode.InvalidId });
       } finally {
         await removeRefino(root);
       }
@@ -155,7 +155,7 @@ describe("writer", () => {
       await createPremise(`${root}/.refino`, { id: "A1B2C3D4", body: "First." });
       await expect(
         createPremise(`${root}/.refino`, { id: "A1B2C3D4", body: "Second." }),
-      ).rejects.toMatchObject({ name: "RefinoError", code: "DUPLICATE_ID" });
+      ).rejects.toMatchObject({ name: "RefinoError", code: IssueCode.DuplicateId });
       const { graph, issues } = await loadGraph(`${root}/.refino`);
       expect(issues).toEqual([]);
       expect(graph.nodes.size).toBe(1);
@@ -170,7 +170,7 @@ describe("writer", () => {
       await createPremise(`${root}/.refino`, { id: "A1B2C3D4", body: "Premise." });
       await expect(
         createConstraint(`${root}/.refino`, { id: "A1B2C3D4", body: "Constraint." }),
-      ).rejects.toMatchObject({ name: "RefinoError", code: "DUPLICATE_ID" });
+      ).rejects.toMatchObject({ name: "RefinoError", code: IssueCode.DuplicateId });
       const { graph, issues } = await loadGraph(`${root}/.refino`);
       expect(issues).toEqual([]);
       expect(graph.nodes.size).toBe(1);
@@ -326,7 +326,7 @@ describe("writer: update and delete", () => {
     try {
       await expect(fn(`${root}/.refino`, "A1B2C3D4")).rejects.toMatchObject({
         name: "RefinoError",
-        code: "NODE_NOT_FOUND",
+        code: IssueCode.NodeNotFound,
       });
     } finally {
       await removeRefino(root);
@@ -338,7 +338,7 @@ describe("writer: update and delete", () => {
     try {
       await expect(deleteNode(`${root}/.refino`, badId)).rejects.toMatchObject({
         name: "RefinoError",
-        code: "INVALID_ID",
+        code: IssueCode.InvalidId,
       });
     } finally {
       await removeRefino(root);
@@ -359,7 +359,7 @@ describe("writer: update and delete", () => {
       expect(graph.nodes.has(id)).toBe(true);
       issues.push(...validateGraph(graph));
       expect(issues).toHaveLength(1);
-      expect(issues[0]).toMatchObject({ code: "UNKNOWN_GROUND", nodeId: id, groundId });
+      expect(issues[0]).toMatchObject({ code: IssueCode.UnknownGround, nodeId: id, groundId });
     } finally {
       await removeRefino(root);
     }

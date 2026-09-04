@@ -1,6 +1,6 @@
 import { mkdir, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { generateId, ID_RE, RefinoError } from "refino";
+import { generateId, ID_RE, IssueCode, RefinoError } from "refino";
 import type { NodeType } from "refino";
 import { serializeNode } from "./serialize.js";
 
@@ -75,12 +75,12 @@ async function createNode(
   if (explicitId !== undefined) {
     if (!ID_RE.test(explicitId)) {
       throw new RefinoError(
-        "INVALID_ID",
+        IssueCode.InvalidId,
         `Node id must be 3-16 characters of A-Z, 0-9 or _, got "${explicitId}".`,
       );
     }
     if (await idExists(refinoDir, explicitId)) {
-      throw new RefinoError("DUPLICATE_ID", `Node id "${explicitId}" is already in use.`);
+      throw new RefinoError(IssueCode.DuplicateId, `Node id "${explicitId}" is already in use.`);
     }
     id = explicitId;
   } else {
@@ -171,7 +171,7 @@ async function updateNode(
   assertValidId(id);
   const file = nodeFilePath(refinoDir, type, id);
   if (!(await fileExists(file))) {
-    throw new RefinoError("NODE_NOT_FOUND", `Node "${id}" does not exist.`);
+    throw new RefinoError(IssueCode.NodeNotFound, `Node "${id}" does not exist.`);
   }
   await atomicWriteFile(file, serializeNode(fields, body));
 }
@@ -191,13 +191,13 @@ export async function deleteNode(refinoDir: string, id: string): Promise<void> {
       return;
     }
   }
-  throw new RefinoError("NODE_NOT_FOUND", `Node "${id}" does not exist.`);
+  throw new RefinoError(IssueCode.NodeNotFound, `Node "${id}" does not exist.`);
 }
 
 function assertValidId(id: string): void {
   if (!ID_RE.test(id)) {
     throw new RefinoError(
-      "INVALID_ID",
+      IssueCode.InvalidId,
       `Node id must be 3-16 characters of A-Z, 0-9 or _, got "${id}".`,
     );
   }

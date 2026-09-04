@@ -5,6 +5,7 @@ import { createWebApp } from "../src/web/server.js";
 import { GraphIndex } from "../src/web/graph-index.js";
 import { createConstraint, deleteNode, updateConstraint } from "@refino/storage";
 import { constraint, createRefino, premise, removeRefino } from "@refino/testkit";
+import { IssueCode } from "refino";
 
 /**
  * Resident-index behavior: optimistic concurrency on PUT, external-write
@@ -104,7 +105,7 @@ describe("optimistic concurrency on PUT", () => {
       issues: Array<{ code: string; nodeId?: string }>;
     };
     expect(ok).toBe(false);
-    expect(issues.some((i) => i.code === "UNKNOWN_GROUND" && i.nodeId === C1)).toBe(true);
+    expect(issues.some((i) => i.code === IssueCode.UnknownGround && i.nodeId === C1)).toBe(true);
 
     // Reads keep working alongside the issue (web read semantics).
     const graph = await app.request("/api/graph");
@@ -167,15 +168,15 @@ describe("GraphIndex incremental updates", () => {
     await index.ready();
     const newId = await createConstraint(refinoDir, { body: "悬空依据。", grounds: [P1] });
     await index.applyChange({ changed: [newId] });
-    expect(index.issues().some((i) => i.code === "UNKNOWN_GROUND")).toBe(false);
+    expect(index.issues().some((i) => i.code === IssueCode.UnknownGround)).toBe(false);
 
     // Break the ground externally: the dependent's issue must appear through
     // the same incremental entry, scoped to the affected nodes.
     await updateConstraint(refinoDir, newId, { body: "悬空依据。", grounds: ["ZZZZZZZZ"] });
     await index.applyChange({ changed: [newId] });
-    expect(index.issues().some((i) => i.code === "UNKNOWN_GROUND" && i.nodeId === newId)).toBe(
-      true,
-    );
+    expect(
+      index.issues().some((i) => i.code === IssueCode.UnknownGround && i.nodeId === newId),
+    ).toBe(true);
 
     // Repairing the file clears the issue again.
     await updateConstraint(refinoDir, newId, { body: "悬空依据。", grounds: [P1] });
@@ -200,7 +201,7 @@ describe("GraphIndex incremental updates", () => {
       "utf8",
     );
     await index.applyChange({ changed: ["9AABCDEF1"] });
-    expect(index.issues().some((i) => i.code === "PREMISE_WITH_GROUNDS")).toBe(true);
+    expect(index.issues().some((i) => i.code === IssueCode.PremiseWithGrounds)).toBe(true);
 
     // Repairing the file clears the issue through the same entry.
     await writeFile(join(shardDir, "ABCDEF1-premise.md"), "修复后的前提。\n", "utf8");
@@ -225,12 +226,12 @@ describe("GraphIndex incremental updates", () => {
     );
     const dependent = await createConstraint(refinoDir, { body: "下游。", grounds: ["9BABCDEF2"] });
     await index.applyChange({ changed: ["9BABCDEF2", dependent] });
-    expect(index.issues().some((i) => i.code === "PREMISE_WITH_GROUNDS")).toBe(true);
+    expect(index.issues().some((i) => i.code === IssueCode.PremiseWithGrounds)).toBe(true);
 
     // A change to the dependent rechecks the premise too; its parse issue survives.
     await updateConstraint(refinoDir, dependent, { body: "下游改。", grounds: ["9BABCDEF2"] });
     await index.applyChange({ changed: [dependent] });
-    expect(index.issues().some((i) => i.code === "PREMISE_WITH_GROUNDS")).toBe(true);
+    expect(index.issues().some((i) => i.code === IssueCode.PremiseWithGrounds)).toBe(true);
 
     await deleteNode(refinoDir, dependent);
     await index.applyChange({ changed: [dependent] });
@@ -251,7 +252,7 @@ describe("GraphIndex incremental updates", () => {
     );
     const first = await index.applyChange({ changed: ["9CABCDEF3"] });
     expect(first).toBeDefined();
-    expect(index.issues().some((i) => i.code === "INVALID_FRONTMATTER")).toBe(true);
+    expect(index.issues().some((i) => i.code === IssueCode.InvalidFrontmatter)).toBe(true);
 
     // A no-op echo of the same broken file must not bump the revision.
     const revision = index.revision;
@@ -269,7 +270,7 @@ describe("GraphIndex incremental updates", () => {
     await mkdir(shardDir, { recursive: true });
     await writeFile(badFile, "---\ntype: constraint\nsummary: 形状非法\n---\n正文。\n", "utf8");
     await index.reload();
-    const invalidIssue = () => index.issues().find((i) => i.code === "INVALID_ID");
+    const invalidIssue = () => index.issues().find((i) => i.code === IssueCode.InvalidId);
     expect(invalidIssue()?.file).toBe("nodes/AA/zz-premise.md");
 
     // Renaming it into shape reports the new id; the touched shard lets the

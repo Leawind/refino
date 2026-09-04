@@ -1,4 +1,4 @@
-import { RefinoError } from "refino";
+import { IssueCode, RefinoError } from "refino";
 import type { Context } from "hono";
 import type { GraphIndex } from "./graph-index.js";
 import * as query from "./query.js";
@@ -50,7 +50,7 @@ export async function postQueryRange(c: Context, index: GraphIndex): Promise<Res
     const clickedId = readIdField(payload, "clickedId");
     for (const id of [focusId, clickedId]) {
       if (index.entry(id) === undefined) {
-        throw new RefinoError("NODE_NOT_FOUND", `Node "${id}" does not exist.`);
+        throw new RefinoError(IssueCode.NodeNotFound, `Node "${id}" does not exist.`);
       }
     }
     const budget =
@@ -87,7 +87,10 @@ export async function getSearch(c: Context, index: GraphIndex): Promise<Response
     const q = (c.req.query("q") ?? "").trim();
     const type = c.req.query("type");
     if (type !== undefined && type !== "premise" && type !== "constraint") {
-      throw new RefinoError("INVALID_FRONTMATTER", `"type" must be "premise" or "constraint".`);
+      throw new RefinoError(
+        IssueCode.InvalidFrontmatter,
+        `"type" must be "premise" or "constraint".`,
+      );
     }
     const rawLimit = Number(c.req.query("limit"));
     const limit = Number.isInteger(rawLimit)
@@ -141,7 +144,7 @@ function startIndex(all: readonly string[], cursor: string | undefined): number 
 function readIds(payload: Record<string, unknown>): string[] {
   const ids = payload.ids;
   if (!Array.isArray(ids) || ids.some((id) => typeof id !== "string")) {
-    throw new RefinoError("INVALID_FRONTMATTER", `"ids" must be an array of node ids.`);
+    throw new RefinoError(IssueCode.InvalidFrontmatter, `"ids" must be an array of node ids.`);
   }
   return [...new Set(ids as string[])];
 }
@@ -149,7 +152,10 @@ function readIds(payload: Record<string, unknown>): string[] {
 function readIdField(payload: Record<string, unknown>, key: string): string {
   const value = payload[key];
   if (typeof value !== "string") {
-    throw new RefinoError("INVALID_FRONTMATTER", `"${key}" is required and must be a string.`);
+    throw new RefinoError(
+      IssueCode.InvalidFrontmatter,
+      `"${key}" is required and must be a string.`,
+    );
   }
   return value;
 }
@@ -157,7 +163,7 @@ function readIdField(payload: Record<string, unknown>, key: string): string {
 function readNonNegativeInt(payload: Record<string, unknown>, key: string): number {
   const value = payload[key];
   if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
-    throw new RefinoError("INVALID_FRONTMATTER", `"${key}" must be a non-negative integer.`);
+    throw new RefinoError(IssueCode.InvalidFrontmatter, `"${key}" must be a non-negative integer.`);
   }
   return value;
 }

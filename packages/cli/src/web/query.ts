@@ -60,7 +60,7 @@ export interface RangeResult {
 
 export function toLite(node: RefinoNode): NodeLite {
   return node.type === "constraint"
-    ? { id: node.id, type: node.type, summary: node.summary, grounds: node.grounds ?? [] }
+    ? { id: node.id, type: node.type, summary: node.summary, grounds: node.grounds }
     : { id: node.id, type: node.type, summary: node.summary };
 }
 
@@ -116,7 +116,9 @@ export function siblings(
 ): QueryGroup<Siblings>[] {
   return queryGroups(graph, ids, (g, id): Siblings[] => {
     const overlap = new Map<string, number>();
-    for (const ground of g.nodes.get(id)?.grounds ?? []) {
+    const anchor = g.nodes.get(id);
+    const grounds = anchor?.type === "constraint" ? anchor.grounds : [];
+    for (const ground of grounds) {
       for (const dependent of g.dependents.get(ground) ?? []) {
         if (dependent === id) continue;
         overlap.set(dependent, (overlap.get(dependent) ?? 0) + 1);
@@ -297,7 +299,8 @@ function ancestorsWithin(graph: Graph, start: string, budget: number): BoundedAn
     const depth = depths.get(current)!;
     expansions++;
     const node = graph.nodes.get(current);
-    for (const ground of node?.grounds ?? []) {
+    const grounds = node?.type === "constraint" ? node.grounds : [];
+    for (const ground of grounds) {
       if (!depths.has(ground)) {
         depths.set(ground, depth + 1);
         queue.push(ground);

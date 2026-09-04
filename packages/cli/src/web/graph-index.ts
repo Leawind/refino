@@ -1,4 +1,4 @@
-import { buildGraph, checkGroundsChange, isValidConfirmed, validateGraph } from "refino";
+import { buildGraph, checkGroundsChange, IssueCode, isValidConfirmed, validateGraph } from "refino";
 import type { Graph, RefinoIssue, RefinoNode } from "refino";
 import { loadGraph, nodeRelativeFile, readNode } from "@refino/storage";
 import { readdir } from "node:fs/promises";
@@ -316,7 +316,7 @@ export class GraphIndex {
 
   private addDependents(node: RefinoNode): void {
     if (node.type !== "constraint") return;
-    for (const ground of node.grounds ?? []) {
+    for (const ground of node.grounds) {
       if (!this.#graph.nodes.has(ground)) continue; // dangling grounds surface as issues, not edges
       const list = this.#graph.dependents.get(ground);
       if (list === undefined) {
@@ -330,7 +330,7 @@ export class GraphIndex {
 
   private dropDependents(node: RefinoNode): void {
     if (node.type !== "constraint") return;
-    for (const ground of node.grounds ?? []) {
+    for (const ground of node.grounds) {
       const list = this.#graph.dependents.get(ground);
       if (list === undefined) continue;
       const filtered = list.filter((id) => id !== node.id);
@@ -355,16 +355,17 @@ export class GraphIndex {
       if (entry === undefined) continue;
       const found: RefinoIssue[] = [];
       const { node } = entry;
-      if (node.confirmed !== undefined && !isValidConfirmed(node.confirmed)) {
-        found.push({
-          code: "INVALID_CONFIRMED",
-          message: `"confirmed" must be an RFC 3339 timestamp with an explicit UTC offset (Z or ±HH:MM), got "${node.confirmed}".`,
-          file: node.file,
-          nodeId: node.id,
-        });
-      }
-      if (node.type === "constraint") {
-        found.push(...checkGroundsChange(this.#graph, id, node.grounds ?? []));
+      if (node.type === "premise") {
+        if (node.confirmed !== undefined && !isValidConfirmed(node.confirmed)) {
+          found.push({
+            code: IssueCode.InvalidConfirmed,
+            message: `"confirmed" must be an RFC 3339 timestamp with an explicit UTC offset (Z or ±HH:MM), got "${node.confirmed}".`,
+            file: node.file,
+            nodeId: node.id,
+          });
+        }
+      } else {
+        found.push(...checkGroundsChange(this.#graph, id, node.grounds));
       }
       if (found.length > 0) this.#graphIssues.set(id, found);
     }
@@ -462,12 +463,17 @@ function storeIssue(cache: Map<string, RefinoIssue[]>, issue: RefinoIssue): void
  * are dropped when the entry is stored.
  */
 function sameLightFields(previous: RefinoNode, read: RefinoNode): boolean {
+  if (previous.type !== read.type) return false;
+  if (previous.summary !== read.summary) return false;
+  // Same discriminant: narrow once and compare the type's own fields.
+  if (previous.type === "premise" && read.type === "premise") {
+    return previous.file === read.file && previous.confirmed === read.confirmed;
+  }
   return (
-    previous.type === read.type &&
+    previous.type === "constraint" &&
+    read.type === "constraint" &&
     previous.file === read.file &&
-    previous.summary === read.summary &&
     previous.rationale === read.rationale &&
-    previous.confirmed === read.confirmed &&
     sameGrounds(previous.grounds, read.grounds)
   );
 }

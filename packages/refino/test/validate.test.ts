@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildGraph } from "../src/graph.js";
 import { checkGroundsChange, validateGraph } from "../src/validate.js";
 import type { Graph, NodeType, RefinoNode } from "../src/index.js";
+import { IssueCode } from "refino";
 
 /** Test factory: build a node directly, bypassing any file parsing. */
 function node(
@@ -9,15 +10,16 @@ function node(
   type: NodeType,
   opts: { grounds?: string[]; confirmed?: string } = {},
 ): RefinoNode {
-  return {
+  const base = {
     id,
-    type,
     file: `${type}s/${id.slice(0, 2)}/${id.slice(2)}.md`,
     summary: "Body.",
     body: "Body.",
-    ...(opts.grounds !== undefined && { grounds: opts.grounds }),
-    ...(opts.confirmed !== undefined && { confirmed: opts.confirmed }),
   };
+  if (type === "premise") {
+    return { ...base, type, ...(opts.confirmed !== undefined && { confirmed: opts.confirmed }) };
+  }
+  return { ...base, type, grounds: opts.grounds ?? [] };
 }
 
 function graphOf(...nodes: RefinoNode[]): Graph {
@@ -38,7 +40,7 @@ describe("validateGraph", () => {
   it("reports grounds on unknown nodes", () => {
     const graph = graphOf(node("A1B2C3D4", "constraint", { grounds: ["Z9Y8X7W6"] }));
     const issues = validateGraph(graph);
-    expect(issues.map((i) => i.code)).toEqual(["UNKNOWN_GROUND"]);
+    expect(issues.map((i) => i.code)).toEqual([IssueCode.UnknownGround]);
     expect(issues[0]).toMatchObject({ nodeId: "A1B2C3D4", groundId: "Z9Y8X7W6" });
   });
 
@@ -48,13 +50,13 @@ describe("validateGraph", () => {
       node("B2C3D4E5", "constraint", { grounds: ["A1B2C3D4"] }),
     );
     const issues = validateGraph(graph);
-    expect(issues.map((i) => i.code)).toEqual(["CYCLE"]);
+    expect(issues.map((i) => i.code)).toEqual([IssueCode.Cycle]);
     expect(issues[0]?.cycle).toEqual(["A1B2C3D4", "B2C3D4E5", "A1B2C3D4"]);
   });
 
   it("reports a self-loop as a cycle", () => {
     const graph = graphOf(node("A1B2C3D4", "constraint", { grounds: ["A1B2C3D4"] }));
-    expect(validateGraph(graph).map((i) => i.code)).toEqual(["CYCLE"]);
+    expect(validateGraph(graph).map((i) => i.code)).toEqual([IssueCode.Cycle]);
   });
 
   it("reports a three-node cycle once regardless of the entry point", () => {
@@ -65,7 +67,7 @@ describe("validateGraph", () => {
       node("D4E5F6G7", "constraint", { grounds: ["A1B2C3D4"] }),
     );
     const issues = validateGraph(graph);
-    expect(issues.filter((i) => i.code === "CYCLE")).toHaveLength(1);
+    expect(issues.filter((i) => i.code === IssueCode.Cycle)).toHaveLength(1);
     expect(issues[0]?.cycle).toEqual(["A1B2C3D4", "B2C3D4E5", "C3D4E5F6", "A1B2C3D4"]);
   });
 
@@ -85,7 +87,7 @@ describe("validateGraph", () => {
   ])("reports INVALID_CONFIRMED for confirmed %s", (_label, confirmed) => {
     const graph = graphOf(node("1A2B3C4D", "premise", { confirmed }));
     const issues = validateGraph(graph);
-    expect(issues.map((i) => i.code)).toEqual(["INVALID_CONFIRMED"]);
+    expect(issues.map((i) => i.code)).toEqual([IssueCode.InvalidConfirmed]);
     expect(issues[0]?.nodeId).toBe("1A2B3C4D");
   });
 
@@ -120,14 +122,14 @@ describe("checkGroundsChange", () => {
   it("reports an unknown target id", () => {
     const graph = graphOf(node("A1B2C3D4", "constraint"));
     expect(checkGroundsChange(graph, "Z9Y8X7W6", ["A1B2C3D4"])).toEqual([
-      { code: "NODE_NOT_FOUND", message: 'Node "Z9Y8X7W6" not found', nodeId: "Z9Y8X7W6" },
+      { code: IssueCode.NodeNotFound, message: 'Node "Z9Y8X7W6" not found', nodeId: "Z9Y8X7W6" },
     ]);
   });
 
   it("reports grounds on a premise target and skips further checks", () => {
     const graph = graphOf(node("1A2B3C4D", "premise"), node("A1B2C3D4", "constraint"));
     const issues = checkGroundsChange(graph, "1A2B3C4D", ["A1B2C3D4", "Z9Y8X7W6"]);
-    expect(issues.map((i) => i.code)).toEqual(["PREMISE_WITH_GROUNDS"]);
+    expect(issues.map((i) => i.code)).toEqual([IssueCode.PremiseWithGrounds]);
     expect(issues[0]).toMatchObject({ nodeId: "1A2B3C4D", file: "premises/1A/2B3C4D.md" });
   });
 
@@ -139,14 +141,14 @@ describe("checkGroundsChange", () => {
   it("reports each repeated ground id once", () => {
     const graph = graphOf(node("A1B2C3D4", "constraint"), node("B2C3D4E5", "constraint"));
     const issues = checkGroundsChange(graph, "A1B2C3D4", ["B2C3D4E5", "B2C3D4E5", "B2C3D4E5"]);
-    expect(issues.map((i) => i.code)).toEqual(["INVALID_GROUNDS"]);
+    expect(issues.map((i) => i.code)).toEqual([IssueCode.InvalidGrounds]);
     expect(issues[0]?.message).toContain('"B2C3D4E5"');
   });
 
   it("reports grounds on unknown nodes", () => {
     const graph = graphOf(node("A1B2C3D4", "constraint"));
     const issues = checkGroundsChange(graph, "A1B2C3D4", ["Z9Y8X7W6"]);
-    expect(issues.map((i) => i.code)).toEqual(["UNKNOWN_GROUND"]);
+    expect(issues.map((i) => i.code)).toEqual([IssueCode.UnknownGround]);
     expect(issues[0]).toMatchObject({
       nodeId: "A1B2C3D4",
       groundId: "Z9Y8X7W6",
@@ -157,7 +159,7 @@ describe("checkGroundsChange", () => {
   it("reports a self-referencing ground as a closed cycle", () => {
     const graph = graphOf(node("A1B2C3D4", "constraint"));
     const issues = checkGroundsChange(graph, "A1B2C3D4", ["A1B2C3D4"]);
-    expect(issues.map((i) => i.code)).toEqual(["CYCLE"]);
+    expect(issues.map((i) => i.code)).toEqual([IssueCode.Cycle]);
     expect(issues[0]?.cycle).toEqual(["A1B2C3D4", "A1B2C3D4"]);
   });
 
@@ -167,7 +169,7 @@ describe("checkGroundsChange", () => {
       node("B2C3D4E5", "constraint", { grounds: ["A1B2C3D4"] }),
     );
     const issues = checkGroundsChange(graph, "A1B2C3D4", ["B2C3D4E5"]);
-    expect(issues.map((i) => i.code)).toEqual(["CYCLE"]);
+    expect(issues.map((i) => i.code)).toEqual([IssueCode.Cycle]);
     expect(issues[0]?.cycle).toEqual(["A1B2C3D4", "B2C3D4E5", "A1B2C3D4"]);
   });
 
@@ -223,7 +225,8 @@ describe("checkGroundsChange", () => {
       node("B2C3D4E5", "constraint", { grounds: ["A1B2C3D4"] }),
     );
     checkGroundsChange(graph, "A1B2C3D4", ["B2C3D4E5"]);
-    expect(graph.nodes.get("A1B2C3D4")?.grounds).toBeUndefined();
+    // The constraint keeps its (empty) grounds list: the check never mutates.
+    expect(graph.nodes.get("A1B2C3D4")?.grounds).toEqual([]);
     expect(graph.nodes.get("B2C3D4E5")?.grounds).toEqual(["A1B2C3D4"]);
   });
 });

@@ -1,6 +1,6 @@
 import { open, readdir, stat, type FileHandle } from "node:fs/promises";
 import { join } from "node:path";
-import { buildGraph, ID_CHARSET, ID_RE, RefinoError } from "refino";
+import { buildGraph, ID_CHARSET, ID_RE, IssueCode, RefinoError } from "refino";
 import { parseNodeSource } from "./parser.js";
 import { nodeFilePath, nodeRelativeFile, NODE_TYPES } from "./writer.js";
 import type { Graph, NodeType, RefinoIssue, RefinoNode } from "refino";
@@ -74,7 +74,7 @@ async function readSource(
 export async function readNode(refinoDir: string, id: string): Promise<ReadNodeResult> {
   if (!ID_RE.test(id)) {
     throw new RefinoError(
-      "INVALID_ID",
+      IssueCode.InvalidId,
       `Node id must be 3-16 characters of A-Z, 0-9 or _, got "${id}".`,
     );
   }
@@ -99,7 +99,7 @@ export async function readNode(refinoDir: string, id: string): Promise<ReadNodeR
       summaryExplicit = parsed.summaryExplicit;
     } else {
       issues.push({
-        code: "DUPLICATE_ID",
+        code: IssueCode.DuplicateId,
         message: `Duplicate node id "${id}" (already defined in ${node.file}).`,
         file: parsed.node.file,
         nodeId: id,
@@ -133,10 +133,13 @@ export async function loadGraph(refinoDir: string): Promise<LoadResult> {
   try {
     dirStat = await stat(refinoDir);
   } catch {
-    throw new RefinoError("REFINO_DIR_NOT_FOUND", `No .refino directory found at ${refinoDir}`);
+    throw new RefinoError(
+      IssueCode.RefinoDirNotFound,
+      `No .refino directory found at ${refinoDir}`,
+    );
   }
   if (!dirStat.isDirectory()) {
-    throw new RefinoError("REFINO_DIR_NOT_FOUND", `${refinoDir} is not a directory`);
+    throw new RefinoError(IssueCode.RefinoDirNotFound, `${refinoDir} is not a directory`);
   }
 
   const nodes: RefinoNode[] = [];
@@ -158,7 +161,7 @@ export async function loadGraph(refinoDir: string): Promise<LoadResult> {
     if (shard.isFile() && shard.name.endsWith(".md")) {
       const file = `${NODES_DIR}/${shard.name}`;
       issues.push({
-        code: "INVALID_NODE_PATH",
+        code: IssueCode.InvalidNodePath,
         message: `Node files must live at ${NODES_DIR}/<shard>/<id_2>-<type>.md, e.g. ${NODES_DIR}/01/9ABCDE-premise.md; got "${file}".`,
         file,
       });
@@ -181,7 +184,7 @@ export async function loadGraph(refinoDir: string): Promise<LoadResult> {
       const parsed = parseFileName(entry.name.slice(0, -".md".length));
       if (!parsed) {
         issues.push({
-          code: "INVALID_NODE_PATH",
+          code: IssueCode.InvalidNodePath,
           message: `Node file names must be <id_2>-<type>.md with <type> one of ${NODE_TYPES.join("|")}, got "${entry.name}".`,
           file,
         });
@@ -191,7 +194,7 @@ export async function loadGraph(refinoDir: string): Promise<LoadResult> {
       const id = shard.name + id2;
       if (!ID_RE.test(id)) {
         issues.push({
-          code: "INVALID_ID",
+          code: IssueCode.InvalidId,
           message: `Node id must be 3-16 characters of A-Z, 0-9 or _ (the id is shard + id_2), got "${id}".`,
           file,
         });
@@ -203,7 +206,7 @@ export async function loadGraph(refinoDir: string): Promise<LoadResult> {
       const existingFile = seenIds.get(node.id);
       if (existingFile) {
         issues.push({
-          code: "DUPLICATE_ID",
+          code: IssueCode.DuplicateId,
           message: `Duplicate node id "${node.id}" (already defined in ${existingFile}).`,
           file: node.file,
           nodeId: id,

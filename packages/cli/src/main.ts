@@ -16,6 +16,7 @@ import {
   assignLayers,
   checkGroundsChange,
   generateId,
+  IssueCode,
   getAncestors,
   getDependents,
   getGrounds,
@@ -118,7 +119,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
           const referenced = new Set<string>();
           for (const node of graph.nodes.values()) {
             if (node.type !== "constraint") continue;
-            for (const ground of node.grounds ?? []) referenced.add(ground);
+            for (const ground of node.grounds) referenced.add(ground);
           }
           nodes = nodes.filter((n) => n.type === "premise" && !referenced.has(n.id));
         }
@@ -651,14 +652,20 @@ function fullNodeJson(node: RefinoNode): Record<string, unknown> {
   return {
     ...nodeJson(node),
     body: node.body,
-    ...(node.rationale !== undefined && { rationale: node.rationale }),
-    ...(node.confirmed !== undefined && { confirmed: node.confirmed }),
+    ...(node.type === "constraint" &&
+      node.rationale !== undefined && {
+        rationale: node.rationale,
+      }),
+    ...(node.type === "premise" &&
+      node.confirmed !== undefined && {
+        confirmed: node.confirmed,
+      }),
   };
 }
 
 function nodeJson(node: RefinoNode): Record<string, unknown> {
   const base = { id: node.id, type: node.type, file: node.file, summary: node.summary };
-  return node.type === "constraint" ? { ...base, grounds: node.grounds ?? [] } : base;
+  return node.type === "constraint" ? { ...base, grounds: node.grounds } : base;
 }
 
 /**
@@ -695,7 +702,7 @@ async function loadGraphForWrite(refinoDir: string): Promise<Graph> {
   try {
     return (await loadGraph(refinoDir)).graph;
   } catch (error) {
-    if (error instanceof RefinoError && error.code === "REFINO_DIR_NOT_FOUND") {
+    if (error instanceof RefinoError && error.code === IssueCode.RefinoDirNotFound) {
       return { refinoDir, nodes: new Map(), dependents: new Map() };
     }
     throw error;

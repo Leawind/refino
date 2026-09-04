@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { extractSummary, parseNodeSource, SUMMARY_MAX_LENGTH } from "../src/parser.js";
+import { IssueCode } from "refino";
 
 describe("parseNodeSource", () => {
   it("accepts both separator styles and stores the canonical forward-slash form", () => {
@@ -161,7 +162,7 @@ describe("parseNodeSource", () => {
       "---\nsummary: 42\n---\n\nFallback paragraph.\n",
     );
     expect(issues).toHaveLength(1);
-    expect(issues[0]).toMatchObject({ code: "INVALID_FRONTMATTER" });
+    expect(issues[0]).toMatchObject({ code: IssueCode.InvalidFrontmatter });
     expect(node?.summary).toBe("Fallback paragraph.");
   });
 
@@ -185,7 +186,7 @@ describe("parseNodeSource", () => {
       "---\ngrounds: [unclosed\n---\n\nBody.\n",
     );
     expect(node).toBeNull();
-    expect(issues.map((i) => i.code)).toEqual(["INVALID_FRONTMATTER"]);
+    expect(issues.map((i) => i.code)).toEqual([IssueCode.InvalidFrontmatter]);
   });
 
   it("reports INVALID_FRONTMATTER when the frontmatter is not a mapping", () => {
@@ -195,7 +196,7 @@ describe("parseNodeSource", () => {
       "constraint",
       "---\n- a\n- b\n---\n\nBody.\n",
     );
-    expect(issues.map((i) => i.code)).toEqual(["INVALID_FRONTMATTER"]);
+    expect(issues.map((i) => i.code)).toEqual([IssueCode.InvalidFrontmatter]);
   });
 
   it.each([
@@ -204,21 +205,21 @@ describe("parseNodeSource", () => {
       "nodes/1A/2B3C4D-premise.md",
       "premise",
       "---\ngrounds: [A1B2C3D4]\n---\n\nBody.\n",
-      "PREMISE_WITH_GROUNDS",
+      IssueCode.PremiseWithGrounds,
     ],
     [
       "grounds not a list",
       "nodes/A1/B2C3D4-constraint.md",
       "constraint",
       "---\ngrounds: B2C3D4E5\n---\n\nBody.\n",
-      "INVALID_GROUNDS",
+      IssueCode.InvalidGrounds,
     ],
     [
       "grounds entry not a string",
       "nodes/A1/B2C3D4-constraint.md",
       "constraint",
       "---\ngrounds: [3]\n---\n\nBody.\n",
-      "INVALID_GROUNDS",
+      IssueCode.InvalidGrounds,
     ],
   ])("rejects %s", (_label, file, expectedType, source, code) => {
     const id = file.split("/").pop()!.replace(/\.md$/, "");

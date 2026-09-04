@@ -2,17 +2,18 @@ import { describe, expect, it } from "vitest";
 import { buildGraph } from "../src/graph.js";
 import { getAncestors, getDependents, getGrounds, queryGroups, RefinoError } from "../src/index.js";
 import type { Graph, NodeType, RefinoNode } from "../src/index.js";
+import { IssueCode } from "refino";
 
 /** Test factory: build a node directly, bypassing any file parsing. */
 function node(id: string, type: NodeType, grounds?: string[]): RefinoNode {
-  return {
+  const base = {
     id,
-    type,
     file: `${type}s/${id.slice(0, 2)}/${id.slice(2)}.md`,
     summary: "Body.",
     body: "Body.",
-    ...(grounds !== undefined && { grounds }),
   };
+  if (type === "premise") return { ...base, type };
+  return { ...base, type, grounds: grounds ?? [] };
 }
 
 function graphOf(...nodes: RefinoNode[]): Graph {
@@ -83,7 +84,7 @@ describe("queries", () => {
     ]) {
       expect(query).toThrow(RefinoError);
       expect(query).toThrow(
-        expect.objectContaining({ code: "NODE_NOT_FOUND" }) as unknown as Error,
+        expect.objectContaining({ code: IssueCode.NodeNotFound }) as unknown as Error,
       );
     }
   });

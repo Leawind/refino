@@ -9,7 +9,8 @@
 
 export type NodeType = "premise" | "constraint";
 
-export interface RefinoNode {
+/** Shared fields of both node kinds; the `type` discriminant picks the rest. */
+interface NodeBase {
   id: string;
   type: NodeType;
   /** Path relative to the `.refino` directory, with `/` as the separator regardless of platform, e.g. `nodes/01/9ABCDE-constraint.md`. */
@@ -18,13 +19,25 @@ export interface RefinoNode {
   summary: string;
   /** Full markdown body (trimmed), excluding frontmatter fields like rationale. */
   body: string;
-  /** Constraint nodes only: ground ids, deduplicated, in declared order. */
-  grounds?: string[];
-  /** Constraint nodes only: why the decision was made; independent and optional. */
-  rationale?: string;
-  /** Premise nodes only: RFC 3339 timestamp with an explicit UTC offset. */
+}
+
+/** An objective project fact: never grounds on other nodes. */
+export interface PremiseNode extends NodeBase {
+  type: "premise";
+  /** RFC 3339 timestamp with an explicit UTC offset. */
   confirmed?: string;
 }
+
+/** A project decision that limits downstream choice space. */
+export interface ConstraintNode extends NodeBase {
+  type: "constraint";
+  /** Ground ids, deduplicated, in declared order; empty when the constraint has no grounds (a root constraint). */
+  grounds: string[];
+  /** Why the decision was made; independent and optional. */
+  rationale?: string;
+}
+
+export type RefinoNode = PremiseNode | ConstraintNode;
 
 export interface Graph {
   /** Path of the `.refino` directory the graph was built from. */
@@ -44,18 +57,35 @@ export interface Graph {
  */
 export type QueryGroup<T> = { id: string; results: T[] } | { id: string; error: string };
 
-export type IssueCode =
-  | "INVALID_FRONTMATTER"
-  | "INVALID_ID"
-  | "INVALID_NODE_PATH"
-  | "PREMISE_WITH_GROUNDS"
-  | "INVALID_GROUNDS"
-  | "INVALID_CONFIRMED"
-  | "DUPLICATE_ID"
-  | "UNKNOWN_GROUND"
-  | "CYCLE"
-  | "REFINO_DIR_NOT_FOUND"
-  | "NODE_NOT_FOUND";
+/**
+ * The code of a validation issue or thrown error. The string values are the
+ * wire format (CLI `--json` output, web API responses), so members keep
+ * their SCREAMING_SNAKE spelling as the value.
+ */
+export enum IssueCode {
+  /** Frontmatter is not valid YAML, not a mapping, or a known field has the wrong shape. */
+  InvalidFrontmatter = "INVALID_FRONTMATTER",
+  /** A node id (from a file path or caller input) fails the engine's id rule. */
+  InvalidId = "INVALID_ID",
+  /** A file under `nodes/` does not have the `<id_2>-<type>.md` shape the storage format requires. */
+  InvalidNodePath = "INVALID_NODE_PATH",
+  /** A premise declares `grounds` (parse) or grounds are applied to a premise target (write check). */
+  PremiseWithGrounds = "PREMISE_WITH_GROUNDS",
+  /** A `grounds` list or entry is malformed, or lists the same id more than once. */
+  InvalidGrounds = "INVALID_GROUNDS",
+  /** `confirmed` is not an RFC 3339 timestamp with an explicit UTC offset. */
+  InvalidConfirmed = "INVALID_CONFIRMED",
+  /** Two files resolve to the same node id (path is identity, ids are globally unique). */
+  DuplicateId = "DUPLICATE_ID",
+  /** A `grounds` reference does not resolve to an existing node; carries `groundId`. */
+  UnknownGround = "UNKNOWN_GROUND",
+  /** A constraint -> constraint `grounds` path closes; carries `cycle`. */
+  Cycle = "CYCLE",
+  /** The `.refino` directory is missing or not a directory (thrown as a `RefinoError`). */
+  RefinoDirNotFound = "REFINO_DIR_NOT_FOUND",
+  /** An id does not resolve to a node (thrown as a `RefinoError`). */
+  NodeNotFound = "NODE_NOT_FOUND",
+}
 
 export interface RefinoIssue {
   code: IssueCode;
@@ -64,9 +94,9 @@ export interface RefinoIssue {
   file?: string;
   /** Node id the issue relates to. */
   nodeId?: string;
-  /** For UNKNOWN_GROUND: the referenced id that does not exist. */
+  /** Only for `IssueCode.UnknownGround`: the referenced id that does not exist. */
   groundId?: string;
-  /** For CYCLE: the closed path, e.g. ["01ABCDEF","02ABCDEF","01ABCDEF"]. */
+  /** Only for `IssueCode.Cycle`: the closed path, e.g. ["01ABCDEF","02ABCDEF","01ABCDEF"]. */
   cycle?: string[];
 }
 

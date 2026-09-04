@@ -1,4 +1,4 @@
-import type { Graph, RefinoIssue, RefinoNode } from "./types.js";
+import { IssueCode, type Graph, type RefinoIssue, type RefinoNode } from "./types.js";
 
 /** RFC 3339 timestamp; the UTC offset (Z or ±HH:MM) is mandatory. */
 const CONFIRMED_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
@@ -24,18 +24,21 @@ export function validateGraph(graph: Graph): RefinoIssue[] {
   const issues: RefinoIssue[] = [];
 
   for (const node of sortedValues(graph.nodes)) {
-    if (node.confirmed !== undefined && !CONFIRMED_RE.test(node.confirmed)) {
-      issues.push({
-        code: "INVALID_CONFIRMED",
-        message: `"confirmed" must be an RFC 3339 timestamp with an explicit UTC offset (Z or ±HH:MM), got "${node.confirmed}".`,
-        file: node.file,
-        nodeId: node.id,
-      });
+    if (node.type === "premise") {
+      if (node.confirmed !== undefined && !CONFIRMED_RE.test(node.confirmed)) {
+        issues.push({
+          code: IssueCode.InvalidConfirmed,
+          message: `"confirmed" must be an RFC 3339 timestamp with an explicit UTC offset (Z or ±HH:MM), got "${node.confirmed}".`,
+          file: node.file,
+          nodeId: node.id,
+        });
+      }
+      continue; // premises declare no grounds
     }
-    for (const ground of node.grounds ?? []) {
+    for (const ground of node.grounds) {
       if (!graph.nodes.has(ground)) {
         issues.push({
-          code: "UNKNOWN_GROUND",
+          code: IssueCode.UnknownGround,
           message: `"${node.id}" grounds on unknown node "${ground}".`,
           file: node.file,
           nodeId: node.id,
@@ -73,12 +76,12 @@ export function checkGroundsChange(
 ): RefinoIssue[] {
   const target = graph.nodes.get(id);
   if (!target) {
-    return [{ code: "NODE_NOT_FOUND", message: `Node "${id}" not found`, nodeId: id }];
+    return [{ code: IssueCode.NodeNotFound, message: `Node "${id}" not found`, nodeId: id }];
   }
   if (target.type === "premise" && newGrounds.length > 0) {
     return [
       {
-        code: "PREMISE_WITH_GROUNDS",
+        code: IssueCode.PremiseWithGrounds,
         message: `Premise "${id}" must not declare "grounds".`,
         file: target.file,
         nodeId: id,
@@ -96,7 +99,7 @@ export function checkGroundsChange(
   for (const [ground, count] of counts) {
     if (count > 1) {
       issues.push({
-        code: "INVALID_GROUNDS",
+        code: IssueCode.InvalidGrounds,
         message: `"grounds" lists node "${ground}" more than once.`,
         file: target.file,
         nodeId: id,
@@ -104,7 +107,7 @@ export function checkGroundsChange(
     }
     if (!graph.nodes.has(ground)) {
       issues.push({
-        code: "UNKNOWN_GROUND",
+        code: IssueCode.UnknownGround,
         message: `"${id}" grounds on unknown node "${ground}".`,
         file: target.file,
         nodeId: id,
@@ -129,7 +132,9 @@ function findCycles(graph: Graph): RefinoIssue[] {
     color.set(id, GRAY);
     stack.push(id);
     const node = graph.nodes.get(id);
-    for (const ground of node?.grounds ?? []) {
+    // Premises declare no grounds, so only constraints can continue a cycle.
+    const grounds = node?.type === "constraint" ? node.grounds : [];
+    for (const ground of grounds) {
       const target = graph.nodes.get(ground);
       if (!target || target.type !== "constraint") continue; // premises cannot take part in cycles
       const state = color.get(ground) ?? WHITE;
@@ -141,7 +146,7 @@ function findCycles(graph: Graph): RefinoIssue[] {
         if (!seen.has(key)) {
           seen.add(key);
           issues.push({
-            code: "CYCLE",
+            code: IssueCode.Cycle,
             message: `Constraint cycle detected: ${cycle.join(" -> ")}.`,
             nodeId: id,
             cycle,
@@ -195,7 +200,7 @@ function closingCycles(graph: Graph, id: string, grounds: readonly string[]): Re
     if (path === undefined) continue;
     const cycle = [id, ...path];
     issues.push({
-      code: "CYCLE",
+      code: IssueCode.Cycle,
       message: `Constraint cycle detected: ${cycle.join(" -> ")}.`,
       nodeId: id,
       cycle,
@@ -219,7 +224,8 @@ function groundsPath(graph: Graph, start: string, target: string): string[] | un
     if (visited.has(current)) return false;
     visited.add(current);
     const node = graph.nodes.get(current);
-    for (const ground of node?.grounds ?? []) {
+    const grounds = node?.type === "constraint" ? node.grounds : [];
+    for (const ground of grounds) {
       path.push(ground);
       if (visit(ground)) return true;
       path.pop();

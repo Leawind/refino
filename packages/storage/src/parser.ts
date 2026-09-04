@@ -1,5 +1,12 @@
 import { parse as parseYaml } from "yaml";
-import type { NodeType, RefinoIssue, RefinoNode } from "refino";
+import {
+  IssueCode,
+  type ConstraintNode,
+  type NodeType,
+  type PremiseNode,
+  type RefinoIssue,
+  type RefinoNode,
+} from "refino";
 
 const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---(?:\n|$)/;
 const EMPTY_FRONTMATTER_RE = /^---\n---(?:\n|$)/;
@@ -47,69 +54,94 @@ export function parseNodeSource(
 
   const body = match ? normalized.slice(match[0].length).trim() : normalized.trim();
 
-  const node: RefinoNode = { id, type: expectedType, file: canonicalFile, summary: "", body };
-
   // The summary is an independent attribute (docs/crg.md). A "summary"
   // frontmatter field takes precedence; the first-paragraph fallback keeps
   // summary-less files readable.
   const summaryField = fields["summary"];
+  let summary: string;
   let summaryExplicit = false;
   if (summaryField === undefined || summaryField === null) {
-    node.summary = extractSummary(body);
+    summary = extractSummary(body);
   } else if (typeof summaryField === "string" && summaryField.trim() !== "") {
-    node.summary = summaryField;
+    summary = summaryField;
     summaryExplicit = true;
   } else {
     issues.push({
-      code: "INVALID_FRONTMATTER",
+      code: IssueCode.InvalidFrontmatter,
       message: '"summary" must be a non-empty string.',
       file: canonicalFile,
       nodeId: id,
     });
-    node.summary = extractSummary(body);
+    summary = extractSummary(body);
   }
 
-  if (expectedType === "premise") {
-    if (fields["grounds"] !== undefined && fields["grounds"] !== null) {
+  const base = { id, file: canonicalFile, summary, body };
+  const node: RefinoNode =
+    expectedType === "premise"
+      ? parsePremise(base, fields, canonicalFile, id, issues)
+      : parseConstraint(base, fields, canonicalFile, id, issues);
+
+  return { node, issues, summaryExplicit };
+}
+
+/** Premise fields: `confirmed`; a declared `grounds` is reported as an issue. */
+function parsePremise(
+  base: { id: string; file: string; summary: string; body: string },
+  fields: Record<string, unknown>,
+  file: string,
+  id: string,
+  issues: RefinoIssue[],
+): PremiseNode {
+  const node: PremiseNode = { ...base, type: "premise" };
+  if (fields["grounds"] !== undefined && fields["grounds"] !== null) {
+    issues.push({
+      code: IssueCode.PremiseWithGrounds,
+      message: 'Premise nodes must not declare "grounds".',
+      file,
+      nodeId: id,
+    });
+  }
+  const confirmed = fields["confirmed"];
+  if (confirmed !== undefined && confirmed !== null) {
+    if (typeof confirmed === "string" && confirmed.trim() === confirmed && confirmed !== "") {
+      node.confirmed = confirmed;
+    } else {
       issues.push({
-        code: "PREMISE_WITH_GROUNDS",
-        message: 'Premise nodes must not declare "grounds".',
-        file: canonicalFile,
+        code: IssueCode.InvalidConfirmed,
+        message: '"confirmed" must be an RFC 3339 timestamp with an explicit UTC offset.',
+        file,
         nodeId: id,
       });
     }
-    const confirmed = fields["confirmed"];
-    if (confirmed !== undefined && confirmed !== null) {
-      if (typeof confirmed === "string" && confirmed.trim() === confirmed && confirmed !== "") {
-        node.confirmed = confirmed;
-      } else {
-        issues.push({
-          code: "INVALID_CONFIRMED",
-          message: '"confirmed" must be an RFC 3339 timestamp with an explicit UTC offset.',
-          file: canonicalFile,
-          nodeId: id,
-        });
-      }
-    }
-  } else {
-    const grounds = parseGrounds(canonicalFile, id, fields["grounds"], issues);
-    if (grounds) node.grounds = grounds;
-    const rationale = fields["rationale"];
-    if (rationale !== undefined && rationale !== null) {
-      if (typeof rationale === "string") {
-        node.rationale = rationale;
-      } else {
-        issues.push({
-          code: "INVALID_FRONTMATTER",
-          message: '"rationale" must be a string.',
-          file: canonicalFile,
-          nodeId: id,
-        });
-      }
+  }
+  return node;
+}
+
+/** Constraint fields: `grounds` (absent -> []) and `rationale`. */
+function parseConstraint(
+  base: { id: string; file: string; summary: string; body: string },
+  fields: Record<string, unknown>,
+  file: string,
+  id: string,
+  issues: RefinoIssue[],
+): ConstraintNode {
+  const node: ConstraintNode = { ...base, type: "constraint", grounds: [] };
+  const grounds = parseGrounds(file, id, fields["grounds"], issues);
+  if (grounds) node.grounds = grounds;
+  const rationale = fields["rationale"];
+  if (rationale !== undefined && rationale !== null) {
+    if (typeof rationale === "string") {
+      node.rationale = rationale;
+    } else {
+      issues.push({
+        code: IssueCode.InvalidFrontmatter,
+        message: '"rationale" must be a string.',
+        file,
+        nodeId: id,
+      });
     }
   }
-
-  return { node, issues, summaryExplicit };
+  return node;
 }
 
 function parseFrontmatter(
@@ -122,7 +154,7 @@ function parseFrontmatter(
     data = parseYaml(yaml);
   } catch (error) {
     issues.push({
-      code: "INVALID_FRONTMATTER",
+      code: IssueCode.InvalidFrontmatter,
       message: `Frontmatter is not valid YAML: ${error instanceof Error ? error.message : String(error)}`,
       file,
     });
@@ -131,7 +163,7 @@ function parseFrontmatter(
   if (data === null || data === undefined) return {}; // empty frontmatter block
   if (typeof data !== "object" || Array.isArray(data)) {
     issues.push({
-      code: "INVALID_FRONTMATTER",
+      code: IssueCode.InvalidFrontmatter,
       message: "Frontmatter must be a YAML mapping.",
       file,
     });
@@ -149,7 +181,7 @@ function parseGrounds(
   if (value === undefined || value === null) return [];
   if (!Array.isArray(value)) {
     issues.push({
-      code: "INVALID_GROUNDS",
+      code: IssueCode.InvalidGrounds,
       message: `"grounds" must be a list of node ids, got ${JSON.stringify(value)}.`,
       file,
       nodeId,
@@ -160,7 +192,7 @@ function parseGrounds(
   for (const entry of value) {
     if (typeof entry !== "string" || entry.trim() !== entry || entry.length === 0) {
       issues.push({
-        code: "INVALID_GROUNDS",
+        code: IssueCode.InvalidGrounds,
         message: `"grounds" entries must be non-empty strings, got ${JSON.stringify(entry)}.`,
         file,
         nodeId,

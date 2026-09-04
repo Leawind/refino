@@ -5,7 +5,7 @@ import {
   updateConstraint,
   updatePremise,
 } from "@refino/storage";
-import { checkGroundsChange, getDependents, ID_RE, RefinoError } from "refino";
+import { checkGroundsChange, getDependents, ID_RE, IssueCode, RefinoError } from "refino";
 import type { Context } from "hono";
 import type { GraphIndex } from "./graph-index.js";
 
@@ -75,7 +75,7 @@ export async function getNode(c: Context, index: GraphIndex): Promise<Response> 
     const id = requireParam(c);
     const entry = index.entry(id);
     if (entry === undefined) {
-      throw new RefinoError("NODE_NOT_FOUND", `Node "${id}" does not exist.`);
+      throw new RefinoError(IssueCode.NodeNotFound, `Node "${id}" does not exist.`);
     }
     const body = (await index.readBody(id)) ?? "";
     return c.json({
@@ -116,7 +116,7 @@ async function create(
     if (type === "constraint") {
       const missing = grounds.find((g) => !index.graph.nodes.has(g));
       if (missing !== undefined) {
-        throw new RefinoError("UNKNOWN_GROUND", `Ground "${missing}" does not exist.`);
+        throw new RefinoError(IssueCode.UnknownGround, `Ground "${missing}" does not exist.`);
       }
     }
     const id =
@@ -179,7 +179,7 @@ export async function putNode(c: Context, index: GraphIndex): Promise<Response> 
     const typeField = readString(payload, "type");
     if (typeField !== undefined && typeField !== entry.node.type) {
       throw new RefinoError(
-        "INVALID_FRONTMATTER",
+        IssueCode.InvalidFrontmatter,
         `"type" does not match the existing node "${id}"; node types cannot change.`,
       );
     }
@@ -215,7 +215,7 @@ export async function removeNode(c: Context, index: GraphIndex): Promise<Respons
   try {
     const id = requireParam(c);
     if (index.entry(id) === undefined) {
-      throw new RefinoError("NODE_NOT_FOUND", `Node "${id}" does not exist.`);
+      throw new RefinoError(IssueCode.NodeNotFound, `Node "${id}" does not exist.`);
     }
     const affected = getDependents(index.graph, id);
     if (affected.length > 0) {
@@ -250,7 +250,7 @@ export async function postReload(c: Context, index: GraphIndex): Promise<Respons
  */
 async function createWithId(c: Context, index: GraphIndex, id: string): Promise<Response> {
   if (!ID_RE.test(id)) {
-    throw new RefinoError("INVALID_ID", `Node "${id}" is not a valid node id.`);
+    throw new RefinoError(IssueCode.InvalidId, `Node "${id}" is not a valid node id.`);
   }
   const payload = await readPayload(c);
   const body = readRequiredString(payload, "body");
@@ -258,18 +258,21 @@ async function createWithId(c: Context, index: GraphIndex, id: string): Promise<
   const type = readString(payload, "type");
   if (type !== "premise" && type !== "constraint") {
     throw new RefinoError(
-      "INVALID_FRONTMATTER",
+      IssueCode.InvalidFrontmatter,
       `"type" must be "premise" or "constraint" to create node "${id}".`,
     );
   }
   const grounds = resolveGrounds(payload);
   if (type === "premise" && grounds.length > 0) {
-    throw new RefinoError("PREMISE_WITH_GROUNDS", `Premise "${id}" must not declare "grounds".`);
+    throw new RefinoError(
+      IssueCode.PremiseWithGrounds,
+      `Premise "${id}" must not declare "grounds".`,
+    );
   }
   if (type === "constraint") {
     const missing = grounds.find((g) => !index.graph.nodes.has(g));
     if (missing !== undefined) {
-      throw new RefinoError("UNKNOWN_GROUND", `Ground "${missing}" does not exist.`);
+      throw new RefinoError(IssueCode.UnknownGround, `Ground "${missing}" does not exist.`);
     }
   }
   if (type === "premise") {
@@ -299,17 +302,17 @@ function resolveGrounds(payload: Payload): string[] {
     !Array.isArray(payload.grounds) ||
     payload.grounds.some((g) => typeof g !== "string" || !ID_RE.test(g))
   ) {
-    throw new RefinoError("INVALID_GROUNDS", "grounds must be an array of node ids.");
+    throw new RefinoError(IssueCode.InvalidGrounds, "grounds must be an array of node ids.");
   }
   return [...new Set(payload.grounds as string[])];
 }
 
 export async function readPayload(c: Context): Promise<Payload> {
   const payload: unknown = await c.req.json().catch(() => {
-    throw new RefinoError("INVALID_FRONTMATTER", "Request body must be valid JSON.");
+    throw new RefinoError(IssueCode.InvalidFrontmatter, "Request body must be valid JSON.");
   });
   if (typeof payload !== "object" || payload === null) {
-    throw new RefinoError("INVALID_FRONTMATTER", "Request body must be a JSON object.");
+    throw new RefinoError(IssueCode.InvalidFrontmatter, "Request body must be a JSON object.");
   }
   return payload as Payload;
 }
@@ -317,7 +320,7 @@ export async function readPayload(c: Context): Promise<Payload> {
 function requireParam(c: Context): string {
   const id = c.req.param("id");
   if (id === undefined) {
-    throw new RefinoError("NODE_NOT_FOUND", "Node id is required.");
+    throw new RefinoError(IssueCode.NodeNotFound, "Node id is required.");
   }
   return id;
 }
@@ -325,7 +328,10 @@ function requireParam(c: Context): string {
 function readRequiredString(payload: Payload, key: string): string {
   const value = payload[key];
   if (typeof value !== "string") {
-    throw new RefinoError("INVALID_FRONTMATTER", `"${key}" is required and must be a string.`);
+    throw new RefinoError(
+      IssueCode.InvalidFrontmatter,
+      `"${key}" is required and must be a string.`,
+    );
   }
   return value;
 }
@@ -336,7 +342,7 @@ export function readString(payload: Payload, key: string): string | undefined {
     return undefined;
   }
   if (typeof value !== "string") {
-    throw new RefinoError("INVALID_FRONTMATTER", `"${key}" must be a string.`);
+    throw new RefinoError(IssueCode.InvalidFrontmatter, `"${key}" must be a string.`);
   }
   return value;
 }
@@ -346,7 +352,10 @@ function readRevision(payload: Payload): number | undefined {
   const value = payload.revision;
   if (value === undefined || value === null) return undefined;
   if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
-    throw new RefinoError("INVALID_FRONTMATTER", `"revision" must be a non-negative integer.`);
+    throw new RefinoError(
+      IssueCode.InvalidFrontmatter,
+      `"revision" must be a non-negative integer.`,
+    );
   }
   return value;
 }
@@ -364,6 +373,6 @@ export function errorResponse(c: Context, error: unknown): Response {
 }
 
 function errorStatus(code: RefinoError["code"]): 400 | 404 {
-  if (code === "NODE_NOT_FOUND" || code === "REFINO_DIR_NOT_FOUND") return 404;
+  if (code === IssueCode.NodeNotFound || code === IssueCode.RefinoDirNotFound) return 404;
   return 400;
 }

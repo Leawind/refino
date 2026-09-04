@@ -1,4 +1,4 @@
-import { RefinoError } from "./types.js";
+import { IssueCode, RefinoError } from "./types.js";
 import type { Graph, QueryGroup, RefinoNode } from "./types.js";
 
 export interface NodeWithDepth {
@@ -11,16 +11,16 @@ export interface NodeWithDepth {
 export function requireNode(graph: Graph, id: string): RefinoNode {
   const node = graph.nodes.get(id);
   if (!node) {
-    throw new RefinoError("NODE_NOT_FOUND", `Node "${id}" not found`);
+    throw new RefinoError(IssueCode.NodeNotFound, `Node "${id}" not found`);
   }
   return node;
 }
 
-/** Direct grounds of a node, resolved and in declared order. */
+/** Direct grounds of a node, resolved and in declared order. Premises have none. */
 export function getGrounds(graph: Graph, id: string): RefinoNode[] {
   const node = requireNode(graph, id);
   const result: RefinoNode[] = [];
-  for (const ground of node.grounds ?? []) {
+  for (const ground of node.type === "constraint" ? node.grounds : []) {
     const target = graph.nodes.get(ground);
     if (target) result.push(target);
   }
@@ -34,7 +34,7 @@ export function getGrounds(graph: Graph, id: string): RefinoNode[] {
 export function getAncestors(graph: Graph, id: string): NodeWithDepth[] {
   requireNode(graph, id);
   return breadthFirst(graph, id, (node) =>
-    (node.grounds ?? []).flatMap((g) => {
+    (node.type === "constraint" ? node.grounds : []).flatMap((g) => {
       const target = graph.nodes.get(g);
       return target ? [g] : [];
     }),

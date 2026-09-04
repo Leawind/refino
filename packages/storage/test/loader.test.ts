@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { loadGraph } from "../src/loader.js";
 import { constraint, createRefino, premise, removeRefino } from "@refino/testkit";
+import { IssueCode } from "refino";
 
 describe("loadGraph", () => {
   it("builds the graph and the dependents index from a nodes/ directory", async () => {
@@ -55,7 +56,7 @@ describe("loadGraph", () => {
     try {
       const { graph, issues } = await loadGraph(`${root}/.refino`);
       expect(graph.nodes.size).toBe(1);
-      expect(issues.map((i) => i.code)).toEqual(["DUPLICATE_ID"]);
+      expect(issues.map((i) => i.code)).toEqual([IssueCode.DuplicateId]);
       expect(issues[0]?.nodeId).toBe("A1B2C3D4");
     } finally {
       await removeRefino(root);
@@ -72,7 +73,7 @@ describe("loadGraph", () => {
     try {
       const { graph, issues } = await loadGraph(`${root}/.refino`);
       expect(graph.nodes.size).toBe(0);
-      expect(issues.map((i) => i.code)).toEqual(["INVALID_NODE_PATH"]);
+      expect(issues.map((i) => i.code)).toEqual([IssueCode.InvalidNodePath]);
       expect(issues[0]?.file).toBe(file);
       expect(issues[0]?.message).toContain("must");
     } finally {
@@ -89,7 +90,7 @@ describe("loadGraph", () => {
     try {
       const { graph, issues } = await loadGraph(`${root}/.refino`);
       expect(graph.nodes.size).toBe(0);
-      expect(issues.map((i) => i.code)).toEqual(["INVALID_ID"]);
+      expect(issues.map((i) => i.code)).toEqual([IssueCode.InvalidId]);
     } finally {
       await removeRefino(root);
     }
@@ -128,7 +129,7 @@ describe("loadGraph", () => {
     try {
       await expect(loadGraph(`${root}/.refino`)).rejects.toMatchObject({
         name: "RefinoError",
-        code: "REFINO_DIR_NOT_FOUND",
+        code: IssueCode.RefinoDirNotFound,
       });
     } finally {
       await removeRefino(root);
