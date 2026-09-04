@@ -86,6 +86,45 @@ describe("refino web api", () => {
     });
   });
 
+  it("removes optional fields omitted from the payload (full replace)", async () => {
+    const constraint = await app().request("/api/nodes/constraint", {
+      method: "POST",
+      body: JSON.stringify({ body: "带理由的约束。", rationale: "原始理由。" }),
+    });
+    const { id } = (await constraint.json()) as { id: string };
+
+    // A save that carries the rationale keeps it.
+    const kept = await app().request(`/api/nodes/${id}`, {
+      method: "PUT",
+      body: JSON.stringify({ body: "带理由的约束。", rationale: "改后的理由。", grounds: [] }),
+    });
+    expect(kept.status).toBe(200);
+    const { graph } = await loadGraph(refinoDir);
+    expect(graph.nodes.get(id)?.rationale).toBe("改后的理由。");
+
+    // A save that omits it clears it: absent means removed.
+    const cleared = await app().request(`/api/nodes/${id}`, {
+      method: "PUT",
+      body: JSON.stringify({ body: "带理由的约束。", grounds: [] }),
+    });
+    expect(cleared.status).toBe(200);
+    const reloaded = await loadGraph(refinoDir);
+    expect(reloaded.graph.nodes.get(id)?.rationale).toBeUndefined();
+
+    const premise = await app().request("/api/nodes/premise", {
+      method: "POST",
+      body: JSON.stringify({ body: "已确认的前提。", confirmed: "2026-08-01T00:00:00Z" }),
+    });
+    const premiseId = ((await premise.json()) as { id: string }).id;
+    const clearedConfirmed = await app().request(`/api/nodes/${premiseId}`, {
+      method: "PUT",
+      body: JSON.stringify({ body: "已确认的前提。" }),
+    });
+    expect(clearedConfirmed.status).toBe(200);
+    const final = await loadGraph(refinoDir);
+    expect(final.graph.nodes.get(premiseId)?.confirmed).toBeUndefined();
+  });
+
   it("refuses to delete a node with dependents (409) and deletes leaves", async () => {
     const blocked = await app().request("/api/nodes/A1B2C3D4", { method: "DELETE" });
     expect(blocked.status).toBe(409);

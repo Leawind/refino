@@ -141,6 +141,9 @@ async function create(
 
 /**
  * PUT /api/nodes/:id — replace the editable fields of an existing node.
+ * Replacement is wholesale, mirroring the storage writer: an optional field
+ * absent from the payload is removed from the node (an empty string in the
+ * editor serializes as absent, so clearing a field clears the node).
  * The node's id and type are fixed by its existing file: a payload `type`
  * that differs from the current type is rejected (types cannot change).
  * A payload `revision` (recorded when the client opened the node) turns the
@@ -185,7 +188,7 @@ export async function putNode(c: Context, index: GraphIndex): Promise<Response> 
       await updatePremise(index.refinoDir, id, {
         body,
         summary,
-        confirmed: readString(payload, "confirmed") ?? entry.node.confirmed,
+        confirmed: readString(payload, "confirmed"),
       });
     } else {
       const grounds = resolveGrounds(payload);
@@ -196,7 +199,7 @@ export async function putNode(c: Context, index: GraphIndex): Promise<Response> 
       await updateConstraint(index.refinoDir, id, {
         body,
         summary,
-        rationale: readString(payload, "rationale") ?? entry.node.rationale,
+        rationale: readString(payload, "rationale"),
         grounds,
       });
     }
