@@ -4,3 +4,5 @@ export { validateGraph, checkGroundsChange, isValidConfirmed } from "./validate.
 export { generateId, ID_CHARSET, ID_RE } from "./id.js";
 export { requireNode, getGrounds, getAncestors, getDependents, queryGroups } from "./query.js";
 export type { NodeWithDepth } from "./query.js";
+export { assignLayers } from "./layer.js";
+export type { LayerNode } from "./layer.js";
