@@ -103,31 +103,23 @@ describe("refino web api", () => {
     expect(graph.nodes.has(id)).toBe(false);
   });
 
-  it("converts a premise into a constraint in place", async () => {
-    const created = await app().request("/api/nodes/premise", {
-      method: "POST",
-      body: JSON.stringify({ body: "待转换。", confirmed: "2026-08-01T00:00:00Z" }),
-    });
-    const { id } = (await created.json()) as { id: string };
-    const res = await app().request(`/api/nodes/${id}`, {
+  it("rejects changing the type of an existing node", async () => {
+    const res = await app().request("/api/nodes/A1B2C3D4", {
       method: "PUT",
-      body: JSON.stringify({ body: "转换后的约束。", type: "constraint" }),
+      body: JSON.stringify({ body: "x", type: "premise" }),
     });
-    expect(res.status).toBe(200);
-    const { graph, issues } = await loadGraph(refinoDir);
-    expect(issues).toEqual([]);
-    const node = graph.nodes.get(id);
-    expect(node?.type).toBe("constraint");
-    expect(node?.file.endsWith("-constraint.md")).toBe(true);
-    expect(graph.nodes.get(id)?.confirmed).toBeUndefined();
+    expect(res.status).toBe(400);
+    // The node is untouched after the rejected request.
+    const { graph } = await loadGraph(refinoDir);
+    expect(graph.nodes.get("A1B2C3D4")?.type).toBe("constraint");
   });
 
-  it("rejects an invalid type override", async () => {
-    const res = await app().request("/api/nodes/A1B2C3D4", {
+  it("rejects an invalid type on create and on update", async () => {
+    const update = await app().request("/api/nodes/A1B2C3D4", {
       method: "PUT",
       body: JSON.stringify({ body: "x", type: "nonsense" }),
     });
-    expect(res.status).toBe(400);
+    expect(update.status).toBe(400);
   });
 
   it("returns 404 for unknown nodes", async () => {

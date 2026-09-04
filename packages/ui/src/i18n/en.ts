@@ -43,10 +43,6 @@ export default {
     type: "Type",
     save: "Save",
     preview: "Preview",
-    switchType: "Switch node type",
-    convertPremise:
-      "Convert this constraint into a premise? Its grounds and rationale will be dropped.",
-    convertConstraint: "Convert this premise into a constraint?",
     cancel: "Cancel",
     edit: "Edit",
     delete: "Delete",

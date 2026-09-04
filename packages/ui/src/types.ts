@@ -93,8 +93,9 @@ export interface ChangeEvent {
   reload?: true;
 }
 
-/** Editable fields sent on create/update; the id is never editable. When
- * `type` is sent and differs from the current type, the node is converted. */
+/** Editable fields sent on create/update; the id is never editable. `type`
+ * is required when PUT creates a node under a free id (recreating an
+ * externally deleted node); an existing node's type cannot change. */
 export interface NodePayload {
   type?: NodeType;
   body: string;

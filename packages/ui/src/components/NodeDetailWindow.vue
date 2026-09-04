@@ -17,7 +17,6 @@ import {
   NTooltip,
   useMessage,
 } from "naive-ui";
-import { SwapHorizontalOutline } from "@vicons/ionicons5";
 import { renderMarkdown, renderMermaidDiagrams } from "../markdown";
 import { CloseOutline, ContractOutline, ExpandOutline } from "@vicons/ionicons5";
 import FormField from "./FormField.vue";
@@ -165,14 +164,6 @@ watch([renderedBody, () => store.state.theme, previewBody] as const, ([, theme, 
   });
 });
 
-/** Convert the node to the other type; fields of the old type are dropped. */
-function switchType(): void {
-  const node = selected.value;
-  if (node === null || creating.value) return;
-  const target = node.type === "premise" ? "constraint" : "premise";
-  void store.update(node.id, { ...payload(), type: target });
-}
-
 /**
  * Save is only meaningful when something actually changed (or when a new
  * node has the required content), so the button stays disabled otherwise.
@@ -298,23 +289,6 @@ function nodeLabel(id: string): string {
             >
               {{ t(`node.${selected.type}`) }}
             </NTag>
-            <NTooltip>
-              <template #trigger>
-                <NPopconfirm @positive-click="switchType">
-                  <template #trigger>
-                    <NButton quaternary circle size="tiny" :title="t('node.switchType')">
-                      <NIcon :component="SwapHorizontalOutline" />
-                    </NButton>
-                  </template>
-                  {{
-                    selected.type === "premise"
-                      ? t("node.convertConstraint")
-                      : t("node.convertPremise")
-                  }}
-                </NPopconfirm>
-              </template>
-              {{ t("node.switchType") }}
-            </NTooltip>
           </div>
         </template>
       </div>

@@ -5,7 +5,7 @@ import {
   updateConstraint,
   updatePremise,
 } from "@refino/storage";
-import { checkGroundsChange, getAncestors, getDependents, ID_RE, RefinoError } from "refino";
+import { checkGroundsChange, getDependents, ID_RE, RefinoError } from "refino";
 import type { Context } from "hono";
 import type { GraphIndex } from "./graph-index.js";
 
@@ -16,11 +16,10 @@ import type { GraphIndex } from "./graph-index.js";
  * `index.ready()` before dispatching).
  *
  * Grounds reference validity and cycles are checked before writing so the
- * stored files never become invalid through the API. Same-type updates
- * validate through the engine's `checkGroundsChange` primitive (docs/design.md,
- * "引擎提供的共享原语"); type conversion cannot use it (the primitive assumes
- * the target keeps its type, and a premise target with grounds is rejected)
- * so it checks existence and reachability against the index directly.
+ * stored files never become invalid through the API. Updates validate
+ * through the engine's `checkGroundsChange` primitive (docs/design.md,
+ * "引擎提供的共享原语"); creation of a brand-new node has no dependents, so
+ * only reference existence can be violated and is checked against the index.
  */
 
 /** The node record as exposed over the API. */
@@ -142,11 +141,11 @@ async function create(
 
 /**
  * PUT /api/nodes/:id — replace the editable fields of an existing node.
- * Sending a `type` different from the node's current type converts the node
- * in place: same id, new file; fields of the old type that do not exist on
- * the new one are dropped. A payload `revision` (recorded when the client
- * opened the node) turns the save into an optimistic concurrency check:
- * a mismatch answers 409 instead of silently overwriting the external change.
+ * The node's id and type are fixed by its existing file: a payload `type`
+ * that differs from the current type is rejected (types cannot change).
+ * A payload `revision` (recorded when the client opened the node) turns the
+ * save into an optimistic concurrency check: a mismatch answers 409 instead
+ * of silently overwriting the external change.
  *
  * PUT to an id that does not exist creates it when the payload states a
  * `type` (docs/design.md, "编辑冲突处理": 以我的内容重新创建该 id) — the
@@ -174,66 +173,27 @@ export async function putNode(c: Context, index: GraphIndex): Promise<Response> 
         409,
       );
     }
-    const targetType = readTargetType(payload, entry.node.type);
-
-    if (targetType === entry.node.type) {
-      if (targetType === "premise") {
-        await updatePremise(index.refinoDir, id, {
-          body,
-          summary,
-          confirmed: readString(payload, "confirmed") ?? entry.node.confirmed,
-        });
-      } else {
-        const grounds = resolveGrounds(payload);
-        const issues = checkGroundsChange(index.graph, id, grounds);
-        if (issues.length > 0) {
-          return c.json({ error: "Invalid grounds change.", issues }, 400);
-        }
-        await updateConstraint(index.refinoDir, id, {
-          body,
-          summary,
-          rationale: readString(payload, "rationale") ?? entry.node.rationale,
-          grounds,
-        });
-      }
-      await index.applyChange({ changed: [id] });
-      return c.json({ id, revision: index.entry(id)?.revision });
+    const typeField = readString(payload, "type");
+    if (typeField !== undefined && typeField !== entry.node.type) {
+      throw new RefinoError(
+        "INVALID_FRONTMATTER",
+        `"type" does not match the existing node "${id}"; node types cannot change.`,
+      );
     }
 
-    // Type conversion. grounds on a converted premise are rejected; for the
-    // constraint direction a new cycle must run ground -> ... -> id along
-    // existing grounds edges (the engine primitive cannot be used: it
-    // assumes the target keeps its type).
-    const grounds = resolveGrounds(payload);
-    if (targetType === "premise") {
-      if (grounds.length > 0) {
-        throw new RefinoError(
-          "PREMISE_WITH_GROUNDS",
-          `Premise "${id}" must not declare "grounds".`,
-        );
-      }
-    } else {
-      const missing = grounds.find((g) => !index.graph.nodes.has(g));
-      if (missing !== undefined) {
-        throw new RefinoError("UNKNOWN_GROUND", `Ground "${missing}" does not exist.`);
-      }
-      for (const ground of grounds) {
-        if (getAncestors(index.graph, ground).some((a) => a.node.id === id)) {
-          throw new RefinoError("CYCLE", `Grounding "${id}" by "${ground}" would close a cycle.`);
-        }
-      }
-    }
-    await deleteNode(index.refinoDir, id);
-    if (targetType === "premise") {
-      await createPremise(index.refinoDir, {
-        id,
+    if (entry.node.type === "premise") {
+      await updatePremise(index.refinoDir, id, {
         body,
         summary,
         confirmed: readString(payload, "confirmed") ?? entry.node.confirmed,
       });
     } else {
-      await createConstraint(index.refinoDir, {
-        id,
+      const grounds = resolveGrounds(payload);
+      const issues = checkGroundsChange(index.graph, id, grounds);
+      if (issues.length > 0) {
+        return c.json({ error: "Invalid grounds change.", issues }, 400);
+      }
+      await updateConstraint(index.refinoDir, id, {
         body,
         summary,
         rationale: readString(payload, "rationale") ?? entry.node.rationale,
@@ -327,16 +287,6 @@ async function createWithId(c: Context, index: GraphIndex, id: string): Promise<
   }
   await index.applyChange({ changed: [id] });
   return c.json({ id, revision: index.entry(id)?.revision }, 201);
-}
-
-/** Validate an optional `type` override in the payload. */
-function readTargetType(payload: Payload, current: "premise" | "constraint") {
-  const raw = readString(payload, "type");
-  if (raw === undefined) return current;
-  if (raw !== "premise" && raw !== "constraint") {
-    throw new RefinoError("INVALID_FRONTMATTER", `"type" must be "premise" or "constraint".`);
-  }
-  return raw;
 }
 
 /** Parse `grounds` from a payload: shape-checked, deduplicated; omitted means full replacement with none. */
