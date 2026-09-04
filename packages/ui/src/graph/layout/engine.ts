@@ -1,3 +1,4 @@
+import { assignLayers } from "refino";
 import type { LayoutDirection } from "../../types";
 import type {
   LaidOutNode,
@@ -75,8 +76,12 @@ export function layeredLayout(
     }
   };
 
+  // Layers are shared across components: components are edge-disjoint, so
+  // global longest-path layers equal per-component ones (refino, 分层).
+  const layers = assignLayers(nodes);
+
   // Components stack in disjoint row ranges; every node is a regular node.
-  placeComponents(ids, graph, placed, place, freeOrder);
+  placeComponents(ids, graph, layers, placed, place, freeOrder);
 
   const horizontal = direction === "LR" || direction === "RL";
   const result: LaidOutNode[] = [];
@@ -117,6 +122,7 @@ export const layeredStrategy: LayoutStrategy = {
 function placeComponents(
   regular: readonly string[],
   graph: ReadonlyMap<string, LayoutNode>,
+  layers: ReadonlyMap<string, number>,
   placed: ReadonlyMap<string, Placement>,
   place: (id: string, placement: Placement) => void,
   freeOrder: (layer: number, desired: number) => number,
@@ -153,34 +159,20 @@ function placeComponents(
         }
       }
     }
-    placeComponent(component.sort(), groundsIn, placed, place, freeOrder);
+    placeComponent(component.sort(), groundsIn, layers, placed, place, freeOrder);
   }
 }
 
-/** Longest-path layering inside the component, then BFS-derived row order
- * per layer with the family-centering placement. */
+/** Row order per layer over the precomputed layers, with the
+ * family-centering placement. */
 function placeComponent(
   component: readonly string[],
   groundsIn: ReadonlyMap<string, string[]>,
+  layers: ReadonlyMap<string, number>,
   placed: ReadonlyMap<string, Placement>,
   place: (id: string, placement: Placement) => void,
   freeOrder: (layer: number, desired: number) => number,
 ): void {
-  const layers = new Map<string, number>();
-  let progressed = true;
-  while (layers.size < component.length && progressed) {
-    progressed = false;
-    for (const id of component) {
-      if (layers.has(id)) continue;
-      const grounds = (groundsIn.get(id) ?? []).filter((g) => layers.has(g));
-      if ((groundsIn.get(id) ?? []).length > grounds.length) continue;
-      let layer = 0;
-      for (const g of grounds) layer = Math.max(layer, layers.get(g)! + 1);
-      layers.set(id, layer);
-      progressed = true;
-    }
-  }
-
   // Components stack in disjoint row ranges: this one starts below every
   // row placed so far (the first component's roots start at row 0).
   let orderBase = 0;

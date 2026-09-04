@@ -152,6 +152,27 @@ describe("independent components", () => {
   });
 });
 
+describe("cyclic input", () => {
+  // Cycles cannot layer strictly; the shared refino layering cuts back
+  // edges deterministically so every node still gets finite coordinates.
+  it("lays out every node of a cycle without NaN and deterministically", () => {
+    const cyclic = [
+      constraint(C1, [C3]),
+      constraint(C2, [C1]),
+      constraint(C3, [C2]),
+      premise(P1),
+      constraint("D4E5F6G8", [P1, C1]),
+    ];
+    const first = layeredLayout(cyclic, "LR");
+    expect(first).toHaveLength(cyclic.length);
+    for (const node of first) {
+      expect(Number.isFinite(node.x)).toBe(true);
+      expect(Number.isFinite(node.y)).toBe(true);
+    }
+    expect(layeredLayout(cyclic, "LR")).toEqual(first);
+  });
+});
+
 describe("direction mapping", () => {
   const chain = [premise(P1), constraint(C1, [P1]), constraint(C2, [C1])];
 

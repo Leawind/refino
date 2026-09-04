@@ -121,6 +121,9 @@ importers:
       naive-ui:
         specifier: ^2.45.3
         version: 2.45.3(vue@3.5.42(typescript@5.9.3))
+      refino:
+        specifier: workspace:^
+        version: link:../refino
       vue:
         specifier: ^3.5.0
         version: 3.5.42(typescript@5.9.3)
