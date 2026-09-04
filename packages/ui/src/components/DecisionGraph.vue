@@ -4,9 +4,10 @@
 // budget culling over-budget parts; floating controls stay DOM. Clicking a
 // node selects it, shift+click range-selects, ctrl+click toggles, double
 // click opens the detail bar, hovering pulls in the node's direct grounds.
-// The layout engine keeps virtual coordinates stable; the camera moves only
-// on focus changes and direction flips (pan/zoom and fly-to-focus land with
-// the viewport milestone).
+// The layout is recomputed from scratch on every working-set change; the
+// camera keeps the focus node at a stable screen position — clicking a node
+// never displaces it — flying only for an off-screen or newly joining
+// focus, and re-fitting on direction flips.
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { store } from "../store";
@@ -142,10 +143,8 @@ function ensureRenderer(): void {
 onMounted(ensureRenderer);
 
 watch(scene, (value) => renderer?.setScene(value));
-// The camera follows the focus inside setScene: it flies whenever the focus
-// changes or the focus node joins the working set (the two happen in
-// different ticks — the working set arrives asynchronously after the
-// selection). Direction flips re-fit the whole working set.
+// setScene keeps the focus placed (README: 相机随焦点). Direction flips
+// re-fit the whole working set.
 watch(
   () => props.direction,
   () => renderer?.fitToContent(),

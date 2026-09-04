@@ -43,7 +43,7 @@ export function minScale(box: CameraBox, viewport: Viewport): number {
   const longSide = Math.max(box.maxX - box.minX, box.maxY - box.minY);
   if (longSide <= 0) return SCALE_FLOOR;
   const shortSide = Math.min(viewport.width, viewport.height);
-  return Math.max(SCALE_FLOOR, (shortSide / 2) / longSide);
+  return Math.max(SCALE_FLOOR, shortSide / 2 / longSide);
 }
 
 export function clampScale(
@@ -149,4 +149,60 @@ export function pannedCamera(
     box,
     viewport,
   );
+}
+
+/** Whether the virtual rect has any pixel inside the viewport. */
+function onScreen(
+  rect: { x: number; y: number; width: number; height: number },
+  viewport: Viewport,
+  camera: Camera,
+): boolean {
+  const x1 = rect.x * camera.scale + camera.tx;
+  const y1 = rect.y * camera.scale + camera.ty;
+  const x2 = (rect.x + rect.width) * camera.scale + camera.tx;
+  const y2 = (rect.y + rect.height) * camera.scale + camera.ty;
+  return x1 < viewport.width && y1 < viewport.height && x2 > 0 && y2 > 0;
+}
+
+/** How the camera should follow the focus across a scene update (ui README,
+ * "视口：相机随焦点"):
+ *
+ * - a focus that is already on screen stays exactly where it is — a canvas
+ *   click selects a visible node and must not displace it;
+ * - an off-screen or not-yet-in-scene focus is flown to the viewport center;
+ * - an unchanged focus displaced by a relayout is compensated by panning,
+ *   keeping the node's screen position stable.
+ *
+ * The renderer applies the returned action: "fly" centers the focus (a no-op
+ * while it is not in the scene), "compensate" pans both cameras by the given
+ * virtual displacement, each against its own scale. */
+export function focusFollow(input: {
+  /** Focus id before and after the update. */
+  previousId: string | null;
+  currentId: string | null;
+  /** Virtual center of the focus node before the update; null when the
+   * previous focus was not in the scene. */
+  previousCenter: { x: number; y: number } | null;
+  /** Virtual rect of the focus node after the update; null when it is not
+   * in the scene (yet — the working set arrives a tick after the selection). */
+  rect: { x: number; y: number; width: number; height: number } | null;
+  viewport: Viewport;
+  camera: Camera;
+}): { action: "none" } | { action: "fly" } | { action: "compensate"; dx: number; dy: number } {
+  const visible = input.rect !== null && onScreen(input.rect, input.viewport, input.camera);
+  if (input.currentId !== input.previousId) {
+    // The new focus is a canvas-picked visible node (stays put) or was
+    // picked off-screen (flown in).
+    return visible ? { action: "none" } : { action: "fly" };
+  }
+  if (input.currentId === null || input.rect === null) return { action: "none" };
+  if (input.previousCenter === null) {
+    // Same id as before but not in the scene then: the focus node just
+    // entered the scene (async first expansion). It had no on-screen
+    // position to preserve, so bring it comfortably into view.
+    return { action: "fly" };
+  }
+  const dx = input.rect.x + input.rect.width / 2 - input.previousCenter.x;
+  const dy = input.rect.y + input.rect.height / 2 - input.previousCenter.y;
+  return dx === 0 && dy === 0 ? { action: "none" } : { action: "compensate", dx, dy };
 }

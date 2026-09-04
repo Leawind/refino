@@ -2,6 +2,7 @@ import { ellipsize, GlyphAtlas } from "./atlas";
 import {
   centeredCamera,
   fitCamera,
+  focusFollow,
   pannedCamera as panCamera,
   zoomedCamera as zoomCamera,
   clampCamera,
@@ -28,9 +29,12 @@ import { createProgram, EDGE_QUAD, type Program, UNIT_QUAD } from "./shaders";
  * Frames render on damage only (scene/camera/theme changes, resize,
  * running fade animations); the render budget adapts while frames render
  * continuously. The viewport owns a current/target camera pair: inputs
- * (wheel zoom, ctrl+wheel text size, left-drag pan) and focus moves set
- * clamped targets, and the current camera glides towards them; at rest the
- * camera always satisfies the bounding-box constraints (README, "视口").
+ * (wheel zoom, ctrl+wheel text size, left-drag pan) set clamped targets,
+ * and the current camera glides towards them. The camera follows the focus
+ * (camera.ts focusFollow): an off-screen focus is flown to the center and a
+ * relayout displacing the focus is compensated by panning, so a canvas
+ * click never moves the clicked node. At rest the camera always satisfies
+ * the bounding-box constraints (README, "视口").
  */
 
 export type RGBA = [number, number, number, number];
@@ -204,8 +208,13 @@ export class GraphRenderer {
   #cssHeight = 0;
   /** Active left-button gesture; `moved` says whether it left the click
    * slop (and so suppresses the click that follows its mouseup). */
-  #gesture: { startX: number; startY: number; lastX: number; lastY: number; moved: boolean } | null =
-    null;
+  #gesture: {
+    startX: number;
+    startY: number;
+    lastX: number;
+    lastY: number;
+    moved: boolean;
+  } | null = null;
   #clickSuppressed = false;
   #lastFocusId: string | null = null;
 
@@ -317,9 +326,17 @@ export class GraphRenderer {
 
   /** Replaces the whole display list; takes effect on the next frame. */
   setScene(scene: SceneInput): void {
-    // True when the focus node is new to the scene: its selection pulled it
-    // into the working set, and the camera should follow it there.
-    const focusJoined = scene.focusId !== null && !this.#entries.has(scene.focusId);
+    // Focus continuity across this update: the pre-update center of the
+    // focus node, read before the loop below swaps in new geometry.
+    const previousId = this.#lastFocusId;
+    const previousEntry = previousId !== null ? this.#entries.get(previousId) : undefined;
+    const previousCenter =
+      previousEntry === undefined
+        ? null
+        : {
+            x: previousEntry.node.x + previousEntry.node.width / 2,
+            y: previousEntry.node.y + previousEntry.node.height / 2,
+          };
     const seen = new Set<string>();
     for (const node of scene.nodes) {
       seen.add(node.id);
@@ -338,15 +355,32 @@ export class GraphRenderer {
     }
     this.#edges = scene.edges;
 
-    // The camera follows the focus (README: 相机随焦点). The focus id and the
-    // focus node's scene entry change in different ticks — the working set
-    // arrives asynchronously after the selection — so both transitions fly.
-    if (scene.focusId !== this.#lastFocusId) {
-      this.#lastFocusId = scene.focusId;
-      this.#flyTo(scene.focusId);
-    } else if (scene.focusId !== null && focusJoined) {
-      this.#flyTo(scene.focusId);
-    }
+    // The camera follows the focus (README: 相机随焦点): it flies to an
+    // off-screen or newly joining focus and compensates a relayout that
+    // displaces an unchanged focus, so a canvas click never moves the
+    // clicked node. The focus id and the focus node's scene entry change in
+    // different ticks — the working set arrives asynchronously after the
+    // selection — and the follow decision covers both transitions.
+    this.#lastFocusId = scene.focusId;
+    const current = scene.focusId !== null ? this.#entries.get(scene.focusId) : undefined;
+    const follow = focusFollow({
+      previousId,
+      currentId: scene.focusId,
+      previousCenter,
+      rect:
+        current === undefined
+          ? null
+          : {
+              x: current.node.x,
+              y: current.node.y,
+              width: current.node.width,
+              height: current.node.height,
+            },
+      viewport: this.#viewport(),
+      camera: this.#camera,
+    });
+    if (follow.action === "fly") this.#flyTo(scene.focusId);
+    else if (follow.action === "compensate") this.#compensateFocus(follow.dx, follow.dy);
     this.#schedule();
   }
 
@@ -366,22 +400,38 @@ export class GraphRenderer {
     );
   }
 
-  /** Moves the camera to fit the working-set bounding box on the next
-   * frame; called when the focus changes or the direction flips, never per
-   * working-set expansion (that would defeat the stable layout). */
-  /** Moves the camera so the whole working set fits with a margin. */
+  /** Pans both cameras by the inverse of the focus node's virtual
+   * displacement so the node keeps its screen position (README: 相机补偿
+   * 焦点的位移). Both move at once — the relayout itself is instantaneous,
+   * and a gliding correction would drag the focus along. */
+  #compensateFocus(dx: number, dy: number): void {
+    const box = this.#contentBox();
+    if (box === null) return;
+    const viewport = this.#viewport();
+    this.#camera = panCamera(
+      this.#camera,
+      -dx * this.#camera.scale,
+      -dy * this.#camera.scale,
+      viewport,
+      box,
+    );
+    this.#target = panCamera(
+      this.#target,
+      -dx * this.#target.scale,
+      -dy * this.#target.scale,
+      viewport,
+      box,
+    );
+  }
+
+  /** Moves the camera so the whole working set fits with a margin; called
+   * when the direction flips, never per working-set change (that would
+   * defeat the stable layout). */
   fitToContent(): void {
     const box = this.#contentBox();
     if (box === null) return;
     this.#target = fitCamera(box, this.#viewport(), this.#maxScale, FIT_MARGIN);
     this.#schedule();
-  }
-
-  /** Glides the camera so the focus node sits at the viewport center
-   * (README: 焦点更换时相机平滑飞向新焦点). */
-  /** Glides the camera so node `id` sits at the viewport center. */
-  flyToNode(id: string): void {
-    this.#flyTo(id);
   }
 
   setZoomAnchor(anchor: "cursor" | "center"): void {
@@ -751,9 +801,7 @@ export class GraphRenderer {
             ? BORDER_WIDTH_HOVERED
             : BORDER_WIDTH;
       const borderColor =
-        node.selected || node.focus || node.hovered
-          ? this.#theme.primary
-          : this.#theme.nodeBorder;
+        node.selected || node.focus || node.hovered ? this.#theme.primary : this.#theme.nodeBorder;
       const base = count * 16;
       this.#nodeData[base] = (node.x + node.width / 2) * scale + tx;
       this.#nodeData[base + 1] = (node.y + node.height / 2) * scale + ty;
@@ -799,8 +847,7 @@ export class GraphRenderer {
       const maxWidth = (node.width * scale - padPx * 2) / glyphScale;
       const label = this.#labelFor(node.label, maxWidth);
       let penX = node.x * scale + this.#camera.tx + padPx;
-      const baseline =
-        node.y * scale + this.#camera.ty + (node.height * scale) / 2 + fontPx * 0.35;
+      const baseline = node.y * scale + this.#camera.ty + (node.height * scale) / 2 + fontPx * 0.35;
       for (const ch of label) {
         const glyph = this.#atlas.glyph(ch);
         if (glyph === undefined) break; // atlas ran full; retries next frame

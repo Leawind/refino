@@ -3,6 +3,7 @@ import {
   clampCamera,
   clampScale,
   fitCamera,
+  focusFollow,
   minScale,
   pannedCamera,
   zoomedCamera,
@@ -110,5 +111,52 @@ describe("panning", () => {
     expect(moved.ty).toBe(67);
     const far = pannedCamera(moved, 100000, 100000, viewport, box);
     expect(intersectsViewport(far)).toBe(true);
+  });
+});
+
+describe("focus follow", () => {
+  const camera = { scale: 1, tx: 0, ty: 0 };
+  /** Node-sized rects, laid out like the layout engine's 150×44 cards. */
+  const rect = (x: number, y: number) => ({ x, y, width: 150, height: 44 });
+  const center = { x: 75, y: 22 };
+  const follow = (overrides: Partial<Parameters<typeof focusFollow>[0]> = {}) =>
+    focusFollow({
+      previousId: "a",
+      currentId: "a",
+      previousCenter: center,
+      rect: rect(10, 10),
+      viewport,
+      camera,
+      ...overrides,
+    });
+
+  it("keeps an on-screen focus put when the focus changes (canvas click)", () => {
+    expect(follow({ currentId: "b" })).toEqual({ action: "none" });
+  });
+
+  it("flies when the new focus is off-screen or not in the scene", () => {
+    expect(follow({ currentId: "b", rect: rect(2000, 10) })).toEqual({ action: "fly" });
+    expect(follow({ currentId: "b", rect: rect(-500, 10) })).toEqual({ action: "fly" });
+    expect(follow({ currentId: "b", rect: null })).toEqual({ action: "fly" });
+  });
+
+  it("flies when a focus joins the scene (async first expansion)", () => {
+    // The working set arrives a tick after the selection: same id, no
+    // pre-update entry — there is no on-screen position to preserve.
+    expect(follow({ previousCenter: null, rect: rect(2000, 10) })).toEqual({ action: "fly" });
+    expect(follow({ previousCenter: null, rect: rect(10, 10) })).toEqual({ action: "fly" });
+  });
+
+  it("compensates a relayout that displaces the unchanged focus", () => {
+    // rect(10,10) centers at (85,32): displaced by (+10,+10) from `center`.
+    expect(follow({ rect: rect(10, 10) })).toEqual({ action: "compensate", dx: 10, dy: 10 });
+  });
+
+  it("does nothing while the focus neither changed nor moved", () => {
+    expect(follow({ rect: rect(0, 0) })).toEqual({ action: "none" });
+  });
+
+  it("does nothing when the focus is cleared", () => {
+    expect(follow({ currentId: null })).toEqual({ action: "none" });
   });
 });
