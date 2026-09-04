@@ -39,6 +39,19 @@ export interface ConstraintNode extends NodeBase {
 
 export type RefinoNode = PremiseNode | ConstraintNode;
 
+/**
+ * Light node shape carried by batch query results (docs/design.md, "画布按
+ * 需查询"): id, type, summary and grounds — no body. Premises and
+ * not-yet-loaded constraints omit `grounds`.
+ */
+export interface NodeLite {
+  id: string;
+  type: NodeType;
+  summary: string;
+  /** Constraint nodes only. */
+  grounds?: readonly string[];
+}
+
 export interface Graph {
   /** Path of the `.refino` directory the graph was built from. */
   refinoDir: string;

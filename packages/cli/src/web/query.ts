@@ -1,5 +1,5 @@
 import { getAncestors, getDependents, getGrounds, queryGroups } from "refino";
-import type { Graph, QueryGroup, RefinoNode } from "refino";
+import type { Graph, NodeLite, QueryGroup, RefinoNode } from "refino";
 
 /**
  * Canvas on-demand query logic over the resident graph (docs/design.md,
@@ -9,15 +9,6 @@ import type { Graph, QueryGroup, RefinoNode } from "refino";
  * `QueryGroup<T>`. Results carry light node shapes (no body): the canvas
  * renders id, type, summary and grounds edges.
  */
-
-/** Wire shape of a node in query results. */
-export interface NodeLite {
-  id: string;
-  type: RefinoNode["type"];
-  summary: string;
-  /** Constraint nodes only. */
-  grounds?: string[];
-}
 
 export interface NodeWithDepth extends NodeLite {
   /** Distance from the query's anchor node; 0 for the anchor itself. */

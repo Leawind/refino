@@ -1,19 +1,16 @@
 /** Shared front-end types mirroring the JSON API contract (docs/design.md,
- * "后端 API 契约" and "画布按需查询"). */
+ * "后端 API 契约" and "画布按需查询"). Shapes the engine already owns are
+ * imported from `refino` instead of redeclared here, so the wire contract
+ * cannot drift from the engine.
+ *
+ * Deliberately local: NodeRecord/NodePayload mirror the HTTP record, whose
+ * optionality differs from the engine's in-memory node union. */
 
-export type NodeType = "premise" | "constraint";
+import type { NodeLite, NodeType, RefinoIssue } from "refino";
 
-/** Light node shape carried by all canvas query results (no body). */
-export interface NodeLite {
-  id: string;
-  type: NodeType;
-  summary: string;
-  /** Constraint nodes only. */
-  grounds?: readonly string[];
-}
-
-/** Engine's batch result shape: per-id results or a per-id error. */
-export type QueryGroup<T> = { id: string; results: T[] } | { id: string; error: string };
+export type { NodeType, NodeLite, QueryGroup, RefinoIssue } from "refino";
+/** Issues as emitted by the API — the engine's `RefinoIssue` JSON. */
+export type IssueRecord = RefinoIssue;
 
 export interface NodeWithDepth extends NodeLite {
   /** Distance from the query's anchor node; 0 for the anchor itself. */
@@ -66,14 +63,6 @@ export interface NodeRecord {
   grounds?: string[];
   rationale?: string;
   confirmed?: string;
-}
-
-export interface IssueRecord {
-  code: string;
-  message: string;
-  file?: string;
-  nodeId?: string;
-  groundId?: string;
 }
 
 /** GET /api/nodes/:id — full node plus per-node issues and the revision for
