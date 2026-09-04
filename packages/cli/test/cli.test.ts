@@ -110,6 +110,90 @@ describe("refino cli", () => {
     expect(premiseView.out).toContain("premises(id=1A2B3C4D)");
   });
 
+  it("show text output labels summary, rationale and confirmed", async () => {
+    const emptyRoot = await createRefino({});
+    try {
+      await run([
+        "--root",
+        emptyRoot,
+        "new",
+        "premise",
+        "--id",
+        "1A2B3C4D",
+        "--body",
+        "Fact.",
+        "--summary",
+        "A premise summary.",
+        "--confirmed",
+        "2026-05-01T00:00:00Z",
+      ]);
+      await run([
+        "--root",
+        emptyRoot,
+        "new",
+        "constraint",
+        "--id",
+        "D4E5F6G7",
+        "--body",
+        "Decision.",
+        "--grounds",
+        "1A2B3C4D",
+        "--rationale",
+        "Because of the fact.",
+        "--summary",
+        "A constraint summary.",
+      ]);
+
+      const constraintView = await run(["--root", emptyRoot, "show", "D4E5F6G7"]);
+      expect(constraintView.out).toContain("summary: A constraint summary.");
+      expect(constraintView.out).toContain("rationale: Because of the fact.");
+      expect(constraintView.out).not.toContain("confirmed:");
+
+      const premiseView = await run(["--root", emptyRoot, "show", "1A2B3C4D"]);
+      expect(premiseView.out).toContain("summary: A premise summary.");
+      expect(premiseView.out).toContain("confirmed: 2026-05-01T00:00:00Z");
+      expect(premiseView.out).not.toContain("rationale:");
+    } finally {
+      await removeRefino(emptyRoot);
+    }
+  });
+
+  it("list --unreferenced lists only premises no constraint grounds on", async () => {
+    const root = await createRefino({
+      "nodes/1A/2B3C4D.premise.md": premise("1A2B3C4D", "Unreferenced fact."),
+      "nodes/2B/3C4D5E.premise.md": premise("2B3C4D5E", "Referenced fact."),
+      "nodes/C1/234567.constraint.md": constraint("C1234567", ["2B3C4D5E"], "Decision."),
+    });
+    try {
+      const all = await run(["--root", root, "list", "--unreferenced"]);
+      expect(all.code).toBe(0);
+      expect(all.out).toContain("1A2B3C4D");
+      expect(all.out).not.toContain("2B3C4D5E");
+      expect(all.out).not.toContain("C1234567");
+
+      const withType = await run(["--root", root, "list", "--type", "premise", "--unreferenced"]);
+      expect(withType.code).toBe(0);
+      expect(withType.out).toContain("1A2B3C4D");
+
+      const constraintType = await run([
+        "--root",
+        root,
+        "list",
+        "--type",
+        "constraint",
+        "--unreferenced",
+      ]);
+      expect(constraintType.code).toBe(1);
+      expect(constraintType.err).toContain("--unreferenced only applies to premises");
+
+      const json = await run(["--root", root, "--json", "list", "--unreferenced"]);
+      const nodes = JSON.parse(json.out) as Array<{ id: string }>;
+      expect(nodes.map((n) => n.id)).toEqual(["1A2B3C4D"]);
+    } finally {
+      await removeRefino(root);
+    }
+  });
+
   it("grounds prints resolved grounds in declared order", async () => {
     const { code, out } = await run(["--root", validRoot, "grounds", "E5F6G7H8"]);
     expect(code).toBe(0);
@@ -267,7 +351,7 @@ describe("refino cli", () => {
   it("new constraint creates a constraint node with grounds and rationale", async () => {
     const emptyRoot = await createRefino({});
     try {
-      await run(["--root", emptyRoot, "new", "premise", "--body", "Fact."]);
+      await run(["--root", emptyRoot, "new", "premise", "--id", "1A2B3C4D", "--body", "Fact."]);
       const { code, out } = await run([
         "--root",
         emptyRoot,
@@ -284,8 +368,72 @@ describe("refino cli", () => {
       expect(out).toContain(".refino/nodes/");
 
       const validate = await run(["--root", emptyRoot, "--json", "validate"]);
-      // the grounds reference 1A2B3C4D does not exist -> reported as an issue
-      expect(validate.code).toBe(1);
+      expect(validate.code).toBe(0);
+      expect((JSON.parse(validate.out) as { ok: boolean }).ok).toBe(true);
+    } finally {
+      await removeRefino(emptyRoot);
+    }
+  });
+
+  it("new constraint rejects unknown grounds before creating anything", async () => {
+    const emptyRoot = await createRefino({});
+    try {
+      await run(["--root", emptyRoot, "new", "premise", "--id", "1A2B3C4D", "--body", "Fact."]);
+      const { code, err } = await run([
+        "--root",
+        emptyRoot,
+        "new",
+        "constraint",
+        "--body",
+        "Decision.",
+        "--grounds",
+        "1A2B3C4D,2B3C4D5E",
+      ]);
+      expect(code).toBe(1);
+      expect(err).toContain("[UNKNOWN_GROUND]");
+      expect(err).toContain("2B3C4D5E");
+
+      const validate = await run(["--root", emptyRoot, "--json", "validate"]);
+      expect(validate.code).toBe(0); // nothing was written
+    } finally {
+      await removeRefino(emptyRoot);
+    }
+  });
+
+  it("new constraint rejects repeated ground ids", async () => {
+    const emptyRoot = await createRefino({});
+    try {
+      await run(["--root", emptyRoot, "new", "premise", "--id", "1A2B3C4D", "--body", "Fact."]);
+      const { code, err } = await run([
+        "--root",
+        emptyRoot,
+        "new",
+        "constraint",
+        "--body",
+        "Decision.",
+        "--grounds",
+        "1A2B3C4D,1A2B3C4D",
+      ]);
+      expect(code).toBe(1);
+      expect(err).toContain("[INVALID_GROUNDS]");
+    } finally {
+      await removeRefino(emptyRoot);
+    }
+  });
+
+  it("new constraint still works when .refino does not exist yet", async () => {
+    const emptyRoot = await createRefino({});
+    await removeRefino(emptyRoot); // drop the .refino directory itself
+    try {
+      const { code } = await run([
+        "--root",
+        emptyRoot,
+        "new",
+        "constraint",
+        "--body",
+        "Root decision.",
+      ]);
+      expect(code).toBe(0);
     } finally {
       await removeRefino(emptyRoot);
     }

@@ -1,9 +1,11 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createConstraint, createPremise, loadGraph } from "@refino/storage";
+import { createConstraint, createPremise, loadGraph, nodeRelativeFile } from "@refino/storage";
 import { CommanderError, Command, Option } from "commander";
 import {
+  checkGroundsChange,
+  generateId,
   getAncestors,
   getDependents,
   getGrounds,
@@ -14,7 +16,7 @@ import {
   validateGraph,
 } from "refino";
 import type { Graph, NodeWithDepth, QueryGroup, RefinoIssue, RefinoNode } from "refino";
-import { processIo, renderIssues, renderNodeTable } from "./format.js";
+import { processIo, renderFullRecord, renderIssues, renderNodeTable } from "./format.js";
 import type { CliIo } from "./format.js";
 import { startWebServer } from "./web/server.js";
 
@@ -86,14 +88,29 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
         "constraint",
       ]),
     )
+    .addOption(new Option("--unreferenced", "list only premises that no constraint grounds on"))
     .action((_opts, cmd) =>
       run(cmd, async (opts) => {
-        const typeFilter = (cmd.opts() as { type?: string }).type as
-          "premise" | "constraint" | undefined;
+        const { type: typeFilter, unreferenced } = cmd.opts() as {
+          type?: "premise" | "constraint";
+          unreferenced?: boolean;
+        };
+        if (unreferenced && typeFilter === "constraint") {
+          io.stderr.write("error: --unreferenced only applies to premises\n");
+          return 1;
+        }
         const { graph, issues } = await loadGraph(refinoDir(opts));
         if (issues.length > 0) return reportBlockingIssues(io, opts, issues);
         let nodes = sortNodes(graph);
         if (typeFilter) nodes = nodes.filter((n) => n.type === typeFilter);
+        if (unreferenced) {
+          const referenced = new Set<string>();
+          for (const node of graph.nodes.values()) {
+            if (node.type !== "constraint") continue;
+            for (const ground of node.grounds ?? []) referenced.add(ground);
+          }
+          nodes = nodes.filter((n) => n.type === "premise" && !referenced.has(n.id));
+        }
         if (opts.json) {
           emit(io, nodes.map(nodeJson));
         } else if (nodes.length === 0) {
@@ -126,11 +143,9 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
           } else {
             io.stdout.write(
               `${groups
-                .map((group) => {
-                  if ("error" in group) return `error: ${group.error}`;
-                  const node = group.results[0]!;
-                  return `${renderNodeHeading(node)}\n\n${node.body}`;
-                })
+                .map((group) =>
+                  "error" in group ? `error: ${group.error}` : renderFullRecord(group.results[0]!),
+                )
                 .join("\n\n")}\n`,
             );
           }
@@ -239,6 +254,20 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
               io.stderr.write(
                 `error: invalid ground id "${invalidGround}" (must be an 8-character Crockford base32 id)\n`,
               );
+              return 1;
+            }
+            // Graph-level grounds check before anything is written, via the
+            // engine's shared write-path primitive. Pre-existing parse issues
+            // elsewhere in the graph must not block creation.
+            const graph = await loadGraphForWrite(refinoDir(opts));
+            const probeId = id ?? freshProbeId(graph);
+            const groundIssues = checkGroundsChange(
+              withPhantomConstraint(graph, probeId, groundIds),
+              probeId,
+              groundIds,
+            );
+            if (groundIssues.length > 0) {
+              io.stderr.write(`${renderIssues(groundIssues)}\n`);
               return 1;
             }
             const newId = await createConstraint(refinoDir(opts), {
@@ -447,15 +476,50 @@ function nodeJson(node: RefinoNode): Record<string, unknown> {
   return node.type === "constraint" ? { ...base, grounds: node.grounds ?? [] } : base;
 }
 
-/** Compact single-line identity, e.g. `constraints(id=E5F6G7H8, grounds=[...])`. */
-function renderNodeHeading(node: RefinoNode): string {
-  const parts = [`id=${node.id}`];
-  if (node.type === "constraint") parts.push(`grounds=[${(node.grounds ?? []).join(", ")}]`);
-  return `${node.type}s(${parts.join(", ")})`;
+/**
+ * Grounds check for a not-yet-persisted constraint. The shared primitive
+ * requires the target to exist, so a phantom node is inserted into a copy of
+ * the graph; a brand-new node has no dependents and cannot close a cycle, so
+ * the check reduces to unknown/duplicate reference reporting.
+ */
+function withPhantomConstraint(graph: Graph, id: string, grounds: string[]): Graph {
+  const nodes = new Map(graph.nodes);
+  nodes.set(id, {
+    id,
+    type: "constraint",
+    file: nodeRelativeFile("constraint", id),
+    summary: "",
+    body: "",
+    grounds,
+  });
+  return { ...graph, nodes };
+}
+
+/** Fresh id for the phantom node of `withPhantomConstraint`. */
+function freshProbeId(graph: Graph): string {
+  let id = generateId();
+  while (graph.nodes.has(id)) id = generateId();
+  return id;
+}
+
+/**
+ * Load the graph for a write command. A missing `.refino` directory is the
+ * empty store, not an error: creating the first node must work.
+ */
+async function loadGraphForWrite(refinoDir: string): Promise<Graph> {
+  try {
+    return (await loadGraph(refinoDir)).graph;
+  } catch (error) {
+    if (error instanceof RefinoError && error.code === "REFINO_DIR_NOT_FOUND") {
+      return { refinoDir, nodes: new Map(), dependents: new Map() };
+    }
+    throw error;
+  }
 }
 
 function emit(io: CliIo, payload: unknown): void {
-  io.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
+  // Compact: the primary JSON consumers are programs and agents.
+  io.stdout.write(`${JSON.stringify(payload)}\n`);
 }
 
 function fail(io: CliIo, error: unknown): number {

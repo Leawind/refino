@@ -34,7 +34,7 @@
 以下原语由引擎统一提供，供 CLI、Web API、harness 等所有消费方复用，避免各自重复实现：
 
 - **`QueryGroup<T>`**：批量查询的标准结果形状（`{id, results: T[]} | {id, error: string}`），承载部分成功语义。所有批量查询接口（CLI、harness 工具、Web 按需查询）均使用此形状作为返回契约。
-- **`checkGroundsChange(graph, id, newGrounds): Issue[]`**：写入前 grounds 校验原语。给定当前图、目标节点 ID 与新 grounds 列表，返回校验问题（引用不存在、成环等）。所有写入路径（Web API、harness 插件、未来的桌面端）在落盘前调用此原语，确保图级校验逻辑单一来源。
+- **`checkGroundsChange(graph, id, newGrounds): Issue[]`**：写入前 grounds 校验原语。给定当前图、目标节点 ID 与新 grounds 列表，返回校验问题（引用不存在、成环等）。所有写入路径（CLI 创建、Web API、harness 插件、未来的桌面端）在落盘前调用此原语，确保图级校验逻辑单一来源。目标节点尚未持久化时（如创建约束），消费方向图的副本插入待写节点后调用原语。
 
 ## 存储格式容错
 

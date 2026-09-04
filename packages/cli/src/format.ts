@@ -41,3 +41,30 @@ export function renderIssues(
     .map((issue) => `[${issue.code}] ${issue.message}${issue.file ? ` (${issue.file})` : ""}`)
     .join("\n");
 }
+
+/** Compact single-line identity, e.g. `constraints(id=E5F6G7H8, grounds=[...])`. */
+export function renderNodeHeading(node: { id: string; type: string; grounds?: string[] }): string {
+  const parts = [`id=${node.id}`];
+  if (node.type === "constraint") parts.push(`grounds=[${(node.grounds ?? []).join(", ")}]`);
+  return `${node.type}s(${parts.join(", ")})`;
+}
+
+/**
+ * Full human-readable record: heading line, labeled attributes, then the
+ * body. Optional attributes (rationale, confirmed) only occupy a line when
+ * present, mirroring the JSON shape.
+ */
+export function renderFullRecord(node: {
+  id: string;
+  type: string;
+  summary: string;
+  grounds?: string[];
+  rationale?: string;
+  confirmed?: string;
+  body: string;
+}): string {
+  const lines = [renderNodeHeading(node), `summary: ${node.summary}`];
+  if (node.rationale !== undefined) lines.push(`rationale: ${node.rationale}`);
+  if (node.confirmed !== undefined) lines.push(`confirmed: ${node.confirmed}`);
+  return `${lines.join("\n")}\n\n${node.body}`;
+}

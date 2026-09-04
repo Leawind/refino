@@ -33,7 +33,10 @@ refino web --host 127.0.0.1 --port 5649
 
 - 命令行参数解析与输出格式化
 - 读取语义：`list` 与查询命令在图存在校验问题时拒绝执行（结果将有歧义），并以 `validate` 的格式输出问题详情
-- JSON 输出模式（`--json`）
+- `show` 的文本输出包含节点的全部字段（summary、rationale、confirmed 以带标签的行呈现，可选字段缺省时不占行）
+- `list --unreferenced`：列出未被任何约束引用的前提（待注入前提）
+- 写入前校验：`new constraint` 在落盘前经由引擎 `checkGroundsChange` 原语校验 grounds（引用不存在、重复 id 等即拒绝创建）
+- JSON 输出模式（`--json`，始终紧凑格式）
 - 自定义项目根目录（`--root`）
 - `refino web` 的 HTTP 服务：进程内常驻索引（轻量索引常驻、body 按需读取并 LRU 缓存）、画布按需查询、分页搜索、文件监听与 SSE 变更推送（`/api/events`）、权威重建（`/api/reload`）。API 契约与索引架构见 [docs/design.md](../../docs/design.md) 的「Web 界面」一节
 

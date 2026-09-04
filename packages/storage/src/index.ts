@@ -6,6 +6,7 @@ export {
   updatePremise,
   updateConstraint,
   deleteNode,
+  nodeRelativeFile,
 } from "./writer.js";
 export type {
   CreateOptions,
