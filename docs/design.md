@@ -15,7 +15,7 @@
 | `@refino/testkit`       | 各包测试共用的夹具与工具函数                                                                                                                      | 已有           |
 | `@refino/ui`            | CRG 可视化编辑组件库（Vue 3）                                                                                                                     | 已有（脚手架） |
 | `@refino/harness`       | 任务界定层（作用域锚点、修改边界、冻结区、授权上下文、冲突检测与越界升级）与 vibe coding 工具插件的公共逻辑（上下文增量生成、模型技能、注入协议） | 已有           |
-| `@refino/<tool>-plugin` | 各 vibe coding 工具的插件，如 `@refino/dsh-plugin`（dsh 适配，接入形态待定）                                                                      | 设计中         |
+| `@refino/<tool>-plugin` | 各 vibe coding 工具的插件，如 `@refino/dsh-plugin`（dsh 适配，以 Cordis 插件形式接入，bundle 形式分发）                                           | 设计中         |
 | `@refino/desktop`       | 桌面应用                                                                                                                                          | 未来           |
 | `@refino/vscode`        | VSCode 插件                                                                                                                                       | 未来           |
 
@@ -90,7 +90,27 @@
 ### harness 与工具插件的分工
 
 - `@refino/harness`（平台无关）：任务界定层纯图逻辑（授权上下文、冻结区计算、越界校验、升级报告）、上下文渲染与 delta 事件生成、待审查派生、注入协议抽象（宿主适配接口）。
-- `@refino/dsh-plugin`（dsh 适配，薄封装）：会话初始化时加载 `.refino/` 并按锚点生成初始上下文；把上述读写能力注册为 dsh 可用的工具或技能。dsh（DeepSeek 官方开源 agent harness，基于 Cordis，developer preview，接口可能有破坏性变更）的接入形态——Cordis 插件、Skill 或 MCP——暂不确定，待 dsh 稳定或调研深入后再定；插件对 dsh 的依赖必须是薄封装。
+- `@refino/dsh-plugin`（dsh 适配，薄封装）：会话初始化时加载 `.refino/` 并按锚点生成初始上下文；把上述读写能力注册为 dsh 可用的工具。dsh（DeepSeek 官方开源 agent harness，基于 Cordis，developer preview，接口可能有破坏性变更）的接入形态经调研（2026-09）已定案：**以 Cordis 插件形式接入，以 dsh bundle（npm 包）形式分发**；Skill 作为轻量补充，MCP 留作未来面向其他宿主的通用适配层，不作为 dsh 的主接入形态。
+
+#### dsh 接入形态定案依据
+
+refino 的四项接入需求中，两项只有进程内 Cordis 插件能实现，据此排除 MCP 与纯 Skill：
+
+- **初始上下文注入**：dsh 的 MCP 支持只桥接 tools（resources 与 prompts 均不支持），无法在会话初始化时注入锚点上下文；Cordis 插件可监听 `agent/session-start` 并经 `agent.inject()` 注入，注入内容为持久化的 user-role 消息，resume/重放/压缩安全。
+- **增量 delta 注入**：dsh 全线按 append-only、KV-cache 前缀稳定设计，`agent.inject()` 排入下一 pre-step 且不唤醒驱动，与 harness 的「稳定前缀 + delta」注入协议同构；MCP 无推送通道。
+- **读写工具**：`ctx.tools.register()` 原生工具的结构化结果与 `output.render` 投影贴合 `QueryGroup` 部分成功语义；MCP 工具强制 `mcp__<server>__<tool>` 命名且结果文本化。
+- **Skill 不能承载工具**：Skill 本质是按需加载的 Markdown 指令，若只发 Skill，模型需直接操作 `.refino/` 文件，违反「模型不直接访问 CRG 文件」的原则；可用 `ctx.skills.register()` 注册一个讲解 CRG 概念与工具选用时机的技能作为补充。
+
+对 dsh 的依赖面收敛为两个包：`@deepseek-ai/cordis`（类型）与 `@deepseek-ai/dsh-tools`（`defineTool`）。
+
+#### dsh 插件落地形态
+
+- **分发**：npm 包声明 `dsh.bundle` manifest 指向包内 `cordis.patch.yml`，用户经 `dsh plugin --profile <name> add <包>` 安装；git 直装需自包含 `prepare` 构建脚本，发 npm 或 tarball 则免构建许可。
+- **会话初始化**：监听 `agent/session-start`，取会话 cwd 定位 `.refino/`，经 `@refino/storage` 加载图，构造 `HarnessSession`，按两级策略渲染并以 `<system-reminder>` 框架注入（显式区分「冻结区约束：只读依据」与「前沿以内：授权修改空间」）。授权上下文 v1 从插件配置或 `.refino/` 下的会话文件读取。
+- **工具**：`refino_list` / `refino_show` / `refino_grounds` / `refino_ancestors` / `refino_dependents` / `refino_pending_review` 与写入工具；写入内部走引擎 `checkGroundsChange` + `validateGraph` + harness `checkModification`，越界返回结构化升级报告（正常工具结果，非报错）。
+- **增量同步**：监听 `.refino/nodes/` 分片目录，变更经增量重载产出待审查集与 delta 事件后注入；无监听能力时降级为 touch 驱动（参照 dsh `agent-instructions` 的 `tools/result` 模式）。
+- **锚点/前沿签发**：v1 经 `ctx.commands` 用户命令或配置文件签发；锚点/冻结区选择器组件（`@refino/ui`）的接入属后续工作，走 dsh UI 插件路线。
+- **版本策略**：dsh 处于 developer preview，`@deepseek-ai/*` 依赖锁精确版本，CI 对 dsh 升级跑插件冒烟。
 
 ## 命名约定
 
