@@ -56,6 +56,26 @@ describe("refino web api", () => {
     expect(graph.nodes.get(id)?.grounds).toEqual(["A1B2C3D4"]);
   });
 
+  it("rejects a malformed confirmed timestamp with 400", async () => {
+    const res = await app().request("/api/nodes/premise", {
+      method: "POST",
+      body: JSON.stringify({ body: "前提。", confirmed: "上周三" }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toContain("RFC 3339");
+
+    const created = await app().request("/api/nodes/premise", {
+      method: "POST",
+      body: JSON.stringify({ body: "前提。" }),
+    });
+    const { id } = (await created.json()) as { id: string };
+    const updated = await app().request(`/api/nodes/${id}`, {
+      method: "PUT",
+      body: JSON.stringify({ body: "前提。", confirmed: "not-a-timestamp" }),
+    });
+    expect(updated.status).toBe(400);
+  });
+
   it("rejects unknown grounds with 400", async () => {
     const res = await app().request("/api/nodes/constraint", {
       method: "POST",

@@ -5,7 +5,14 @@ import {
   updateConstraint,
   updatePremise,
 } from "@refino/storage";
-import { checkGroundsChange, getDependents, ID_RE, IssueCode, RefinoError } from "refino";
+import {
+  checkGroundsChange,
+  getDependents,
+  ID_RE,
+  isValidConfirmed,
+  IssueCode,
+  RefinoError,
+} from "refino";
 import type { Context } from "hono";
 import type { GraphIndex } from "./graph-index.js";
 
@@ -124,7 +131,7 @@ async function create(
         ? await createPremise(index.refinoDir, {
             body,
             summary,
-            confirmed: readString(payload, "confirmed"),
+            confirmed: readConfirmed(payload),
           })
         : await createConstraint(index.refinoDir, {
             body,
@@ -188,7 +195,7 @@ export async function putNode(c: Context, index: GraphIndex): Promise<Response> 
       await updatePremise(index.refinoDir, id, {
         body,
         summary,
-        confirmed: readString(payload, "confirmed"),
+        confirmed: readConfirmed(payload),
       });
     } else {
       const grounds = resolveGrounds(payload);
@@ -280,7 +287,7 @@ async function createWithId(c: Context, index: GraphIndex, id: string): Promise<
       id,
       body,
       summary,
-      confirmed: readString(payload, "confirmed"),
+      confirmed: readConfirmed(payload),
     });
   } else {
     await createConstraint(index.refinoDir, {
@@ -334,6 +341,22 @@ function readRequiredString(payload: Payload, key: string): string {
     );
   }
   return value;
+}
+
+/**
+ * The payload's `confirmed` timestamp, format-checked. The CLI validates
+ * before writing; the web write paths must not store a value that only
+ * surfaces later as an INVALID_CONFIRMED issue.
+ */
+function readConfirmed(payload: Payload): string | undefined {
+  const confirmed = readString(payload, "confirmed");
+  if (confirmed !== undefined && !isValidConfirmed(confirmed)) {
+    throw new RefinoError(
+      IssueCode.InvalidConfirmed,
+      `"confirmed" must be an RFC 3339 timestamp with an explicit UTC offset (Z or ±HH:MM), got "${confirmed}".`,
+    );
+  }
+  return confirmed;
 }
 
 export function readString(payload: Payload, key: string): string | undefined {
