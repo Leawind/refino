@@ -1,4 +1,4 @@
-import type { Graph, NodeWithDepth } from "refino";
+import type { Graph } from "refino";
 import { getDependents } from "refino";
 import { HarnessError } from "./errors.js";
 import { byId, unknownNodes } from "./types.js";
@@ -105,30 +105,6 @@ export function checkModifications(
   ids: readonly string[],
 ): ModificationCheck[] {
   return ids.map((id) => checkModification(graph, context, id));
-}
-
-/**
- * Frozen constraints within the transitive dependents of the given nodes:
- * a modification whose downstream repair reaches these escalates (3.2/3.4).
- * Call after `checkModification` cleared the targets themselves. Deduplicated
- * and sorted by id.
- */
-export function frozenDependents(
-  graph: Graph,
-  context: AuthorizationContext,
-  ids: readonly string[],
-): NodeWithDepth[] {
-  validateContext(graph, context);
-  const frozen = frozenIds(graph, context);
-  const found = new Map<string, NodeWithDepth>();
-  for (const id of ids) {
-    for (const dependent of getDependents(graph, id)) {
-      if (frozen.has(dependent.node.id)) found.set(dependent.node.id, dependent);
-    }
-  }
-  return [...found.values()].sort((a, b) =>
-    a.node.id < b.node.id ? -1 : a.node.id > b.node.id ? 1 : 0,
-  );
 }
 
 function zoneOf(graph: Graph, context: AuthorizationContext, id: string): NodeZone {

@@ -101,14 +101,14 @@ refino 的四项接入需求中，两项只有进程内 Cordis 插件能实现�
 - **读写工具**：`ctx.tools.register()` 原生工具的结构化结果与 `output.render` 投影贴合 `QueryGroup` 部分成功语义；MCP 工具强制 `mcp__<server>__<tool>` 命名且结果文本化。
 - **Skill 不能承载工具**：Skill 本质是按需加载的 Markdown 指令，若只发 Skill，模型需直接操作 `.refino/` 文件，违反「模型不直接访问 CRG 文件」的原则；可用 `ctx.skills.register()` 注册一个讲解 CRG 概念与工具选用时机的技能作为补充。
 
-对 dsh 的依赖面收敛为两个包：`@deepseek-ai/cordis`（类型）与 `@deepseek-ai/dsh-tools`（`defineTool`）。
+对 dsh 的依赖保持薄封装：运行时仅 `@deepseek-ai/dsh-tools`（`defineTool`）与 `@deepseek-ai/dsh-llm`（`createUserMessage`，注入消息须经官方工厂生成稳定 id）；`@deepseek-ai/cordis`、`@deepseek-ai/dsh-agent`（`Agent` 接口与 `agent/*` 事件声明）、`@deepseek-ai/dsh-session`（会话头类型）仅作类型依赖。
 
 #### dsh 插件落地形态
 
 - **分发**：npm 包声明 `dsh.bundle` manifest 指向包内 `cordis.patch.yml`，用户经 `dsh plugin --profile <name> add <包>` 安装；git 直装需自包含 `prepare` 构建脚本，发 npm 或 tarball 则免构建许可。
 - **默认授权上下文**：未显式指定时，冻结区默认取全部根约束连同其祖先，前提全部注入；图节点数不超过 1024 时锚点取全部节点（初始注入即全图摘要），超过 1024 则要求显式锚点，签发前不注入初始上下文。
 - **会话初始化**：监听 `agent/session-start`，取会话 cwd 定位 `.refino/`，经 `@refino/storage` 加载图，按默认或显式授权上下文构造 `HarnessSession`，按两级策略渲染并以 `<system-reminder>` 框架注入（显式区分「冻结区约束：只读」与「冻结区以外：授权修改空间」）。
-- **工具**：`refino_list` / `refino_show` / `refino_grounds` / `refino_ancestors` / `refino_dependents` / `refino_pending_review` 与写入工具；写入内部走引擎 `checkGroundsChange` + `validateGraph` + harness `checkModification` 与 `frozenDependents`（修改波及冻结约束即升级），越界返回结构化升级报告（正常工具结果，非报错）。
+- **工具**：`refino_list` / `refino_show` / `refino_grounds` / `refino_ancestors` / `refino_dependents` / `refino_pending_review` 与写入工具；写入内部走引擎 `checkGroundsChange` + `validateGraph` + harness `checkModification`，越界（目标落在冻结区）返回结构化升级报告（正常工具结果，非报错）。修改空间沿细化方向向下封闭（见 crg.md 2.4），写入无需下游波及冻结区的检查。
 - **增量同步**：监听 `.refino/nodes/` 分片目录，变更经增量重载产出待审查集与 delta 事件后注入；无监听能力时降级为 touch 驱动（参照 dsh `agent-instructions` 的 `tools/result` 模式）。
 - **锚点/冻结区签发**：对话中的指定分三层——v1 经 `ctx.commands` 用户命令（如 `/refino-scope <ids>`）与插件配置签发；工具内经 `ctx.userQuestions.ask()` 支持模型发起、用户多选确认（dsh 限制仅运行时根 agent 可发起）；锚点/冻结区选择器组件（`@refino/ui`）属后续工作，经 dsh Web Client 的 slots/Conversation 节点扩展点接入。
 - **版本策略**：dsh 处于 developer preview，`@deepseek-ai/*` 依赖锁精确版本，CI 对 dsh 升级跑插件冒烟。

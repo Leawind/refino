@@ -33,16 +33,16 @@ export interface IssueLite {
   message: string;
 }
 
-/** Why a write was blocked by the modification boundary (docs/crg.md 3.4). */
-export type EscalationReason = "node_frozen" | "downstream_frozen";
-
 /**
- * Structured escalation report for a blocked write. The model is expected to
- * stop modifying, report to the user, and propose changes — not to retry.
+ * Structured escalation report for a blocked write (docs/crg.md 3.4): the
+ * target itself sits in the frozen zone. The modification space closes
+ * downwards along dependents, so no other escalation reason exists. The
+ * model is expected to stop modifying, report to the user, and propose
+ * changes — not to retry.
  */
 export interface EscalationLite {
   id: string;
-  reason: EscalationReason;
+  reason: "node_frozen";
   affected: NodeDepthLite[];
 }
 

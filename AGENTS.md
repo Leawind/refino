@@ -28,7 +28,7 @@
 
 实现中踩过并确认的坑，供后续任务避让；条目应写清现象与结论，不罗列排查过程。
 
-- Node `fs.watch` 的 FSWatcher 触发的 EventEmitter 事件名只有 `'change'`；`'rename'` / `'change'` 是回调第一个参数（eventType）的取值，不是事件名。用 `.on("rename", ...)` 注册的监听器永远不会触发；不用 callback 简写形式时极易踩中。参见 `packages/cli/src/web/watcher.ts`。
+- Node `fs.watch` 的 FSWatcher 触发的 EventEmitter 事件名只有 `'change'`；`'rename'` / `'change'` 是回调第一个参数（eventType）的取值，不是事件名。用 `.on("rename", ...)` 注册的监听器永远不会触发；不用 callback 简写形式时极易踩中。参见 `packages/storage/src/watcher.ts`。
 - 排查"事件没触发 / 回调没执行"类问题时：先让出错的代码与能工作的参照代码逐字符对齐注册方式，再做环境假设（运行环境、平台、时序等）；对照实验一次只允许改变一个变量，否则极易把归因引向错误方向。
 - naive-ui 的 `useMessage` / `useDialog` 等 provider 类 composable，不能在渲染 `<NMessageProvider>` 的组件自身的 setup 中调用：会在挂载时抛 "No outer \<n-message-provider /\>"，失败面是整个应用挂载失败（黑屏），而非仅消息功能不可用。这类 composable 必须放在 provider 内部的专用子组件中调用（参见 `packages/ui/src/components/WorkspaceToasts.vue`）；jsdom 组件测试暴露不了此问题，需要真实浏览器冒烟。
 - WebGL `vertexAttribPointer` 的 stride 是**每实例字节数**，不是缓冲容量：误传容量会让实例属性越界读取，`drawArraysInstanced` 被**整体静默丢弃**——控制台零输出，唯一线索是 `gl.getError()` 返回 1282（INVALID_OPERATION）。stride 应由字段布局求和得出；传 0 也不是"交错排列"，而是"各属性分别紧密排列"。画布内容缺失而代码看似正常时，第一步查 `gl.getError()`。参见 `packages/ui/src/graph/render/renderer.ts`。

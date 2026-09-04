@@ -10,7 +10,7 @@ import {
   type NodeWithDepth,
   type RefinoNode,
 } from "refino";
-import { checkModification, frozenDependents, HarnessError } from "@refino/harness";
+import { checkModification, HarnessError } from "@refino/harness";
 import {
   createConstraint,
   createPremise,
@@ -18,7 +18,7 @@ import {
   updateConstraint,
   updatePremise,
 } from "@refino/storage";
-import { depthLite, issueLite, lite, type EscalationReason, type WriteResult } from "./shapes.js";
+import { depthLite, issueLite, lite, type WriteResult } from "./shapes.js";
 import { renderWrite } from "./render.js";
 import { requireWorkspace, writeResultSchema } from "./internal.js";
 import type { RefinoWorkspace } from "./workspace.js";
@@ -26,11 +26,12 @@ import type { RefinoWorkspace } from "./workspace.js";
 /**
  * CRG write tools (docs/design.md, dsh 插件落地形态). Every write walks the
  * same chain before persisting: engine `checkGroundsChange` (create validates
- * against a prospective graph copy), harness `checkModification` and
- * `frozenDependents` — reaching the frozen zone returns a structured
- * escalation report as a normal tool result, never an error. The target's own
- * sync runs after persisting; its pending-review set rides the result instead
- * of being injected.
+ * against a prospective graph copy) and harness `checkModification` — a
+ * frozen-zone target returns a structured escalation report as a normal tool
+ * result, never an error. The modification space closes downwards along
+ * dependents (docs/crg.md 2.4), so no downstream-freeze check exists. The
+ * target's own sync runs after persisting; its pending-review set rides the
+ * result instead of being injected.
  */
 export function createWriteTools(get: () => RefinoWorkspace | undefined): ToolDefinition[] {
   return [
@@ -123,7 +124,7 @@ function updateNodeTool(get: () => RefinoWorkspace | undefined): ToolDefinition 
   return defineTool({
     name: "refino_update_node",
     description:
-      "整体替换节点的可编辑字段：summary 与 body 必填。约束还须提供完整 grounds 列表（无依据传空数组），rationale 省略即清除；前提可带 confirmed，省略即清除。目标在冻结区或修改会波及冻结区内的下游约束时，返回结构化升级报告（正常结果，非报错）。",
+      "整体替换节点的可编辑字段：summary 与 body 必填。约束还须提供完整 grounds 列表（无依据传空数组），rationale 省略即清除；前提可带 confirmed，省略即清除。目标在冻结区（只读）时返回结构化升级报告（正常结果，非报错）。",
     parameters: {
       id: { type: "string", required: true, description: "要修改的节点 ID" },
       summary: { type: "string", required: true, description: "新的独立摘要" },
@@ -145,7 +146,7 @@ function updateNodeTool(get: () => RefinoWorkspace | undefined): ToolDefinition 
       }
       const blocked = checkModification(ws.graph, ws.authorizationContext, node.id);
       if (!blocked.allowed) {
-        return escalationResult(node.id, "node_frozen", blocked.report!.affected);
+        return escalationResult(node.id, blocked.report!.affected);
       }
       if (node.type === "premise") {
         return updatePremiseNode(ws, node, args);
@@ -178,10 +179,6 @@ async function updatePremiseNode(
   if (args.confirmed !== undefined && !isValidConfirmed(args.confirmed)) {
     return invalidConfirmed(args.confirmed);
   }
-  const downstream = frozenDependents(ws.graph, ws.authorizationContext, [node.id]);
-  if (downstream.length > 0) {
-    return escalationResult(node.id, "downstream_frozen", downstream);
-  }
   try {
     await updatePremise(ws.refinoDir, node.id, {
       body: args.body,
@@ -212,10 +209,6 @@ async function updateConstraintNode(
   const issues = checkGroundsChange(ws.graph, node.id, args.grounds);
   if (issues.length > 0) {
     return { ok: false, error: "grounds 校验未通过", issues: issues.map(issueLite) };
-  }
-  const downstream = frozenDependents(ws.graph, ws.authorizationContext, [node.id]);
-  if (downstream.length > 0) {
-    return escalationResult(node.id, "downstream_frozen", downstream);
   }
   try {
     await updateConstraint(ws.refinoDir, node.id, {
@@ -248,7 +241,7 @@ function deleteNodeTool(get: () => RefinoWorkspace | undefined): ToolDefinition 
       }
       const blocked = checkModification(ws.graph, ws.authorizationContext, node.id);
       if (!blocked.allowed) {
-        return escalationResult(node.id, "node_frozen", blocked.report!.affected);
+        return escalationResult(node.id, blocked.report!.affected);
       }
       const dependents = getDependents(ws.graph, node.id);
       if (dependents.length > 0) {
@@ -293,18 +286,11 @@ function checkProspectiveGrounds(
   return checkGroundsChange(prospective, id, grounds);
 }
 
-function escalationResult(
-  id: string,
-  reason: EscalationReason,
-  affected: NodeWithDepth[],
-): WriteResult {
+function escalationResult(id: string, affected: NodeWithDepth[]): WriteResult {
   return {
     ok: false,
-    error:
-      reason === "node_frozen"
-        ? `节点 ${id} 位于冻结区，只读`
-        : `修改 ${id} 会波及冻结区内的下游约束`,
-    escalation: { id, reason, affected: affected.map(depthLite) },
+    error: `节点 ${id} 位于冻结区，只读`,
+    escalation: { id, reason: "node_frozen", affected: affected.map(depthLite) },
   };
 }
 

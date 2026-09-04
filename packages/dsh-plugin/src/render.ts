@@ -101,9 +101,7 @@ function renderEscalation(escalation: {
   affected: NodeDepthLite[];
 }): string[] {
   const lines = [
-    escalation.reason === "node_frozen"
-      ? `节点 ${escalation.id} 位于冻结区，只读；本次授权范围以内不存在修改它的可行方案。`
-      : `修改 ${escalation.id} 会波及冻结区内的下游约束；在同一变更中修复它们超出了本次授权范围。`,
+    `节点 ${escalation.id} 位于冻结区，只读；本次授权范围以内不存在修改它的可行方案。`,
   ];
   if (escalation.affected.length > 0) {
     lines.push("受影响的下游约束（ID、相对深度、摘要）：");

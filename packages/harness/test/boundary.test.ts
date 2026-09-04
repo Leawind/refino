@@ -4,7 +4,6 @@ import type { Graph, NodeType, RefinoNode } from "refino";
 import {
   checkModification,
   freezableConstraints,
-  frozenDependents,
   frozenFrontier,
   frozenZone,
   validateContext,
@@ -194,20 +193,22 @@ describe("freezableConstraints", () => {
   });
 });
 
-describe("frozenDependents", () => {
-  it("reports frozen constraints within the dependents closure of the targets", () => {
-    const ctx: AuthorizationContext = { anchors: [], frozen: [E5, Z9] };
-    expect(frozenDependents(graphOf(), ctx, [D4]).map((n) => n.node.id)).toEqual([E5]);
-  });
-
-  it("deduplicates frozen nodes hit through several targets", () => {
-    const ctx: AuthorizationContext = { anchors: [], frozen: [B2] };
-    // B2's frozen closure {B2, E5, D4, A1} intersects the targets' dependents.
-    expect(frozenDependents(graphOf(), ctx, [A1, D4]).map((n) => n.node.id)).toEqual([B2, D4, E5]);
-  });
-
-  it("returns nothing when the frozen zone is outside the closure", () => {
-    const ctx: AuthorizationContext = { anchors: [], frozen: [Z9] };
-    expect(frozenDependents(graphOf(), ctx, [D4])).toEqual([]);
+describe("modification-space closure", () => {
+  // The frozen zone closes upwards along grounds, so the modification space
+  // closes downwards along dependents: no target that passes checkModification
+  // can have a frozen transitive dependent. This is why there is no
+  // "frozen dependents" write check (docs/crg.md 2.4).
+  it("keeps every transitive dependent of a modifiable constraint modifiable", () => {
+    const graph = graphOf();
+    for (const frozen of [[E5], [B2], [A1, Z9], []] as const) {
+      const ctx: AuthorizationContext = { anchors: [], frozen: [...frozen] };
+      for (const id of [A1, D4, E5, B2, Z9]) {
+        const check = checkModification(graph, ctx, id);
+        if (!check.allowed) continue;
+        for (const dependent of graph.dependents.get(id) ?? []) {
+          expect(checkModification(graph, ctx, dependent).allowed).toBe(true);
+        }
+      }
+    }
   });
 });
