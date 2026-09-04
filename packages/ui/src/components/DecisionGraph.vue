@@ -217,6 +217,8 @@ function pickAt(event: MouseEvent): string | null {
 }
 
 function onClick(event: MouseEvent): void {
+  // A left press that moved beyond the click slop was a pan, not a click.
+  if (renderer?.clickSuppressed === true) return;
   const id = pickAt(event);
   if (id === null) return;
   const lite = byId.value.get(id);
@@ -238,6 +240,9 @@ function onDoubleClick(event: MouseEvent): void {
 let hoveredNode: string | null = null;
 
 function onMouseMove(event: MouseEvent): void {
+  // While panning, hover follows the grab — freeze it instead of lighting
+  // up whatever slides under the cursor.
+  if (renderer?.dragging === true) return;
   const id = pickAt(event);
   if (id === hoveredNode) return;
   hoveredNode = id;

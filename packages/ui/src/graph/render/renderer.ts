@@ -28,9 +28,9 @@ import { createProgram, EDGE_QUAD, type Program, UNIT_QUAD } from "./shaders";
  * Frames render on damage only (scene/camera/theme changes, resize,
  * running fade animations); the render budget adapts while frames render
  * continuously. The viewport owns a current/target camera pair: inputs
- * (wheel pan, ctrl+wheel zoom, middle-drag) and focus moves set clamped
- * targets, and the current camera glides towards them; at rest the camera
- * always satisfies the bounding-box constraints (README, "视口").
+ * (wheel zoom, ctrl+wheel text size, left-drag pan) and focus moves set
+ * clamped targets, and the current camera glides towards them; at rest the
+ * camera always satisfies the bounding-box constraints (README, "视口").
  */
 
 export type RGBA = [number, number, number, number];
@@ -97,8 +97,13 @@ export interface RenderInfo {
 }
 
 const FIT_MARGIN = 24;
-/** Zoom factor per wheel notch unit; ctrl+wheel is multiplicative. */
+/** Zoom factor per wheel notch unit; wheel zoom is multiplicative. */
 const ZOOM_WHEEL_FACTOR = 0.0015;
+/** Bounds of the ctrl+wheel text size multiplier. */
+const MIN_TEXT_SCALE = 0.5;
+const MAX_TEXT_SCALE = 4;
+/** Left-press movement beyond which the gesture is a pan, not a click. */
+const CLICK_SLOP_PX = 2;
 /** Camera smoothing: time constant of the exponential approach. */
 const CAMERA_TAU_MS = 110;
 /** Camera snap threshold. */
@@ -214,10 +219,16 @@ export class GraphRenderer {
   #camera: Camera = { scale: 1, tx: 0, ty: 0 };
   #target: Camera = { scale: 1, tx: 0, ty: 0 };
   #maxScale = 4;
+  /** Text size multiplier on top of the camera scale (ctrl+wheel). */
+  #textScale = 1;
   #zoomAnchor: "cursor" | "center" = "cursor";
   #cssWidth = 0;
   #cssHeight = 0;
-  #dragging: { x: number; y: number } | null = null;
+  /** Active left-button gesture; `moved` says whether it left the click
+   * slop (and so suppresses the click that follows its mouseup). */
+  #gesture: { startX: number; startY: number; lastX: number; lastY: number; moved: boolean } | null =
+    null;
+  #clickSuppressed = false;
   #lastFocusId: string | null = null;
 
   #edgeProgram: Program;
@@ -314,9 +325,9 @@ export class GraphRenderer {
 
     canvas.addEventListener("webglcontextlost", this.#onContextLost);
     canvas.addEventListener("webglcontextrestored", this.#onContextRestored);
-    // Wheel and middle-drag pan/zoom (README, "视口"): ctrl+wheel zooms
-    // (and must never page-zoom), plain wheel pans vertically, shift+wheel
-    // horizontally, middle-drag pans 1:1.
+    // Wheel zooms the viewport; ctrl+wheel resizes text (README, "视口").
+    // Neither may page-zoom; left-drag pans 1:1 and suppresses the click
+    // that follows a gesture beyond the click slop.
     canvas.addEventListener("wheel", this.#onWheel, { passive: false });
     canvas.addEventListener("mousedown", this.#onMouseDown);
     window.addEventListener("mousemove", this.#onMouseMove);
@@ -408,6 +419,12 @@ export class GraphRenderer {
     this.#maxScale = Math.max(0.1, maxScale);
   }
 
+  /** Sets the text size multiplier on top of the camera scale. */
+  setTextScale(scale: number): void {
+    this.#textScale = Math.min(MAX_TEXT_SCALE, Math.max(MIN_TEXT_SCALE, scale));
+    this.#schedule();
+  }
+
   #viewport(): Viewport {
     return { width: this.#cssWidth, height: this.#cssHeight };
   }
@@ -429,57 +446,87 @@ export class GraphRenderer {
 
   #onWheel = (event: WheelEvent): void => {
     event.preventDefault();
+    if (event.ctrlKey) {
+      // Text size only: multiplicative in perceived size, viewport untouched.
+      const next = this.#textScale * Math.exp(-event.deltaY * ZOOM_WHEEL_FACTOR);
+      this.#textScale = Math.min(MAX_TEXT_SCALE, Math.max(MIN_TEXT_SCALE, next));
+      this.#schedule();
+      return;
+    }
     const box = this.#contentBox();
     if (box === null) return;
     const rect = this.#canvas.getBoundingClientRect();
     const anchor = { x: event.clientX - rect.left, y: event.clientY - rect.top };
-    if (event.ctrlKey) {
-      // Trackpad pinch synthesizes ctrl+wheel; multiplicative zoom keeps
-      // the gesture linear in perceived scale.
-      this.#target = zoomCamera(
-        this.#target,
-        Math.exp(-event.deltaY * ZOOM_WHEEL_FACTOR),
-        this.#zoomAnchor === "cursor" ? anchor : null,
-        this.#viewport(),
-        box,
-        this.#maxScale,
-      );
-    } else if (event.shiftKey) {
-      // Wheel down pans the view right: content moves left.
-      this.#target = panCamera(this.#target, -event.deltaY, 0, this.#viewport(), box);
-    } else {
-      // Wheel down pans the view down: content moves up (scroll convention).
-      this.#target = panCamera(this.#target, -event.deltaX, -event.deltaY, this.#viewport(), box);
-    }
+    // Multiplicative zoom keeps the gesture linear in perceived scale.
+    this.#target = zoomCamera(
+      this.#target,
+      Math.exp(-event.deltaY * ZOOM_WHEEL_FACTOR),
+      this.#zoomAnchor === "cursor" ? anchor : null,
+      this.#viewport(),
+      box,
+      this.#maxScale,
+    );
     this.#schedule();
   };
 
   #onMouseDown = (event: MouseEvent): void => {
-    if (event.button !== 1) return;
-    event.preventDefault(); // no middle-click autoscroll
-    this.#dragging = { x: event.clientX, y: event.clientY };
+    if (event.button === 1) {
+      event.preventDefault(); // no middle-click autoscroll
+      return;
+    }
+    if (event.button !== 0) return;
+    event.preventDefault();
+    this.#clickSuppressed = false;
+    this.#gesture = {
+      startX: event.clientX,
+      startY: event.clientY,
+      lastX: event.clientX,
+      lastY: event.clientY,
+      moved: false,
+    };
     this.#canvas.style.cursor = "grabbing";
   };
 
   #onMouseMove = (event: MouseEvent): void => {
-    if (this.#dragging === null) return;
+    const gesture = this.#gesture;
+    if (gesture === null) return;
     const box = this.#contentBox();
     if (box === null) return;
     // Dragging is 1:1 (no smoothing lag): content follows the cursor.
-    const dx = event.clientX - this.#dragging.x;
-    const dy = event.clientY - this.#dragging.y;
-    this.#dragging = { x: event.clientX, y: event.clientY };
+    const dx = event.clientX - gesture.lastX;
+    const dy = event.clientY - gesture.lastY;
+    gesture.lastX = event.clientX;
+    gesture.lastY = event.clientY;
+    if (!gesture.moved) {
+      const total = Math.hypot(event.clientX - gesture.startX, event.clientY - gesture.startY);
+      if (total > CLICK_SLOP_PX) {
+        gesture.moved = true;
+        this.#clickSuppressed = true;
+      }
+    }
     const moved = panCamera(this.#camera, dx, dy, this.#viewport(), box);
     this.#camera = moved;
     this.#target = panCamera(this.#target, dx, dy, this.#viewport(), box);
     this.#schedule();
   };
 
-  #onMouseUp = (): void => {
-    if (this.#dragging === null) return;
-    this.#dragging = null;
+  #onMouseUp = (event: MouseEvent): void => {
+    if (event.button !== 0 || this.#gesture === null) return;
+    this.#gesture = null;
     this.#canvas.style.cursor = "default";
   };
+
+  /** True when the left press that just ended moved beyond the click slop:
+   * the browser click that follows it must be ignored (README: 超过阈值视为
+   * 拖拽，不触发点击). Resets on the next press. */
+  get clickSuppressed(): boolean {
+    return this.#clickSuppressed;
+  }
+
+  /** True while a left-button pan gesture is in progress. */
+  get dragging(): boolean {
+    return this.#gesture !== null;
+  }
 
   setTheme(colors: ThemeColors): void {
     this.#theme = colors;
@@ -744,7 +791,9 @@ export class GraphRenderer {
       this.#nodeData[base + 1] = (node.y + node.height / 2) * scale + ty;
       this.#nodeData[base + 2] = node.width * scale;
       this.#nodeData[base + 3] = node.height * scale;
-      this.#nodeData[base + 4] = premise ? 0 : CORNER_RADIUS;
+      // The corner radius lives in virtual space: it grows with the node
+      // under zoom instead of staying a fixed screen size.
+      this.#nodeData[base + 4] = premise ? 0 : CORNER_RADIUS * scale;
       this.#nodeData[base + 5] = borderWidth;
       this.#nodeData.set(
         premise ? (node.muted ? this.#theme.premiseMutedBg : this.#theme.premiseBg) : this.#theme.nodeBg,
@@ -773,16 +822,20 @@ export class GraphRenderer {
     if (this.#atlas.full) this.#atlas.reset(); // refill from scratch this frame
 
     const scale = this.#camera.scale;
-    const fontScale = LABEL_FONT_PX / 24; // atlas font pixels → label pixels
+    // Text lives in virtual space: it scales with the viewport, and the
+    // ctrl+wheel multiplier resizes it on top (README: 文本随视口缩放).
+    const fontPx = LABEL_FONT_PX * scale * this.#textScale;
+    const padPx = LABEL_PAD_X * scale * this.#textScale;
+    const glyphScale = fontPx / 24; // atlas font pixels → label pixels
     let count = 0;
     for (const [id, entry] of this.#entries) {
       if (entry.alpha < 0.02 || !this.#admitted.has(id) || !textShown.get(id)) continue;
       const node = entry.node;
-      const maxWidth = (node.width * scale - LABEL_PAD_X * 2) / fontScale;
+      const maxWidth = (node.width * scale - padPx * 2) / glyphScale;
       const label = this.#labelFor(node.label, maxWidth);
-      let penX = node.x * scale + this.#camera.tx + LABEL_PAD_X;
+      let penX = node.x * scale + this.#camera.tx + padPx;
       const baseline =
-        node.y * scale + this.#camera.ty + (node.height * scale) / 2 + LABEL_FONT_PX * 0.35;
+        node.y * scale + this.#camera.ty + (node.height * scale) / 2 + fontPx * 0.35;
       for (const ch of label) {
         const glyph = this.#atlas.glyph(ch);
         if (glyph === undefined) break; // atlas ran full; retries next frame
@@ -790,9 +843,9 @@ export class GraphRenderer {
         if (glyph.width > 0) {
           const base = count * 9;
           this.#textData[base] = penX;
-          this.#textData[base + 1] = baseline - glyph.ascent * fontScale;
-          this.#textData[base + 2] = glyph.width * fontScale;
-          this.#textData[base + 3] = glyph.height * fontScale;
+          this.#textData[base + 1] = baseline - glyph.ascent * glyphScale;
+          this.#textData[base + 2] = glyph.width * glyphScale;
+          this.#textData[base + 3] = glyph.height * glyphScale;
           this.#textData[base + 4] = glyph.u0;
           this.#textData[base + 5] = glyph.v0;
           this.#textData[base + 6] = glyph.u1 - glyph.u0;
@@ -800,7 +853,7 @@ export class GraphRenderer {
           this.#textData[base + 8] = entry.alpha;
           count++;
         }
-        penX += glyph.advance * fontScale;
+        penX += glyph.advance * glyphScale;
       }
     }
 
