@@ -12,8 +12,9 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { store } from "../store";
 import { workspace } from "../workspace";
-import { layeredLayout } from "../graph/layout/engine";
-import type { LaidOutNode } from "../graph/layout/engine";
+import { createLayoutSession } from "../graph/layout/registry";
+import type { LaidOutNode, LayoutSession } from "../graph/layout/types";
+import type { LayoutMode } from "../graph/layout/types";
 import {
   CULL_FOCUS,
   CULL_HOVERED,
@@ -27,7 +28,7 @@ import { GraphRenderer, readThemeColors } from "../graph/render/renderer";
 import type { RenderEdgeInput, RenderNodeInput, SceneInput } from "../graph/render/renderer";
 import type { LayoutDirection } from "../types";
 
-const props = defineProps<{ direction: LayoutDirection }>();
+const props = defineProps<{ direction: LayoutDirection; layoutMode: LayoutMode }>();
 
 const emit = defineEmits<{ renderCulled: [culled: boolean] }>();
 
@@ -38,14 +39,46 @@ const glFailed = ref(false);
 let renderer: GraphRenderer | null = null;
 let budget: AdaptiveBudget | null = null;
 
-// The layout is recomputed from the displayed subgraph whenever it or the
-// direction changes; the camera keeps the focus node in place.
+// The layout session is (re)created from the displayed subgraph whenever
+// it, the mode or the direction changes; converging sessions step from a
+// requestAnimationFrame loop until settled, snapshot layouts finish at
+// creation. The camera keeps the focus node in place.
 const layout = ref<LaidOutNode[]>([]);
+let session: LayoutSession | null = null;
+let rafId = 0;
+let lastFrame = 0;
+
+function stopSession(): void {
+  if (rafId !== 0) {
+    cancelAnimationFrame(rafId);
+    rafId = 0;
+  }
+  session?.dispose();
+  session = null;
+}
+
+function startSession(): void {
+  stopSession();
+  session = createLayoutSession(props.layoutMode, workspace.displayed.value, {
+    direction: props.direction,
+  });
+  layout.value = [...session.positions()];
+  if (!session.animating) return;
+  lastFrame = performance.now();
+  const tick = (now: number): void => {
+    const current = session;
+    if (current === null) return;
+    layout.value = [...current.step(now - lastFrame)];
+    lastFrame = now;
+    if (current.animating) rafId = requestAnimationFrame(tick);
+    else rafId = 0;
+  };
+  rafId = requestAnimationFrame(tick);
+}
+
 watch(
-  () => [workspace.displayed.value, props.direction] as const,
-  ([nodes, direction]) => {
-    layout.value = layeredLayout(nodes, direction);
-  },
+  () => [workspace.displayed.value, props.direction, props.layoutMode] as const,
+  () => startSession(),
   { immediate: true },
 );
 
@@ -167,6 +200,7 @@ watch(
 );
 
 onBeforeUnmount(() => {
+  stopSession();
   renderer?.dispose();
   renderer = null;
   budget = null;

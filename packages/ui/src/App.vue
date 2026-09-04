@@ -107,7 +107,11 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
             <NodeListPanel type="constraint" side="left" />
             <div class="center-pane">
               <div class="graph-area">
-                <DecisionGraph :direction="direction" @render-culled="renderCulled = $event" />
+                <DecisionGraph
+                  :direction="direction"
+                  :layout-mode="workspace.state.config.layoutMode"
+                  @render-culled="renderCulled = $event"
+                />
                 <GraphFloat placement="top-right">
                   <SelectionList />
                 </GraphFloat>

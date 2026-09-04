@@ -1,7 +1,14 @@
 import type { LayoutDirection } from "../../types";
+import type {
+  LaidOutNode,
+  LayoutNode,
+  LayoutOptions,
+  LayoutSession,
+  LayoutStrategy,
+} from "./types";
 
 /**
- * Stateless layered layout (ui README, "布局").
+ * Stateless layered layout (ui README, "布局：分层").
  *
  * Every call computes the layout of exactly the given subgraph from
  * scratch: the whole working set is laid out as if drawn anew, so relative
@@ -20,23 +27,12 @@ import type { LayoutDirection } from "../../types";
  * id): the same set always yields the same layout, in any input order.
  */
 
-/** Minimal read-only node shape the layout needs. */
-export interface LayoutNode {
-  id: string;
-  grounds?: readonly string[];
-}
-
 /** Mapped node geometry in virtual space. */
-export interface LaidOutNode {
-  id: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
+export type { LaidOutNode, LayoutNode } from "./types";
 
-const NODE_WIDTH = 150;
-const NODE_HEIGHT = 44;
+/** Shared node geometry: every layout maps to the same virtual card size. */
+export const NODE_WIDTH = 150;
+export const NODE_HEIGHT = 44;
 const LAYER_GAP = 90;
 const CROSS_GAP = 32;
 /** Empty rows between consecutive independent components. */
@@ -100,6 +96,21 @@ export function layeredLayout(
   }
   return result;
 }
+
+/** Session wrapper: the layered layout is a snapshot, so the session
+ * settles immediately and every step returns the same geometry. */
+export const layeredStrategy: LayoutStrategy = {
+  id: "layered",
+  createSession(nodes: readonly LayoutNode[], options: LayoutOptions): LayoutSession {
+    const result = layeredLayout(nodes, options.direction);
+    return {
+      animating: false,
+      step: () => result,
+      positions: () => result,
+      dispose: () => {},
+    };
+  },
+};
 
 /** Lays out each connected group of the nodes as an independent component
  * in its own row range. */

@@ -8,6 +8,7 @@ import {
   reloadGraph,
 } from "./api";
 import { readNumberPreference, readPreference, writePreference } from "./preferences";
+import type { LayoutMode } from "./graph/layout/types";
 import type { ChangeEvent, IssueRecord, NodeLite } from "./types";
 
 /**
@@ -45,6 +46,8 @@ export interface CanvasConfig {
   zoomAnchor: "cursor" | "center";
   /** Maximum zoom scale. */
   zoomMax: number;
+  /** Canvas layout algorithm. */
+  layoutMode: LayoutMode;
 }
 
 const DEFAULT_CONFIG: CanvasConfig = {
@@ -57,6 +60,7 @@ const DEFAULT_CONFIG: CanvasConfig = {
   budgetManual: 6000,
   zoomAnchor: "cursor",
   zoomMax: 4,
+  layoutMode: "layered",
 };
 
 const CONFIG_KEYS: Record<keyof CanvasConfig, string> = {
@@ -69,6 +73,7 @@ const CONFIG_KEYS: Record<keyof CanvasConfig, string> = {
   budgetManual: "refino.canvas.budgetManual",
   zoomAnchor: "refino.canvas.zoomAnchor",
   zoomMax: "refino.canvas.zoomMax",
+  layoutMode: "refino.canvas.layoutMode",
 };
 
 /** Why the last range selection degraded to just the clicked node. */
@@ -119,6 +124,10 @@ function loadConfig(): CanvasConfig {
         ? "center"
         : "cursor",
     zoomMax: Math.max(0.5, readNumberPreference(CONFIG_KEYS.zoomMax, DEFAULT_CONFIG.zoomMax)),
+    layoutMode:
+      readPreference(CONFIG_KEYS.layoutMode, DEFAULT_CONFIG.layoutMode) === "force"
+        ? "force"
+        : "layered",
   };
 }
 
