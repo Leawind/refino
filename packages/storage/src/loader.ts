@@ -27,6 +27,13 @@ export interface ReadNodeResult {
   issues: RefinoIssue[];
   /** File mtime (ms) of the winning candidate; undefined when node is null. */
   mtimeMs?: number;
+  /**
+   * Whether the winning candidate's summary came from an explicit frontmatter
+   * field (as opposed to being derived from the body); undefined when node is
+   * null. Partial-update write paths use this to keep derived summaries from
+   * being materialized into the file.
+   */
+  summaryExplicit?: boolean;
 }
 
 /**
@@ -79,6 +86,7 @@ export async function readNode(refinoDir: string, id: string): Promise<ReadNodeR
   const issues: RefinoIssue[] = [];
   let node: RefinoNode | null = null;
   let mtimeMs: number | undefined;
+  let summaryExplicit: boolean | undefined;
   for (const candidate of candidates) {
     const read = await readSource(candidate.absolute);
     if (read === undefined) continue; // no file of this type
@@ -88,6 +96,7 @@ export async function readNode(refinoDir: string, id: string): Promise<ReadNodeR
     if (node === null) {
       node = parsed.node;
       mtimeMs = read.mtimeMs;
+      summaryExplicit = parsed.summaryExplicit;
     } else {
       issues.push({
         code: "DUPLICATE_ID",
@@ -98,7 +107,7 @@ export async function readNode(refinoDir: string, id: string): Promise<ReadNodeR
       break; // both candidates parsed: nothing left to read
     }
   }
-  return { node, issues, mtimeMs };
+  return { node, issues, mtimeMs, summaryExplicit };
 }
 
 /**

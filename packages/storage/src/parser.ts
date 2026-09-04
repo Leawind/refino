@@ -10,6 +10,12 @@ export interface ParseResult {
   /** The parsed node, or null when the frontmatter could not be parsed. */
   node: RefinoNode | null;
   issues: RefinoIssue[];
+  /**
+   * Whether the summary came from an explicit "summary" frontmatter field.
+   * When false, `node.summary` was derived from the body; write paths use
+   * this to avoid materializing a derived summary into the file.
+   */
+  summaryExplicit: boolean;
 }
 
 /**
@@ -35,7 +41,7 @@ export function parseNodeSource(
   const match = FRONTMATTER_RE.exec(normalized) ?? EMPTY_FRONTMATTER_RE.exec(normalized);
   if (match) {
     const parsed = parseFrontmatter(canonicalFile, match[1] ?? "", issues);
-    if (!parsed) return { node: null, issues };
+    if (!parsed) return { node: null, issues, summaryExplicit: false };
     fields = parsed;
   }
 
@@ -47,10 +53,12 @@ export function parseNodeSource(
   // frontmatter field takes precedence; the first-paragraph fallback keeps
   // summary-less files readable.
   const summaryField = fields["summary"];
+  let summaryExplicit = false;
   if (summaryField === undefined || summaryField === null) {
     node.summary = extractSummary(body);
   } else if (typeof summaryField === "string" && summaryField.trim() !== "") {
     node.summary = summaryField;
+    summaryExplicit = true;
   } else {
     issues.push({
       code: "INVALID_FRONTMATTER",
@@ -101,7 +109,7 @@ export function parseNodeSource(
     }
   }
 
-  return { node, issues };
+  return { node, issues, summaryExplicit };
 }
 
 function parseFrontmatter(

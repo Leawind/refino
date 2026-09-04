@@ -1,4 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { main } from "../src/main.js";
 import type { CliIo } from "../src/format.js";
 import { constraint, createRefino, premise, removeRefino } from "@refino/testkit";
@@ -192,6 +194,267 @@ describe("refino cli", () => {
     } finally {
       await removeRefino(root);
     }
+  });
+
+  describe("update", () => {
+    it("changes only the given fields and replaces grounds wholesale", async () => {
+      const emptyRoot = await createRefino({});
+      try {
+        await run(["--root", emptyRoot, "new", "premise", "--id", "1A2B3C4D", "--body", "Fact."]);
+        await run([
+          "--root",
+          emptyRoot,
+          "new",
+          "premise",
+          "--id",
+          "2B3C4D5E",
+          "--body",
+          "Other fact.",
+        ]);
+        await run([
+          "--root",
+          emptyRoot,
+          "new",
+          "constraint",
+          "--id",
+          "D4E5F6G7",
+          "--body",
+          "Decision.",
+          "--grounds",
+          "1A2B3C4D",
+          "--rationale",
+          "Because.",
+          "--summary",
+          "A summary.",
+        ]);
+
+        const { code, out } = await run([
+          "--root",
+          emptyRoot,
+          "update",
+          "D4E5F6G7",
+          "--body",
+          "New decision.",
+          "--grounds",
+          "2B3C4D5E",
+        ]);
+        expect(code).toBe(0);
+        expect(out).toContain("updated D4E5F6G7");
+
+        const show = await run(["--root", emptyRoot, "--json", "show", "D4E5F6G7"]);
+        const [group] = JSON.parse(show.out) as Array<{
+          results: Array<{ body: string; grounds: string[]; rationale?: string; summary: string }>;
+        }>;
+        const node = group!.results[0]!;
+        expect(node.body).toBe("New decision.");
+        expect(node.grounds).toEqual(["2B3C4D5E"]);
+        expect(node.rationale).toBe("Because.");
+        expect(node.summary).toBe("A summary.");
+
+        // premise field update via --now
+        const now = await run(["--root", emptyRoot, "update", "1A2B3C4D", "--now"]);
+        expect(now.code).toBe(0);
+        const premiseShow = await run(["--root", emptyRoot, "--json", "show", "1A2B3C4D"]);
+        const [premiseGroup] = JSON.parse(premiseShow.out) as Array<{
+          results: Array<{ confirmed?: string }>;
+        }>;
+        expect(premiseGroup!.results[0]!.confirmed).toMatch(
+          /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/,
+        );
+      } finally {
+        await removeRefino(emptyRoot);
+      }
+    });
+
+    it("keeps a body-derived summary derived instead of materializing it", async () => {
+      const emptyRoot = await createRefino({});
+      try {
+        await run(["--root", emptyRoot, "new", "premise", "--id", "1A2B3C4D", "--body", "Fact."]);
+        const { code } = await run([
+          "--root",
+          emptyRoot,
+          "update",
+          "1A2B3C4D",
+          "--body",
+          "Changed fact.",
+        ]);
+        expect(code).toBe(0);
+
+        const source = await readFile(
+          join(emptyRoot, ".refino", "nodes", "1A", "2B3C4D.premise.md"),
+          "utf8",
+        );
+        expect(source).not.toContain("summary:");
+      } finally {
+        await removeRefino(emptyRoot);
+      }
+    });
+
+    it("rejects missing nodes, type mismatches, empty edits and invalid values", async () => {
+      const emptyRoot = await createRefino({});
+      try {
+        await run(["--root", emptyRoot, "new", "premise", "--id", "1A2B3C4D", "--body", "Fact."]);
+
+        const missing = await run(["--root", emptyRoot, "update", "D4E5F6G7", "--body", "x"]);
+        expect(missing.code).toBe(1);
+        expect(missing.err).toContain("not found");
+
+        const noFields = await run(["--root", emptyRoot, "update", "1A2B3C4D"]);
+        expect(noFields.code).toBe(1);
+        expect(noFields.err).toContain("at least one field");
+
+        const premiseRationale = await run([
+          "--root",
+          emptyRoot,
+          "update",
+          "1A2B3C4D",
+          "--rationale",
+          "x",
+        ]);
+        expect(premiseRationale.code).toBe(1);
+        expect(premiseRationale.err).toContain("do not support");
+
+        const badConfirmed = await run([
+          "--root",
+          emptyRoot,
+          "update",
+          "1A2B3C4D",
+          "--confirmed",
+          "2026-05-01",
+        ]);
+        expect(badConfirmed.code).toBe(1);
+        expect(badConfirmed.err).toContain("RFC 3339");
+
+        await run([
+          "--root",
+          emptyRoot,
+          "new",
+          "constraint",
+          "--id",
+          "D4E5F6G7",
+          "--body",
+          "Decision.",
+        ]);
+        const constraintConfirmed = await run(["--root", emptyRoot, "update", "D4E5F6G7", "--now"]);
+        expect(constraintConfirmed.code).toBe(1);
+        expect(constraintConfirmed.err).toContain("do not support");
+
+        const unknownGround = await run([
+          "--root",
+          emptyRoot,
+          "update",
+          "D4E5F6G7",
+          "--grounds",
+          "1A2B3C4D,2B3C4D5E",
+        ]);
+        expect(unknownGround.code).toBe(1);
+        expect(unknownGround.err).toContain("[UNKNOWN_GROUND]");
+      } finally {
+        await removeRefino(emptyRoot);
+      }
+    });
+  });
+
+  describe("delete", () => {
+    it("refuses while others ground on the target and deletes leaves", async () => {
+      const emptyRoot = await createRefino({});
+      try {
+        await run(["--root", emptyRoot, "new", "premise", "--id", "1A2B3C4D", "--body", "Fact."]);
+        await run([
+          "--root",
+          emptyRoot,
+          "new",
+          "constraint",
+          "--id",
+          "D4E5F6G7",
+          "--body",
+          "Middle decision.",
+          "--grounds",
+          "1A2B3C4D",
+        ]);
+        await run([
+          "--root",
+          emptyRoot,
+          "new",
+          "constraint",
+          "--id",
+          "E5F6G7H8",
+          "--body",
+          "Leaf decision.",
+          "--grounds",
+          "D4E5F6G7",
+        ]);
+
+        const blocked = await run(["--root", emptyRoot, "delete", "D4E5F6G7"]);
+        expect(blocked.code).toBe(1);
+        expect(blocked.out).toContain("grounded on by E5F6G7H8");
+        expect(blocked.out).toContain("--force");
+        const stillThere = await run(["--root", emptyRoot, "--json", "show", "D4E5F6G7"]);
+        expect(stillThere.code).toBe(0);
+
+        const leaf = await run(["--root", emptyRoot, "delete", "E5F6G7H8"]);
+        expect(leaf.code).toBe(0);
+        expect(leaf.out).toContain("deleted E5F6G7H8");
+        const gone = await run(["--root", emptyRoot, "show", "E5F6G7H8"]);
+        expect(gone.code).toBe(1);
+      } finally {
+        await removeRefino(emptyRoot);
+      }
+    });
+
+    it("supports partial success over a batch", async () => {
+      const emptyRoot = await createRefino({});
+      try {
+        await run(["--root", emptyRoot, "new", "premise", "--id", "1A2B3C4D", "--body", "Fact."]);
+        const { code, out } = await run(["--root", emptyRoot, "delete", "1A2B3C4D", "D4E5F6G7"]);
+        expect(code).toBe(1);
+        expect(out).toContain("deleted 1A2B3C4D");
+        expect(out).toContain('error: node "D4E5F6G7" not found');
+
+        const json = await run(["--root", emptyRoot, "--json", "delete", "D4E5F6G7"]);
+        const results = JSON.parse(json.out) as Array<{ id: string; error?: string }>;
+        expect(results).toEqual([{ id: "D4E5F6G7", error: 'node "D4E5F6G7" not found' }]);
+      } finally {
+        await removeRefino(emptyRoot);
+      }
+    });
+
+    it("--force deletes through dependents and warns", async () => {
+      const emptyRoot = await createRefino({});
+      try {
+        await run(["--root", emptyRoot, "new", "premise", "--id", "1A2B3C4D", "--body", "Fact."]);
+        await run([
+          "--root",
+          emptyRoot,
+          "new",
+          "constraint",
+          "--id",
+          "D4E5F6G7",
+          "--body",
+          "Decision.",
+          "--grounds",
+          "1A2B3C4D",
+        ]);
+
+        const { code, out, err } = await run([
+          "--root",
+          emptyRoot,
+          "delete",
+          "1A2B3C4D",
+          "--force",
+        ]);
+        expect(code).toBe(0);
+        expect(out).toContain("deleted 1A2B3C4D");
+        expect(err).toContain("grounded on by D4E5F6G7");
+
+        // the dangling reference surfaces as a validation issue
+        const validate = await run(["--root", emptyRoot, "validate"]);
+        expect(validate.code).toBe(1);
+        expect(validate.out).toContain("[UNKNOWN_GROUND]");
+      } finally {
+        await removeRefino(emptyRoot);
+      }
+    });
   });
 
   it("grounds prints resolved grounds in declared order", async () => {

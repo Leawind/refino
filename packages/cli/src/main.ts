@@ -1,7 +1,16 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createConstraint, createPremise, loadGraph, nodeRelativeFile } from "@refino/storage";
+import {
+  createConstraint,
+  createPremise,
+  deleteNode,
+  loadGraph,
+  nodeRelativeFile,
+  readNode,
+  updateConstraint,
+  updatePremise,
+} from "@refino/storage";
 import { CommanderError, Command, Option } from "commander";
 import {
   checkGroundsChange,
@@ -10,6 +19,7 @@ import {
   getDependents,
   getGrounds,
   ID_RE,
+  isValidConfirmed,
   queryGroups,
   RefinoError,
   requireNode,
@@ -223,7 +233,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
               summary,
               confirmed: now ? new Date().toISOString() : confirmed,
             });
-            emitCreated(io, opts, newId, "premise");
+            emitWritten(io, opts, newId, "premise", "created");
             return 0;
           }),
         ),
@@ -277,10 +287,183 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
               rationale,
               summary,
             });
-            emitCreated(io, opts, newId, "constraint");
+            emitWritten(io, opts, newId, "constraint", "created");
             return 0;
           }),
         ),
+    );
+
+  program
+    .command("update")
+    .description("update fields of an existing node; unspecified fields keep their current value")
+    .argument("<id>", "node id")
+    .option("--body <text>", "new content (markdown body)")
+    .option("--summary <text>", "short summary for relevance checks (stored in frontmatter)")
+    .option("--rationale <text>", "why the decision was made (constraints only)")
+    .option(
+      "--grounds <ids>",
+      "comma-separated ground node ids, replacing the whole list (constraints only)",
+    )
+    .option(
+      "--confirmed <timestamp>",
+      "RFC 3339 timestamp with an explicit UTC offset (premises only)",
+    )
+    .option("--now", 'confirm now: use the current UTC time as "confirmed" (premises only)')
+    .action((id: string, _opts, cmd) =>
+      run(cmd, async (opts) => {
+        const o = cmd.opts() as {
+          body?: string;
+          summary?: string;
+          rationale?: string;
+          grounds?: string;
+          confirmed?: string;
+          now?: boolean;
+        };
+        const dir = refinoDir(opts);
+
+        const typeOptions = [o.rationale, o.grounds, o.confirmed, o.now];
+        const touched = [o.body, o.summary, ...typeOptions].filter(
+          (v) => v !== undefined && v !== false,
+        );
+        if (touched.length === 0) {
+          io.stderr.write("error: specify at least one field to update\n");
+          return 1;
+        }
+
+        const read = await readNode(dir, id);
+        if (read.node === null) {
+          io.stderr.write(`error: node "${id}" not found\n`);
+          return 1;
+        }
+        const node = read.node;
+
+        if (node.type === "premise" && (o.rationale !== undefined || o.grounds !== undefined)) {
+          io.stderr.write("error: premises do not support --rationale or --grounds\n");
+          return 1;
+        }
+        if (node.type === "constraint" && (o.confirmed !== undefined || o.now === true)) {
+          io.stderr.write("error: constraints do not support --confirmed or --now\n");
+          return 1;
+        }
+        if (o.now === true && o.confirmed !== undefined) {
+          io.stderr.write("error: --now and --confirmed are mutually exclusive\n");
+          return 1;
+        }
+        if (o.summary !== undefined && o.summary.trim() === "") {
+          io.stderr.write("error: --summary must be a non-empty string\n");
+          return 1;
+        }
+        if (o.confirmed !== undefined && !isValidConfirmed(o.confirmed)) {
+          io.stderr.write(
+            `error: "confirmed" must be an RFC 3339 timestamp with an explicit UTC offset (Z or ±HH:MM), got "${o.confirmed}"\n`,
+          );
+          return 1;
+        }
+
+        let grounds: string[] | undefined;
+        if (o.grounds !== undefined) {
+          grounds = (o.grounds ?? "")
+            .split(",")
+            .map((s) => s.trim())
+            .filter((s) => s.length > 0);
+          const invalidGround = grounds.find((g) => !ID_RE.test(g));
+          if (invalidGround !== undefined) {
+            io.stderr.write(
+              `error: invalid ground id "${invalidGround}" (must be an 8-character Crockford base32 id)\n`,
+            );
+            return 1;
+          }
+          // The node exists here, so the shared write-path primitive applies
+          // directly; pre-existing issues elsewhere must not block the update.
+          const graph = await loadGraphForWrite(dir);
+          const groundIssues = checkGroundsChange(graph, id, grounds);
+          if (groundIssues.length > 0) {
+            io.stderr.write(`${renderIssues(groundIssues)}\n`);
+            return 1;
+          }
+        }
+
+        // Partial update: unspecified fields keep their current value. A
+        // summary that was derived from the body stays derived (not passed),
+        // so updating the body keeps the fallback in sync.
+        const summary =
+          o.summary !== undefined
+            ? o.summary
+            : read.summaryExplicit === true
+              ? node.summary
+              : undefined;
+        if (node.type === "premise") {
+          await updatePremise(dir, id, {
+            body: o.body ?? node.body,
+            summary,
+            confirmed: o.now === true ? new Date().toISOString() : (o.confirmed ?? node.confirmed),
+          });
+        } else {
+          await updateConstraint(dir, id, {
+            body: o.body ?? node.body,
+            summary,
+            rationale: o.rationale ?? node.rationale,
+            grounds: grounds ?? node.grounds,
+          });
+        }
+        emitWritten(io, opts, id, node.type, "updated");
+        return 0;
+      }),
+    );
+
+  program
+    .command("delete")
+    .description("delete one or more nodes; refuses while other nodes ground on the target")
+    .argument("<ids...>", "node ids")
+    .option("--force", "delete even when other nodes ground on the target")
+    .action((ids: string[], _opts, cmd) =>
+      run(cmd, async (opts) => {
+        const { force } = cmd.opts() as { force?: boolean };
+        const dir = refinoDir(opts);
+        // A write command: pre-existing issues elsewhere must not block it.
+        const graph = await loadGraphForWrite(dir);
+        const results: Array<{ id: string; error?: string }> = [];
+        let failure = false;
+        for (const id of ids) {
+          const node = graph.nodes.get(id);
+          if (node === undefined) {
+            results.push({ id, error: `node "${id}" not found` });
+            failure = true;
+            continue;
+          }
+          // Direct dependents only: deleting is refused exactly when it would
+          // leave dangling grounds behind (mirrors the web API's 409).
+          const dependents = graph.dependents.get(id) ?? [];
+          if (dependents.length > 0) {
+            const detail = `grounded on by ${dependents.join(", ")}`;
+            if (force !== true) {
+              results.push({ id, error: `${detail} (use --force to delete anyway)` });
+              failure = true;
+              continue;
+            }
+            io.stderr.write(`warning: deleted "${id}" is still ${detail}\n`);
+          }
+          try {
+            await deleteNode(dir, id);
+            results.push({ id });
+          } catch (error) {
+            results.push({
+              id,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            failure = true;
+          }
+        }
+        if (opts.json) emit(io, results);
+        else {
+          io.stdout.write(
+            `${results
+              .map((r) => (r.error === undefined ? `deleted ${r.id}` : `error: ${r.error}`))
+              .join("\n")}\n`,
+          );
+        }
+        return failure ? 1 : 0;
+      }),
     );
 
   program
@@ -348,15 +531,16 @@ function reportBlockingIssues(io: CliIo, opts: GlobalOptions, issues: RefinoIssu
   return 1;
 }
 
-function emitCreated(
+function emitWritten(
   io: CliIo,
   opts: GlobalOptions,
   id: string,
   type: "premise" | "constraint",
+  verb: "created" | "updated",
 ): void {
   const file = `nodes/${id.slice(0, 2)}/${id.slice(2)}.${type}.md`;
   if (opts.json) emit(io, { id, file });
-  else io.stdout.write(`created ${id} (${join(".refino", file)})\n`);
+  else io.stdout.write(`${verb} ${id} (${join(".refino", file)})\n`);
 }
 
 function emitNodes(io: CliIo, opts: GlobalOptions, nodes: RefinoNode[]): void {
