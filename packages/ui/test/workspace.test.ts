@@ -1,7 +1,10 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { workspace } from "../src/workspace";
+import { createHttpClient } from "../src/api";
+import { createWorkspace, type Workspace } from "../src/workspace";
 import type { ChangeEvent, NodeLite } from "../src/types";
+
+let workspace: Workspace;
 
 /**
  * Workspace store behavior against the canvas query contract
@@ -236,6 +239,7 @@ async function select(id: string): Promise<void> {
 
 beforeEach(() => {
   localStorage.clear();
+  workspace = createWorkspace(createHttpClient());
   calls = [];
   gone = new Set();
   serverRevision = 1;

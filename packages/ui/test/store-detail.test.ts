@@ -1,8 +1,12 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { recreateDetail, store } from "../src/store";
-import { workspace } from "../src/workspace";
+import { createHttpClient } from "../src/api";
+import { createStore, type Store } from "../src/store";
+import { createWorkspace, type Workspace } from "../src/workspace";
 import type { ChangeEvent } from "../src/types";
+
+let store: Store;
+let workspace: Workspace;
 
 /**
  * Detail editor conflict flow (docs/design.md, "编辑冲突处理") against the
@@ -167,6 +171,9 @@ beforeEach(() => {
   );
   vi.stubGlobal("EventSource", FakeEventSource);
   FakeEventSource.instances = [];
+  const client = createHttpClient();
+  workspace = createWorkspace(client);
+  store = createStore(client, workspace);
   workspace.start();
 });
 
@@ -283,7 +290,7 @@ describe("external deletion", () => {
 
     expect(store.state.detail.deletedWithEdits).toBe(true);
 
-    await recreateDetail("constraint", {
+    await store.recreateDetail("constraint", {
       body: "未保存的编辑",
       summary: "约束一",
       type: "constraint",
@@ -308,7 +315,7 @@ describe("external deletion", () => {
 describe("recreate via PUT", () => {
   it("sends the payload type so the server can create the id", async () => {
     await openDetail();
-    await recreateDetail("constraint", { body: "重建。", type: "constraint", grounds: [P1] });
+    await store.recreateDetail("constraint", { body: "重建。", type: "constraint", grounds: [P1] });
     expect(putCalls).toHaveLength(1);
     expect(putCalls[0]!.body.type).toBe("constraint");
   });

@@ -5,7 +5,10 @@
 import { watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useMessage } from "naive-ui";
-import { workspace } from "../workspace";
+import { injectRequired } from "../context";
+import { workspaceKey } from "../workspace";
+
+const workspace = injectRequired(workspaceKey, "workspace");
 
 const { t } = useI18n();
 const message = useMessage();

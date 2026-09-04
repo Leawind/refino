@@ -15,10 +15,15 @@ import {
   OpenOutline,
   ScanOutline,
 } from "@vicons/ionicons5";
-import { search } from "../api";
-import { store } from "../store";
-import { workspace } from "../workspace";
+import { clientKey, type RefinoClient } from "../api";
+import { injectRequired } from "../context";
+import { storeKey } from "../store";
+import { workspaceKey } from "../workspace";
 import type { NodeType, SearchNode } from "../types";
+
+const client = injectRequired(clientKey, "client");
+const store = injectRequired(storeKey, "store");
+const workspace = injectRequired(workspaceKey, "workspace");
 
 const props = defineProps<{ type: NodeType; side: "left" | "right" }>();
 
@@ -72,7 +77,7 @@ async function fetchPage(cursor: string | undefined, replace: boolean): Promise<
   const token = ++searchToken;
   loading.value = true;
   try {
-    const page = await search({
+    const page = await client.search({
       q: query.value.trim(),
       type: props.type,
       limit: PAGE_SIZE,
@@ -92,15 +97,17 @@ async function fetchPage(cursor: string | undefined, replace: boolean): Promise<
 function refreshLoaded(): void {
   if (items.value.length === 0) return;
   const token = searchToken;
-  void search({
-    q: query.value.trim(),
-    type: props.type,
-    limit: Math.min(Math.max(items.value.length, PAGE_SIZE), 500),
-  }).then((page) => {
-    if (token !== searchToken) return; // a newer search superseded this one
-    items.value = page.nodes;
-    nextCursor.value = page.nextCursor;
-  });
+  void client
+    .search({
+      q: query.value.trim(),
+      type: props.type,
+      limit: Math.min(Math.max(items.value.length, PAGE_SIZE), 500),
+    })
+    .then((page) => {
+      if (token !== searchToken) return; // a newer search superseded this one
+      items.value = page.nodes;
+      nextCursor.value = page.nextCursor;
+    });
 }
 
 watch(query, () => {

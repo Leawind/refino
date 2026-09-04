@@ -96,3 +96,6 @@ export interface NodePayload {
 
 /** Visualization directions, ordered from most abstract to most concrete. */
 export type LayoutDirection = "LR" | "TB" | "RL" | "BT";
+
+export type Theme = "light" | "dark";
+export type Locale = "zh" | "en";

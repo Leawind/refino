@@ -21,11 +21,16 @@ import {
 import { renderMarkdown, renderMermaidDiagrams } from "../markdown";
 import { CloseOutline, ContractOutline, ExpandOutline } from "@vicons/ionicons5";
 import FormField from "./FormField.vue";
-import { search } from "../api";
+import { clientKey, type RefinoClient } from "../api";
+import { injectRequired } from "../context";
 import { changedFields, toEditorFields } from "../conflict";
-import { recreateDetail, store } from "../store";
-import { workspace } from "../workspace";
+import { storeKey } from "../store";
+import { workspaceKey } from "../workspace";
 import type { NodePayload } from "../types";
+
+const client = injectRequired(clientKey, "client");
+const store = injectRequired(storeKey, "store");
+const workspace = injectRequired(workspaceKey, "workspace");
 
 const { t } = useI18n();
 const message = useMessage();
@@ -122,7 +127,7 @@ async function searchGrounds(q: string): Promise<void> {
   const token = ++groundSearchToken;
   groundSearching.value = true;
   try {
-    const page = await search({ q: q.trim(), limit: 50 });
+    const page = await client.search({ q: q.trim(), limit: 50 });
     if (token !== groundSearchToken) return;
     groundOptions.value = page.nodes
       .filter((node) => node.id !== selected.value?.id)
@@ -211,7 +216,7 @@ async function recreate(): Promise<void> {
   const node = selected.value;
   if (node === null) return;
   try {
-    await recreateDetail(node.type, payload());
+    await store.recreateDetail(node.type, payload());
     message.success(t("detail.recreated"));
   } catch (error) {
     message.error(error instanceof Error ? error.message : String(error));

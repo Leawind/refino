@@ -2,7 +2,7 @@
 // Application shell: header, dual sidebars, canvas with floating layers,
 // detail bar. Graph data flows through the on-demand workspace; the shell
 // only wires lifecycle, global actions and status display.
-import { computed, onBeforeUnmount, onMounted, ref, watchEffect } from "vue";
+import { computed, inject, onBeforeUnmount, onMounted, ref, watchEffect } from "vue";
 import { useI18n } from "vue-i18n";
 import {
   NAlert,
@@ -18,9 +18,12 @@ import {
   enUS,
   dateEnUS,
 } from "naive-ui";
-import { store } from "./store";
-import { workspace } from "./workspace";
-import { i18n } from "./i18n";
+import { injectRequired } from "./context";
+import { storeKey } from "./store";
+import { workspaceKey } from "./workspace";
+
+const store = injectRequired(storeKey, "store");
+const workspace = injectRequired(workspaceKey, "workspace");
 import AppHeader from "./components/AppHeader.vue";
 import NodeListPanel from "./components/NodeListPanel.vue";
 import DecisionGraph from "./components/DecisionGraph.vue";
@@ -31,7 +34,12 @@ import WorkspaceToasts from "./components/WorkspaceToasts.vue";
 import type { LayoutDirection } from "./types";
 import type { LayoutMode } from "./graph/layout/types";
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
+
+// The store owns the persisted language preference; keep vue-i18n in sync.
+watchEffect(() => {
+  locale.value = store.state.locale;
+});
 
 const constraintCount = computed(
   () => workspace.displayed.value.filter((n) => n.type === "constraint").length,
@@ -40,8 +48,8 @@ const constraintCount = computed(
 const renderCulled = ref(false);
 
 const naiveTheme = computed(() => (store.state.theme === "dark" ? darkTheme : null));
-const naiveLocale = computed(() => (i18n.global.locale.value === "zh" ? zhCN : enUS));
-const naiveDateLocale = computed(() => (i18n.global.locale.value === "zh" ? dateZhCN : dateEnUS));
+const naiveLocale = computed(() => (locale.value === "zh" ? zhCN : enUS));
+const naiveDateLocale = computed(() => (locale.value === "zh" ? dateZhCN : dateEnUS));
 
 const direction = ref<LayoutDirection>("LR");
 

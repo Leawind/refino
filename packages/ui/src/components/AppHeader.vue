@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Top navigation bar: logo, title, refresh and global settings. Theme and
 // language follow the VitePress pattern: small icon buttons with dropdowns.
-import { computed, h } from "vue";
+import { computed, h, inject } from "vue";
 import { useI18n } from "vue-i18n";
 import { NDropdown, NIcon } from "naive-ui";
 import {
@@ -12,7 +12,10 @@ import {
   ChevronDownOutline,
   CheckmarkOutline,
 } from "@vicons/ionicons5";
-import { store } from "../store";
+import { injectRequired } from "../context";
+import { storeKey } from "../store";
+
+const store = injectRequired(storeKey, "store");
 
 const { t, locale } = useI18n();
 

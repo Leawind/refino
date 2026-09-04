@@ -3,7 +3,10 @@
 // "交互"): click locates (makes the entry the focus), the per-item button
 // removes, the head button clears.
 import { useI18n } from "vue-i18n";
-import { workspace } from "../workspace";
+import { injectRequired } from "../context";
+import { workspaceKey } from "../workspace";
+
+const workspace = injectRequired(workspaceKey, "workspace");
 
 const { t } = useI18n();
 

@@ -10,8 +10,12 @@
 // focus, and re-fitting on direction flips.
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { store } from "../store";
-import { workspace } from "../workspace";
+import { injectRequired } from "../context";
+import { storeKey } from "../store";
+import { workspaceKey } from "../workspace";
+
+const store = injectRequired(storeKey, "store");
+const workspace = injectRequired(workspaceKey, "workspace");
 import { createLayoutSession } from "../graph/layout/registry";
 import type { LaidOutNode, LayoutSession } from "../graph/layout/types";
 import type { LayoutMode } from "../graph/layout/types";

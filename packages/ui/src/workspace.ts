@@ -1,12 +1,5 @@
-import { computed, reactive, readonly, shallowRef } from "vue";
-import {
-  connectEvents,
-  fetchIssues,
-  queryNeighbors,
-  queryRange,
-  querySiblings,
-  reloadGraph,
-} from "./api";
+import { computed, reactive, readonly, shallowRef, type InjectionKey } from "vue";
+import type { RefinoClient } from "./api";
 import { readNumberPreference, readPreference, writePreference } from "./preferences";
 import type { LayoutMode } from "./graph/layout/types";
 import type { ChangeEvent, IssueRecord, NodeLite } from "./types";
@@ -131,331 +124,340 @@ function loadConfig(): CanvasConfig {
   };
 }
 
-const state = reactive<WorkspaceState>({
-  ready: false,
-  loading: false,
-  error: null,
-  revision: 0,
-  issues: [],
-  connected: false,
-  truncated: false,
-  selection: [],
-  focusId: null,
-  hoveredId: null,
-  notice: null,
-  config: loadConfig(),
-});
+/** One workspace instance: working-set state, selection and change
+ * subscription over one injected client (docs/design.md, "前端技术栈"). */
+export function createWorkspace(client: RefinoClient) {
+  const state = reactive<WorkspaceState>({
+    ready: false,
+    loading: false,
+    error: null,
+    revision: 0,
+    issues: [],
+    connected: false,
+    truncated: false,
+    selection: [],
+    focusId: null,
+    hoveredId: null,
+    notice: null,
+    config: loadConfig(),
+  });
 
-/** Light shapes currently in the working set (rebuilt per expansion). */
-const workingSet = shallowRef(new Map<string, NodeLite>());
-/** External-change listeners (applied SSE/reload events, post-pruning). */
-const changeListeners = new Set<(event: ChangeEvent) => void>();
+  /** Light shapes currently in the working set (rebuilt per expansion). */
+  const workingSet = shallowRef(new Map<string, NodeLite>());
+  /** External-change listeners (applied SSE/reload events, post-pruning). */
+  const changeListeners = new Set<(event: ChangeEvent) => void>();
 
-/** Every lite shape ever seen; evicted working-set nodes stay here for
- * quick restore. Pruned only on deletion events. */
-const liteCache = new Map<string, NodeLite>();
+  /** Every lite shape ever seen; evicted working-set nodes stay here for
+   * quick restore. Pruned only on deletion events. */
+  const liteCache = new Map<string, NodeLite>();
 
-function prime(lite: NodeLite): void {
-  liteCache.set(lite.id, lite);
-}
-
-/** Refreshes are asynchronous; only the latest one may touch the state. */
-let refreshToken = 0;
-let stopEvents: (() => void) | null = null;
-
-function dedupe(ids: readonly string[]): string[] {
-  return [...new Set(ids)];
-}
-
-function sameSelection(a: readonly string[], b: readonly string[]): boolean {
-  return a.length === b.length && a.every((id, i) => id === b[i]);
-}
-
-/** Rebuild the working set from the current selection. */
-async function refresh(): Promise<void> {
-  const token = ++refreshToken;
-  const anchors = dedupe(state.selection);
-  if (anchors.length === 0) {
-    workingSet.value = new Map();
-    state.truncated = false;
-    state.ready = true;
-    return;
+  function prime(lite: NodeLite): void {
+    liteCache.set(lite.id, lite);
   }
-  state.loading = true;
-  try {
-    const siblingIds = new Set<string>();
-    let siblingsTruncated = false;
-    if (state.config.showSiblings) {
-      const groups = await querySiblings(anchors, state.config.siblingLimit);
-      for (const group of groups) {
-        if ("error" in group) continue;
-        const set = group.results[0];
-        if (set === undefined) continue;
-        siblingsTruncated ||= set.truncated;
-        for (const node of set.nodes) {
-          prime(node);
-          siblingIds.add(node.id);
+
+  /** Refreshes are asynchronous; only the latest one may touch the state. */
+  let refreshToken = 0;
+  let stopEvents: (() => void) | null = null;
+
+  function dedupe(ids: readonly string[]): string[] {
+    return [...new Set(ids)];
+  }
+
+  function sameSelection(a: readonly string[], b: readonly string[]): boolean {
+    return a.length === b.length && a.every((id, i) => id === b[i]);
+  }
+
+  /** Rebuild the working set from the current selection. */
+  async function refresh(): Promise<void> {
+    const token = ++refreshToken;
+    const anchors = dedupe(state.selection);
+    if (anchors.length === 0) {
+      workingSet.value = new Map();
+      state.truncated = false;
+      state.ready = true;
+      return;
+    }
+    state.loading = true;
+    try {
+      const siblingIds = new Set<string>();
+      let siblingsTruncated = false;
+      if (state.config.showSiblings) {
+        const groups = await client.querySiblings(anchors, state.config.siblingLimit);
+        for (const group of groups) {
+          if ("error" in group) continue;
+          const set = group.results[0];
+          if (set === undefined) continue;
+          siblingsTruncated ||= set.truncated;
+          for (const node of set.nodes) {
+            prime(node);
+            siblingIds.add(node.id);
+          }
         }
       }
-    }
 
-    // Direct grounds are part of the neighborhood contract regardless of N.
-    const groups = await queryNeighbors(dedupe([...anchors, ...siblingIds]), {
-      ancestorDepth: Math.max(state.config.ancestorDepth, 1),
-      descendantDepth: state.config.descendantDepth,
-      limit: state.config.neighborhoodLimit,
-    });
-    let neighborsTruncated = false;
-    const coverage = new Set([...anchors, ...siblingIds]);
-    for (const group of groups) {
-      if ("error" in group) continue;
-      const neighborhood = group.results[0];
-      if (neighborhood === undefined) continue;
-      neighborsTruncated ||= neighborhood.truncated;
-      for (const node of neighborhood.nodes) {
-        prime(node);
-        coverage.add(node.id);
+      // Direct grounds are part of the neighborhood contract regardless of N.
+      const groups = await client.queryNeighbors(dedupe([...anchors, ...siblingIds]), {
+        ancestorDepth: Math.max(state.config.ancestorDepth, 1),
+        descendantDepth: state.config.descendantDepth,
+        limit: state.config.neighborhoodLimit,
+      });
+      let neighborsTruncated = false;
+      const coverage = new Set([...anchors, ...siblingIds]);
+      for (const group of groups) {
+        if ("error" in group) continue;
+        const neighborhood = group.results[0];
+        if (neighborhood === undefined) continue;
+        neighborsTruncated ||= neighborhood.truncated;
+        for (const node of neighborhood.nodes) {
+          prime(node);
+          coverage.add(node.id);
+        }
+      }
+
+      const map = new Map<string, NodeLite>();
+      for (const id of coverage) {
+        const lite = liteCache.get(id);
+        if (lite !== undefined) map.set(id, lite);
+      }
+      if (token !== refreshToken) return;
+      workingSet.value = map;
+      state.truncated = siblingsTruncated || neighborsTruncated;
+      state.error = null;
+      state.ready = true;
+    } catch (error) {
+      // Keep the previous working set on transient failures.
+      if (token === refreshToken)
+        state.error = error instanceof Error ? error.message : String(error);
+    } finally {
+      if (token === refreshToken) state.loading = false;
+    }
+  }
+
+  function setSelection(ids: string[]): void {
+    state.selection = ids;
+    state.focusId = ids[ids.length - 1] ?? null;
+  }
+
+  /** Left click: make this the only selected node. */
+  function select(lite: NodeLite): void {
+    prime(lite);
+    if (sameSelection(state.selection, [lite.id])) return;
+    setSelection([lite.id]);
+    state.notice = null;
+    void refresh();
+  }
+
+  /** Shift click: append the range between focus and the clicked node. */
+  async function rangeSelect(lite: NodeLite): Promise<void> {
+    prime(lite);
+    const focusId = state.focusId;
+    if (focusId === null || focusId === lite.id) {
+      select(lite);
+      return;
+    }
+    try {
+      const result = await client.queryRange(focusId, lite.id);
+      for (const node of result.nodes) prime(node);
+      if (result.mode === "ancestor") {
+        appendSelection(result.nodes.map((node) => node.id));
+      } else {
+        // No common ancestor within the budget (definitively or before the
+        // budget ran out): only the clicked node joins, per design.
+        appendSelection([lite.id]);
+        state.notice = result.mode === "disconnected" ? "rangeDisconnected" : "rangeDegraded";
+      }
+    } catch (error) {
+      state.error = error instanceof Error ? error.message : String(error);
+      return;
+    }
+    await refresh();
+  }
+
+  function appendSelection(ids: readonly string[]): void {
+    const next = [...state.selection];
+    for (const id of ids) if (!next.includes(id)) next.push(id);
+    setSelection(next);
+  }
+
+  /** Ctrl click: toggle the node's membership in the selection. */
+  function toggle(lite: NodeLite): void {
+    prime(lite);
+    const index = state.selection.indexOf(lite.id);
+    if (index >= 0) setSelection(state.selection.filter((id) => id !== lite.id));
+    else setSelection([...state.selection, lite.id]);
+    void refresh();
+  }
+
+  /** Selection list "locate": move the node to the end, making it the focus. */
+  function setFocus(id: string): void {
+    if (!state.selection.includes(id)) return;
+    setSelection([...state.selection.filter((existing) => existing !== id), id]);
+  }
+
+  function removeFromSelection(id: string): void {
+    if (!state.selection.includes(id)) return;
+    setSelection(state.selection.filter((existing) => existing !== id));
+    void refresh();
+  }
+
+  function clearSelection(): void {
+    if (state.selection.length === 0) return;
+    setSelection([]);
+    state.hoveredId = null;
+    void refresh();
+  }
+
+  /** Hover: highlights the node and emphasizes its grounds edges. */
+  function hover(id: string): void {
+    state.hoveredId = id;
+  }
+
+  function unhover(): void {
+    state.hoveredId = null;
+  }
+
+  function dismissNotice(): void {
+    state.notice = null;
+  }
+
+  function dismissError(): void {
+    state.error = null;
+  }
+
+  /** Drop deleted nodes from every layer; selection shrinks accordingly. */
+  function pruneDeleted(ids: readonly string[]): void {
+    const deleted = new Set(ids);
+    if (deleted.size === 0) return;
+    for (const id of deleted) liteCache.delete(id);
+    if (state.hoveredId !== null && deleted.has(state.hoveredId)) unhover();
+    if (state.selection.some((id) => deleted.has(id))) {
+      setSelection(state.selection.filter((id) => !deleted.has(id)));
+    }
+    void refresh();
+  }
+
+  async function refreshIssues(): Promise<void> {
+    try {
+      const result = await client.fetchIssues();
+      state.issues = result.issues;
+      state.revision = result.revision;
+    } catch {
+      // Issue counts are advisory; leave the previous value in place.
+    }
+  }
+
+  function applyEvent(event: ChangeEvent): void {
+    state.revision = event.revision;
+    // Re-expand on every batch (changed ids may be new dependents or fresh
+    // grounds of working-set nodes); the server batches events at 500ms.
+    if (event.deleted.length > 0) pruneDeleted(event.deleted);
+    else void refresh();
+    void refreshIssues();
+    for (const listener of changeListeners) {
+      try {
+        listener(event);
+      } catch {
+        // a broken listener must not break change application
       }
     }
-
-    const map = new Map<string, NodeLite>();
-    for (const id of coverage) {
-      const lite = liteCache.get(id);
-      if (lite !== undefined) map.set(id, lite);
-    }
-    if (token !== refreshToken) return;
-    workingSet.value = map;
-    state.truncated = siblingsTruncated || neighborsTruncated;
-    state.error = null;
-    state.ready = true;
-  } catch (error) {
-    // Keep the previous working set on transient failures.
-    if (token === refreshToken)
-      state.error = error instanceof Error ? error.message : String(error);
-  } finally {
-    if (token === refreshToken) state.loading = false;
   }
-}
 
-function setSelection(ids: string[]): void {
-  state.selection = ids;
-  state.focusId = ids[ids.length - 1] ?? null;
-}
-
-/** Left click: make this the only selected node. */
-function select(lite: NodeLite): void {
-  prime(lite);
-  if (sameSelection(state.selection, [lite.id])) return;
-  setSelection([lite.id]);
-  state.notice = null;
-  void refresh();
-}
-
-/** Shift click: append the range between focus and the clicked node. */
-async function rangeSelect(lite: NodeLite): Promise<void> {
-  prime(lite);
-  const focusId = state.focusId;
-  if (focusId === null || focusId === lite.id) {
-    select(lite);
-    return;
+  /** Subscribe to applied external-change events (SSE batches and reloads);
+   * returns an unsubscribe function. */
+  function onChange(callback: (event: ChangeEvent) => void): () => void {
+    changeListeners.add(callback);
+    return () => changeListeners.delete(callback);
   }
-  try {
-    const result = await queryRange(focusId, lite.id);
-    for (const node of result.nodes) prime(node);
-    if (result.mode === "ancestor") {
-      appendSelection(result.nodes.map((node) => node.id));
-    } else {
-      // No common ancestor within the budget (definitively or before the
-      // budget ran out): only the clicked node joins, per design.
-      appendSelection([lite.id]);
-      state.notice = result.mode === "disconnected" ? "rangeDisconnected" : "rangeDegraded";
-    }
-  } catch (error) {
-    state.error = error instanceof Error ? error.message : String(error);
-    return;
+
+  /** Begin lifecycle: subscribe to the change feed and fetch issues. The
+   * canvas stays empty until the first selection. */
+  function start(): void {
+    if (stopEvents !== null) return;
+    stopEvents = client.connectEvents(applyEvent, (connected) => {
+      state.connected = connected;
+    });
+    void refreshIssues();
   }
-  await refresh();
-}
 
-function appendSelection(ids: readonly string[]): void {
-  const next = [...state.selection];
-  for (const id of ids) if (!next.includes(id)) next.push(id);
-  setSelection(next);
-}
-
-/** Ctrl click: toggle the node's membership in the selection. */
-function toggle(lite: NodeLite): void {
-  prime(lite);
-  const index = state.selection.indexOf(lite.id);
-  if (index >= 0) setSelection(state.selection.filter((id) => id !== lite.id));
-  else setSelection([...state.selection, lite.id]);
-  void refresh();
-}
-
-/** Selection list "locate": move the node to the end, making it the focus. */
-function setFocus(id: string): void {
-  if (!state.selection.includes(id)) return;
-  setSelection([...state.selection.filter((existing) => existing !== id), id]);
-}
-
-function removeFromSelection(id: string): void {
-  if (!state.selection.includes(id)) return;
-  setSelection(state.selection.filter((existing) => existing !== id));
-  void refresh();
-}
-
-function clearSelection(): void {
-  if (state.selection.length === 0) return;
-  setSelection([]);
-  state.hoveredId = null;
-  void refresh();
-}
-
-/** Hover: highlights the node and emphasizes its grounds edges. */
-function hover(id: string): void {
-  state.hoveredId = id;
-}
-
-function unhover(): void {
-  state.hoveredId = null;
-}
-
-function dismissNotice(): void {
-  state.notice = null;
-}
-
-function dismissError(): void {
-  state.error = null;
-}
-
-/** Drop deleted nodes from every layer; selection shrinks accordingly. */
-function pruneDeleted(ids: readonly string[]): void {
-  const deleted = new Set(ids);
-  if (deleted.size === 0) return;
-  for (const id of deleted) liteCache.delete(id);
-  if (state.hoveredId !== null && deleted.has(state.hoveredId)) unhover();
-  if (state.selection.some((id) => deleted.has(id))) {
-    setSelection(state.selection.filter((id) => !deleted.has(id)));
+  function stop(): void {
+    stopEvents?.();
+    stopEvents = null;
   }
-  void refresh();
-}
 
-async function refreshIssues(): Promise<void> {
-  try {
-    const result = await fetchIssues();
-    state.issues = result.issues;
-    state.revision = result.revision;
-  } catch {
-    // Issue counts are advisory; leave the previous value in place.
-  }
-}
-
-function applyEvent(event: ChangeEvent): void {
-  state.revision = event.revision;
-  // Re-expand on every batch (changed ids may be new dependents or fresh
-  // grounds of working-set nodes); the server batches events at 500ms.
-  if (event.deleted.length > 0) pruneDeleted(event.deleted);
-  else void refresh();
-  void refreshIssues();
-  for (const listener of changeListeners) {
+  /** Manual authoritative refresh (header button): full server rescan; the
+   * SSE feed re-expands the working set, and local state follows immediately. */
+  async function reload(): Promise<void> {
     try {
-      listener(event);
-    } catch {
-      // a broken listener must not break change application
+      const event = await client.reloadGraph();
+      applyEvent(event);
+    } catch (error) {
+      state.error = error instanceof Error ? error.message : String(error);
     }
   }
-}
 
-/** Subscribe to applied external-change events (SSE batches and reloads);
- * returns an unsubscribe function. */
-function onChange(callback: (event: ChangeEvent) => void): () => void {
-  changeListeners.add(callback);
-  return () => changeListeners.delete(callback);
-}
+  function setConfig(patch: Partial<CanvasConfig>): void {
+    // Writes go through an unknown-valued view: a union key's write type is
+    // the intersection of the property types, which is `never` here.
+    const target = state.config as Record<keyof CanvasConfig, unknown>;
+    for (const key of Object.keys(patch) as Array<keyof CanvasConfig>) {
+      const value = patch[key];
+      if (value === undefined) continue;
+      target[key] = value;
+      writePreference(CONFIG_KEYS[key], String(value));
+    }
+    void refresh();
+  }
 
-/** Begin lifecycle: subscribe to the change feed and fetch issues. The
- * canvas stays empty until the first selection. */
-function start(): void {
-  if (stopEvents !== null) return;
-  stopEvents = connectEvents(applyEvent, (connected) => {
-    state.connected = connected;
+  /**
+   * Nodes the canvas draws: every constraint of the working set. Premise
+   * nodes are not displayed (ui README, "显示规则与样式"); edges come from
+   * the grounds of the displayed constraints, restricted to grounds that are
+   * themselves displayed constraints.
+   */
+  const displayed = computed<NodeLite[]>(() => {
+    const result: NodeLite[] = [];
+    for (const node of workingSet.value.values()) {
+      if (node.type === "constraint") result.push(node);
+    }
+    return result;
   });
-  void refreshIssues();
+
+  /** Lite shapes of the ordered selection, for the selection list UI. */
+  const selectedNodes = computed<NodeLite[]>(() =>
+    state.selection.map((id) => liteCache.get(id)).filter((n) => n !== undefined),
+  );
+
+  return {
+    state: readonly(state),
+    /** Working-set nodes the canvas displays, in stable order. */
+    displayed,
+    selectedNodes,
+    start,
+    stop,
+    onChange,
+    reload,
+    select,
+    rangeSelect,
+    toggle,
+    setFocus,
+    removeFromSelection,
+    clearSelection,
+    hover,
+    unhover,
+    dismissNotice,
+    dismissError,
+    setConfig,
+    /** Re-expand the working set from the current selection (used after local
+     * mutations when the SSE feed is unavailable). */
+    refresh: (): Promise<void> => refresh(),
+    /** Drop nodes deleted by a local mutation; SSE carries external deletions. */
+    pruneDeleted,
+    /** Internal test seam. */
+    isLive: () => stopEvents !== null,
+  };
 }
 
-function stop(): void {
-  stopEvents?.();
-  stopEvents = null;
-}
+export type Workspace = ReturnType<typeof createWorkspace>;
 
-/** Manual authoritative refresh (header button): full server rescan; the
- * SSE feed re-expands the working set, and local state follows immediately. */
-async function reload(): Promise<void> {
-  try {
-    const event = await reloadGraph();
-    applyEvent(event);
-  } catch (error) {
-    state.error = error instanceof Error ? error.message : String(error);
-  }
-}
-
-function setConfig(patch: Partial<CanvasConfig>): void {
-  // Writes go through an unknown-valued view: a union key's write type is
-  // the intersection of the property types, which is `never` here.
-  const target = state.config as Record<keyof CanvasConfig, unknown>;
-  for (const key of Object.keys(patch) as Array<keyof CanvasConfig>) {
-    const value = patch[key];
-    if (value === undefined) continue;
-    target[key] = value;
-    writePreference(CONFIG_KEYS[key], String(value));
-  }
-  void refresh();
-}
-
-/**
- * Nodes the canvas draws: every constraint of the working set. Premise
- * nodes are not displayed (ui README, "显示规则与样式"); edges come from
- * the grounds of the displayed constraints, restricted to grounds that are
- * themselves displayed constraints.
- */
-const displayed = computed<NodeLite[]>(() => {
-  const result: NodeLite[] = [];
-  for (const node of workingSet.value.values()) {
-    if (node.type === "constraint") result.push(node);
-  }
-  return result;
-});
-
-/** Lite shapes of the ordered selection, for the selection list UI. */
-const selectedNodes = computed<NodeLite[]>(() =>
-  state.selection.map((id) => liteCache.get(id)).filter((n) => n !== undefined),
-);
-
-export const workspace = {
-  state: readonly(state),
-  /** Working-set nodes the canvas displays, in stable order. */
-  displayed,
-  selectedNodes,
-  start,
-  stop,
-  onChange,
-  reload,
-  select,
-  rangeSelect,
-  toggle,
-  setFocus,
-  removeFromSelection,
-  clearSelection,
-  hover,
-  unhover,
-  dismissNotice,
-  dismissError,
-  setConfig,
-  /** Re-expand the working set from the current selection (used after local
-   * mutations when the SSE feed is unavailable). */
-  refresh: (): Promise<void> => refresh(),
-  /** Drop nodes deleted by a local mutation; SSE carries external deletions. */
-  pruneDeleted,
-  /** Internal test seam. */
-  isLive: () => stopEvents !== null,
-};
+/** Provided by the embedding root (see main.ts); components inject it. */
+export const workspaceKey: InjectionKey<Workspace> = Symbol("refino-workspace");
