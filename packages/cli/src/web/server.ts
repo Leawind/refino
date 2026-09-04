@@ -26,8 +26,7 @@ import {
 } from "./query-api.js";
 import { GraphIndex } from "./graph-index.js";
 import type { ChangeEvent } from "./graph-index.js";
-import { startNodeWatcher } from "./watcher.js";
-import type { NodeWatcher } from "./watcher.js";
+import { startNodeWatcher, type NodeWatcher } from "@refino/storage";
 
 export interface WebServerOptions {
   host: string;

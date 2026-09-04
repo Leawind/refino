@@ -16,3 +16,5 @@ export type {
   UpdatePremiseOptions,
   UpdateConstraintOptions,
 } from "./writer.js";
+export { startNodeWatcher } from "./watcher.js";
+export type { NodeWatcher, NodeWatcherOptions } from "./watcher.js";
