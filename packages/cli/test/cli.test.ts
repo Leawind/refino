@@ -102,6 +102,26 @@ describe("refino cli", () => {
     expect(onlyPremises.out).not.toContain("E5F6G7H8");
   });
 
+  it("list orders nodes upstream before downstream (layer, then id)", async () => {
+    // Id order alone would put the downstream node first; the layer must win.
+    const root = await createRefino({
+      "nodes/AA/A1111BB-constraint.md": constraint("AAA1111BB", ["ZZZ9999YX"], "下游约束。"),
+      "nodes/ZZ/Z9999YX-constraint.md": constraint("ZZZ9999YX", undefined, "上游约束。"),
+    });
+    try {
+      const { code, out } = await run(["--root", root, "list"]);
+      expect(code).toBe(0);
+      const rows = out
+        .split("\n")
+        .filter((line) => line.includes("AAA1111BB") || line.includes("ZZZ9999YX"));
+      expect(rows).toHaveLength(2);
+      expect(rows[0]).toContain("ZZZ9999YX");
+      expect(rows[1]).toContain("AAA1111BB");
+    } finally {
+      await removeRefino(root);
+    }
+  });
+
   it("show prints the full record", async () => {
     const { code, out } = await run(["--root", validRoot, "show", "E5F6G7H8"]);
     expect(code).toBe(0);

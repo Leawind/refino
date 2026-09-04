@@ -13,6 +13,7 @@ import {
 } from "@refino/storage";
 import { CommanderError, Command, Option } from "commander";
 import {
+  assignLayers,
   checkGroundsChange,
   generateId,
   getAncestors,
@@ -715,8 +716,14 @@ function refinoDir(opts: GlobalOptions): string {
   return join(opts.root, ".refino");
 }
 
+/** List order: upstream → downstream by longest-path layer (refino,
+ * assignLayers), ties in id order for stable, readable output. */
 function sortNodes(graph: Graph): RefinoNode[] {
-  return [...graph.nodes.values()].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const layers = assignLayers([...graph.nodes.values()]);
+  return [...graph.nodes.values()].sort((a, b) => {
+    const byLayer = (layers.get(a.id) ?? 0) - (layers.get(b.id) ?? 0);
+    return byLayer !== 0 ? byLayer : a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  });
 }
 
 function countNodes(graph: Graph): { premises: number; constraints: number } {
