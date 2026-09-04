@@ -107,7 +107,7 @@ const scene = computed<SceneInput>(() => {
       y: node.y,
       width: node.width,
       height: node.height,
-      rounded: lite.type === "constraint",
+      kind: lite.type,
       label: lite.summary === "" ? t("node.untitled") : lite.summary,
       selected: selectionSet.has(lite.id),
       focus: lite.id === focusId,
@@ -254,6 +254,9 @@ function onMouseLeave(): void {
   height: 100%;
   overflow: hidden;
   user-select: none;
+  /* The canvas surface sits a step below the panels and the opaque node
+   * cards drawn on it (token drives the WebGL palette too). */
+  background: var(--refino-canvas-bg);
 }
 
 .gl {

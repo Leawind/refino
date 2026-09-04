@@ -115,8 +115,9 @@ const NODE_FRAGMENT = /* glsl */ `#version 300 es
       border.a + fill.a * (1.0 - border.a)
     );
     if (v_flags.x > 0.5) {
-      // Selection badge: a small disc at the top-right corner.
-      vec2 badgeCenter = vec2(v_size.x - 5.0, 5.0);
+      // Selection badge: a small disc just inside the top-right corner so
+      // the quad bounds never clip it into a quarter blob.
+      vec2 badgeCenter = vec2(v_size.x - 10.0, 10.0);
       float badge = 1.0 - smoothstep(3.5, 4.5, length(v_local - badgeCenter));
       color = vec4(
         u_primary.rgb * badge + color.rgb * (1.0 - badge),

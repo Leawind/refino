@@ -1,18 +1,33 @@
 :root {
   --refino-border: rgba(0, 0, 0, 0.1);
   --refino-radius: 8px;
+  --refino-primary: #18a058;
   --refino-surface: #ffffff;
-  --refino-node-bg: rgba(128, 128, 128, 0.08);
-  --refino-node-border: rgba(128, 128, 128, 0.4);
-  --refino-edge: rgba(128, 128, 128, 0.5);
+  /* The canvas is a step darker than the panels so opaque node cards and
+   * floating layers read as objects lying on it. */
+  --refino-canvas-bg: #eff1f4;
+  /* Constraint nodes are opaque cards; premises carry the primary tint so
+   * grounds are traceable at a glance. */
+  --refino-node-bg: #ffffff;
+  --refino-node-border: rgba(15, 23, 42, 0.3);
+  --refino-premise-bg: #e5f3ec;
+  --refino-premise-border: rgba(24, 160, 88, 0.55);
+  --refino-edge: rgba(15, 23, 42, 0.35);
+  /* Labels read this token instead of body color: custom properties are not
+   * transitioned, so the WebGL palette never sees a mid-animation value. */
+  --refino-node-text: rgba(0, 0, 0, 0.9);
 }
 
 :root[data-theme="dark"] {
   --refino-border: rgba(255, 255, 255, 0.12);
   --refino-surface: rgb(24, 24, 28);
-  --refino-node-bg: rgba(255, 255, 255, 0.06);
+  --refino-canvas-bg: rgb(16, 16, 20);
+  --refino-node-bg: rgb(34, 34, 40);
   --refino-node-border: rgba(255, 255, 255, 0.28);
-  --refino-edge: rgba(255, 255, 255, 0.3);
+  --refino-premise-bg: rgba(24, 160, 88, 0.2);
+  --refino-premise-border: rgba(24, 160, 88, 0.6);
+  --refino-edge: rgba(255, 255, 255, 0.32);
+  --refino-node-text: rgba(255, 255, 255, 0.85);
 }
 
 /* Theme flips recolor every surface; one global rule keeps all elements

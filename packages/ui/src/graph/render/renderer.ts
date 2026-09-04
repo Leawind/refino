@@ -35,9 +35,13 @@ import { createProgram, EDGE_QUAD, type Program, UNIT_QUAD } from "./shaders";
 
 export type RGBA = [number, number, number, number];
 
+export type NodeKind = "constraint" | "premise";
+
 export interface ThemeColors {
   nodeBg: RGBA;
   nodeBorder: RGBA;
+  premiseBg: RGBA;
+  premiseBorder: RGBA;
   edge: RGBA;
   primary: RGBA;
   text: RGBA;
@@ -50,8 +54,9 @@ export interface RenderNodeInput {
   y: number;
   width: number;
   height: number;
-  /** Constraints round their corners; premises are square. */
-  rounded: boolean;
+  /** Decides shape (constraints round their corners, premises are square)
+   * and palette (premises carry the premise tint). */
+  kind: NodeKind;
   label: string;
   selected: boolean;
   focus: boolean;
@@ -124,18 +129,22 @@ export function parseColor(spec: string): RGBA {
   return [at(0) / 255, at(1) / 255, at(2) / 255, numbers[3] !== undefined ? Number(numbers[3]) : 1];
 }
 
-/** Reads the canvas palette from the theme tokens on <html>. */
+/** Reads the canvas palette from the theme tokens on <html>. All values come
+ * from custom properties: they flip instantly with the theme, unlike
+ * computed properties (body color etc.) that the global transition keeps
+ * animating for ~200ms after a flip. */
 export function readThemeColors(): ThemeColors {
   const root = getComputedStyle(document.documentElement);
-  const body = getComputedStyle(document.body);
   const token = (name: string, fallback: string): RGBA =>
     parseColor(root.getPropertyValue(name) || fallback);
   return {
-    nodeBg: token("--refino-node-bg", "rgba(128, 128, 128, 0.08)"),
-    nodeBorder: token("--refino-node-border", "rgba(128, 128, 128, 0.4)"),
-    edge: token("--refino-edge", "rgba(128, 128, 128, 0.5)"),
+    nodeBg: token("--refino-node-bg", "#ffffff"),
+    nodeBorder: token("--refino-node-border", "rgba(15, 23, 42, 0.3)"),
+    premiseBg: token("--refino-premise-bg", "#e5f3ec"),
+    premiseBorder: token("--refino-premise-border", "rgba(24, 160, 88, 0.55)"),
+    edge: token("--refino-edge", "rgba(15, 23, 42, 0.35)"),
     primary: token("--refino-primary", "#18a058"),
-    text: parseColor(body.color || "rgba(0, 0, 0, 0.9)"),
+    text: token("--refino-node-text", "rgba(0, 0, 0, 0.9)"),
   };
 }
 
@@ -166,9 +175,11 @@ export class GraphRenderer {
   #labelCache = new Map<string, string>();
 
   #theme: ThemeColors = {
-    nodeBg: [0.5, 0.5, 0.5, 0.08],
-    nodeBorder: [0.5, 0.5, 0.5, 0.4],
-    edge: [0.5, 0.5, 0.5, 0.5],
+    nodeBg: [1, 1, 1, 1],
+    nodeBorder: [0.06, 0.09, 0.16, 0.3],
+    premiseBg: [0.9, 0.95, 0.93, 1],
+    premiseBorder: [0.09, 0.63, 0.35, 0.55],
+    edge: [0.06, 0.09, 0.16, 0.35],
     primary: [0.09, 0.63, 0.35, 1],
     text: [0.1, 0.1, 0.1, 0.9],
   };
@@ -654,6 +665,7 @@ export class GraphRenderer {
       if (entry.alpha < 0.01 || !this.#admitted.has(id)) continue;
       if ((count + 1) * 16 > this.#nodeData.length) this.#nodeData = grow(this.#nodeData);
       const node = entry.node;
+      const premise = node.kind === "premise";
       const borderWidth = node.focus
         ? BORDER_WIDTH_FOCUS
         : node.selected
@@ -662,15 +674,19 @@ export class GraphRenderer {
             ? BORDER_WIDTH_HOVERED
             : BORDER_WIDTH;
       const borderColor =
-        node.selected || node.focus || node.hovered ? this.#theme.primary : this.#theme.nodeBorder;
+        node.selected || node.focus || node.hovered
+          ? this.#theme.primary
+          : premise
+            ? this.#theme.premiseBorder
+            : this.#theme.nodeBorder;
       const base = count * 16;
       this.#nodeData[base] = (node.x + node.width / 2) * scale + tx;
       this.#nodeData[base + 1] = (node.y + node.height / 2) * scale + ty;
       this.#nodeData[base + 2] = node.width * scale;
       this.#nodeData[base + 3] = node.height * scale;
-      this.#nodeData[base + 4] = node.rounded ? CORNER_RADIUS : 0;
+      this.#nodeData[base + 4] = premise ? 0 : CORNER_RADIUS;
       this.#nodeData[base + 5] = borderWidth;
-      this.#nodeData.set(this.#theme.nodeBg, base + 6);
+      this.#nodeData.set(premise ? this.#theme.premiseBg : this.#theme.nodeBg, base + 6);
       this.#nodeData.set(borderColor, base + 10);
       this.#nodeData[base + 14] = node.selected ? 1 : 0;
       this.#nodeData[base + 15] = entry.alpha;
