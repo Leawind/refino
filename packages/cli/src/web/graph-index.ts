@@ -11,9 +11,10 @@ import { join } from "node:path";
  * Two memory layers: a light index (id, type, grounds, summary and the small
  * frontmatter fields — the resident graph carries `body: ""`) plus on-demand
  * bodies read back from disk via the path-is-identity rule and kept in an
- * LRU. `validateGraph` runs once at load; afterwards issue entries are
- * updated incrementally, scoped to each applied change and its direct
- * dependents.
+ * LRU. `validateGraph` runs once at load; afterwards graph issues are
+ * recomputed incrementally, scoped to each applied change and its direct
+ * dependents, and parse issues are re-stored from every file re-read, so
+ * externally introduced problems surface without a full reload.
  *
  * `applyChange` is the single incremental update entry: API writes and
  * external file events both re-read the affected ids from disk through it,
@@ -53,7 +54,16 @@ export class GraphIndex {
 
   #graph: Graph = buildGraph("", []);
   #entries = new Map<string, Entry>();
-  #issues = new Map<string, RefinoIssue[]>();
+  /**
+   * Issue cache in two layers. Parse issues come from reading node files
+   * (loader/`readNode` output) and are re-stored whenever a file is re-read;
+   * graph issues come from structural checks (`validateGraph` at load,
+   * `checkGroundsChange` rechecks afterwards) and are recomputed per applied
+   * change and its direct dependents. Both are keyed by node id or by the
+   * `.refino`-relative file for issues that never resolved to an id.
+   */
+  #parseIssues = new Map<string, RefinoIssue[]>();
+  #graphIssues = new Map<string, RefinoIssue[]>();
   #revision = 0;
   #bodies = new Map<string, string>();
   #sortedIds: string[] | undefined;
@@ -93,7 +103,7 @@ export class GraphIndex {
   issues(): RefinoIssue[] {
     const seen = new Set<string>();
     const all: RefinoIssue[] = [];
-    for (const list of this.#issues.values()) {
+    for (const list of [...this.#parseIssues.values(), ...this.#graphIssues.values()]) {
       for (const issue of list) {
         if (seen.has(issue.message)) continue;
         seen.add(issue.message);
@@ -168,7 +178,8 @@ export class GraphIndex {
    * is identity), applies additions/updates/removals, and reports only ids
    * whose light fields actually changed — no-ops never bump the revision, so
    * duplicate notifications (an API write followed by its own watcher echo)
-   * stay silent.
+   * stay silent. Every re-read's parse issues are (re)stored, so externally
+   * introduced problems surface here as they do on a full load.
    *
    * `shards` are directories touched by the incoming file events. Parse
    * issues are keyed by file for nodes whose id never resolved (invalid id
@@ -198,32 +209,46 @@ export class GraphIndex {
       const staleFileIssues = await this.staleFileIssueKeys(touchedShards);
 
       // From here on the batch applies synchronously: readers never observe a half-applied batch.
-      const applied: Array<{ node: RefinoNode; mtimeMs: number }> = [];
+      const applied: Array<{ node: RefinoNode; mtimeMs: number; issues: RefinoIssue[] }> = [];
       const removed: string[] = [];
+      /** Parse issues of files that produced no node (e.g. broken YAML). */
+      const orphanIssues: RefinoIssue[] = [];
       for (let i = 0; i < ids.length; i++) {
         const id = ids[i]!;
         const read = reads[i]!;
         const existing = this.#entries.get(id);
         if (read.node === null) {
           if (existing !== undefined) removed.push(id);
+          // A file that yields no node can still carry parse issues; store
+          // them unless an identical batch is already cached (no-op echoes
+          // must not bump the revision).
+          if (read.issues.length > 0 && this.parseIssuesChanged(id, read.issues)) {
+            orphanIssues.push(...read.issues);
+          }
         } else if (
           existing === undefined ||
           !sameLightFields(existing.node, read.node) ||
           existing.mtimeMs !== read.mtimeMs
         ) {
-          applied.push({ node: read.node, mtimeMs: read.mtimeMs ?? 0 });
+          applied.push({ node: read.node, mtimeMs: read.mtimeMs ?? 0, issues: read.issues });
         }
       }
-      if (applied.length === 0 && removed.length === 0 && staleFileIssues.length === 0) {
+      if (
+        applied.length === 0 &&
+        removed.length === 0 &&
+        orphanIssues.length === 0 &&
+        staleFileIssues.length === 0
+      ) {
         return undefined;
       }
 
       this.#revision++;
       this.#sortedIds = undefined;
-      for (const read of applied) this.putNode(read.node, read.mtimeMs);
+      for (const read of applied) this.putNode(read.node, read.mtimeMs, read.issues);
       for (const id of removed) this.removeNode(id);
-      for (const key of staleFileIssues) this.#issues.delete(key);
-      this.recheckIssues(affected);
+      for (const key of staleFileIssues) this.#parseIssues.delete(key);
+      this.storeParseIssues(orphanIssues);
+      this.recheckGraphIssues(affected);
 
       const event: ChangeEvent = {
         revision: this.#revision,
@@ -245,14 +270,10 @@ export class GraphIndex {
   /** Full rescan; replaces every index structure. */
   private async load(): Promise<void> {
     const { graph, issues, mtimes } = await loadGraph(this.refinoDir);
-    const issueMap = new Map<string, RefinoIssue[]>();
-    for (const issue of [...issues, ...validateGraph(graph)]) {
-      const key = issue.nodeId ?? issue.file;
-      if (key === undefined) continue;
-      const list = issueMap.get(key);
-      if (list) list.push(issue);
-      else issueMap.set(key, [issue]);
-    }
+    const parseMap = new Map<string, RefinoIssue[]>();
+    for (const issue of issues) storeIssue(parseMap, issue);
+    const graphMap = new Map<string, RefinoIssue[]>();
+    for (const issue of validateGraph(graph)) storeIssue(graphMap, issue);
     const nodes = [...graph.nodes.values()].map((node) => ({ ...node, body: "" }));
     this.#graph = buildGraph(graph.refinoDir, nodes);
     this.#entries = new Map(
@@ -261,20 +282,23 @@ export class GraphIndex {
         { node, revision: INITIAL_REVISION, mtimeMs: mtimes.get(node.id) ?? 0 },
       ]),
     );
-    this.#issues = issueMap;
+    this.#parseIssues = parseMap;
+    this.#graphIssues = graphMap;
     this.#bodies.clear();
     this.#sortedIds = undefined;
     this.#revision = INITIAL_REVISION;
   }
 
-  private putNode(node: RefinoNode, mtimeMs: number): void {
+  private putNode(node: RefinoNode, mtimeMs: number, parseIssues: RefinoIssue[]): void {
     const existing = this.#entries.get(node.id);
     if (existing !== undefined) this.dropDependents(existing.node);
     const resident = { ...node, body: "" };
     this.#entries.set(node.id, { node: resident, revision: this.#revision, mtimeMs });
     this.#graph.nodes.set(node.id, resident);
     this.addDependents(resident);
-    this.dropIssues(node.id);
+    this.dropParseIssues(node.id);
+    this.#graphIssues.delete(node.id);
+    this.storeParseIssues(parseIssues);
     // The freshly read body warms the LRU for the next readBody.
     this.cacheBody(node.id, node.body);
   }
@@ -286,7 +310,8 @@ export class GraphIndex {
     this.#entries.delete(id);
     this.#graph.nodes.delete(id);
     this.#bodies.delete(id);
-    this.dropIssues(id);
+    this.dropParseIssues(id);
+    this.#graphIssues.delete(id);
   }
 
   private addDependents(node: RefinoNode): void {
@@ -315,16 +340,17 @@ export class GraphIndex {
   }
 
   /**
-   * Incremental issue recheck scoped to the affected ids and their former
-   * direct dependents: per-node grounds issues come from the engine's
+   * Incremental graph-issue recheck scoped to the affected ids and their
+   * former direct dependents: per-node grounds issues come from the engine's
    * `checkGroundsChange` (a cycle must pass through an affected node, and
    * dangling grounds only appear on nodes grounding on changed ids), the
-   * confirmed format check complements it. Issues elsewhere in the graph are
+   * confirmed format check complements it. Parse issues are untouched (they
+   * are re-stored from the file reads) and issues elsewhere in the graph are
    * unaffected by the change and stay cached.
    */
-  private recheckIssues(affected: Iterable<string>): void {
+  private recheckGraphIssues(affected: Iterable<string>): void {
     for (const id of affected) {
-      this.dropIssues(id);
+      this.#graphIssues.delete(id);
       const entry = this.#entries.get(id);
       if (entry === undefined) continue;
       const found: RefinoIssue[] = [];
@@ -340,28 +366,55 @@ export class GraphIndex {
       if (node.type === "constraint") {
         found.push(...checkGroundsChange(this.#graph, id, node.grounds ?? []));
       }
-      if (found.length > 0) this.#issues.set(id, found);
+      if (found.length > 0) this.#graphIssues.set(id, found);
     }
   }
 
-  /** Drop every issue entry that can relate to the id, including file-keyed parse issues. */
-  private dropIssues(id: string): void {
-    this.#issues.delete(id);
-    for (const file of candidateFiles(id)) this.#issues.delete(file);
+  /** Group parse issues by node id or file and merge them into the cache. */
+  private storeParseIssues(issues: readonly RefinoIssue[]): void {
+    for (const issue of issues) storeIssue(this.#parseIssues, issue);
+  }
+
+  /** Drop every parse-issue entry that can relate to the id, including file-keyed ones. */
+  private dropParseIssues(id: string): void {
+    this.#parseIssues.delete(id);
+    for (const file of candidateFiles(id)) this.#parseIssues.delete(file);
   }
 
   /**
-   * File-keyed issue entries whose file no longer exists, within the given
-   * shards (issue keys are node ids or `.refino`-relative file paths; only
-   * file paths live under `nodes/<shard>/`). Must run before the synchronous
-   * apply section — readers never observe a half-applied batch.
+   * Whether the cached parse issues under the id's keys differ from the
+   * given fresh batch (compared by message set). Guards the revision against
+   * no-op echoes of an unchanged, unparseable file.
+   */
+  private parseIssuesChanged(id: string, fresh: readonly RefinoIssue[]): boolean {
+    const keys = new Set([id, ...candidateFiles(id)]);
+    const cached = new Set<string>();
+    for (const list of this.#parseIssues.values()) {
+      for (const issue of list) {
+        if (
+          (issue.nodeId !== undefined && keys.has(issue.nodeId)) ||
+          (issue.file !== undefined && keys.has(issue.file))
+        ) {
+          cached.add(issue.message);
+        }
+      }
+    }
+    if (cached.size !== fresh.length) return true;
+    return fresh.some((issue) => !cached.has(issue.message));
+  }
+
+  /**
+   * File-keyed parse-issue entries whose file no longer exists, within the
+   * given shards (issue keys are node ids or `.refino`-relative file paths;
+   * only file paths live under `nodes/<shard>/`). Must run before the
+   * synchronous apply section — readers never observe a half-applied batch.
    */
   private async staleFileIssueKeys(shards: readonly string[]): Promise<string[]> {
     const stale: string[] = [];
     for (const shard of shards) {
       const prefix = `nodes/${shard}/`;
       const files = await readdir(join(this.refinoDir, "nodes", shard)).catch((): string[] => []);
-      for (const key of this.#issues.keys()) {
+      for (const key of this.#parseIssues.keys()) {
         if (key.startsWith(prefix) && !files.includes(key.slice(prefix.length))) stale.push(key);
       }
     }
@@ -391,6 +444,15 @@ export class GraphIndex {
 /** Both candidate file paths of an id, in canonical `.refino`-relative form. */
 function candidateFiles(id: string): string[] {
   return (["constraint", "premise"] as const).map((type) => nodeRelativeFile(type, id));
+}
+
+/** Group one issue into a keyed cache under its node id or, failing that, its file. */
+function storeIssue(cache: Map<string, RefinoIssue[]>, issue: RefinoIssue): void {
+  const key = issue.nodeId ?? issue.file;
+  if (key === undefined) return;
+  const list = cache.get(key);
+  if (list) list.push(issue);
+  else cache.set(key, [issue]);
 }
 
 /**

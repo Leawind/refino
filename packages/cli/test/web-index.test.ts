@@ -185,6 +185,80 @@ describe("GraphIndex incremental updates", () => {
     await index.applyChange({ changed: [newId] });
   });
 
+  it("surfaces parse issues from external changes without a reload", async () => {
+    const index = new GraphIndex(refinoDir);
+    await index.ready();
+    expect(index.issues()).toEqual([]);
+
+    // A premise declaring grounds: a parse-level issue invisible to the
+    // structural recheck, reported by readNode only.
+    const shardDir = join(refinoDir, "nodes", "9A");
+    await mkdir(shardDir, { recursive: true });
+    await writeFile(
+      join(shardDir, "ABCDEF1-premise.md"),
+      "---\ngrounds: [1A2B3C4D]\n---\n\n前提声明了 grounds。\n",
+      "utf8",
+    );
+    await index.applyChange({ changed: ["9AABCDEF1"] });
+    expect(index.issues().some((i) => i.code === "PREMISE_WITH_GROUNDS")).toBe(true);
+
+    // Repairing the file clears the issue through the same entry.
+    await writeFile(join(shardDir, "ABCDEF1-premise.md"), "修复后的前提。\n", "utf8");
+    const event = await index.applyChange({ changed: ["9AABCDEF1"] });
+    expect(event?.changed).toEqual(["9AABCDEF1"]);
+    expect(index.issues()).toEqual([]);
+  });
+
+  it("keeps a node's parse issues when only its dependents are rechecked", async () => {
+    const index = new GraphIndex(refinoDir);
+    await index.ready();
+
+    // P with a parse issue, grounded on by C: rechecking C (or any change
+    // touching C) pulls P into the affected set and must not erase P's own
+    // parse issue.
+    const shardDir = join(refinoDir, "nodes", "9B");
+    await mkdir(shardDir, { recursive: true });
+    await writeFile(
+      join(shardDir, "ABCDEF2-premise.md"),
+      "---\ngrounds: [1A2B3C4D]\n---\n\n带依据的前提。\n",
+      "utf8",
+    );
+    const dependent = await createConstraint(refinoDir, { body: "下游。", grounds: ["9BABCDEF2"] });
+    await index.applyChange({ changed: ["9BABCDEF2", dependent] });
+    expect(index.issues().some((i) => i.code === "PREMISE_WITH_GROUNDS")).toBe(true);
+
+    // A change to the dependent rechecks the premise too; its parse issue survives.
+    await updateConstraint(refinoDir, dependent, { body: "下游改。", grounds: ["9BABCDEF2"] });
+    await index.applyChange({ changed: [dependent] });
+    expect(index.issues().some((i) => i.code === "PREMISE_WITH_GROUNDS")).toBe(true);
+
+    await deleteNode(refinoDir, dependent);
+    await index.applyChange({ changed: [dependent] });
+  });
+
+  it("reports parse issues of files that yield no node at all", async () => {
+    const index = new GraphIndex(refinoDir);
+    await index.ready();
+
+    // Broken YAML: readNode returns no node but reports the parse issue,
+    // keyed by file; the issue must surface through the incremental entry.
+    const shardDir = join(refinoDir, "nodes", "9C");
+    await mkdir(shardDir, { recursive: true });
+    await writeFile(
+      join(shardDir, "ABCDEF3-premise.md"),
+      "---\n\t[broken yaml\n---\n\n正文。\n",
+      "utf8",
+    );
+    const first = await index.applyChange({ changed: ["9CABCDEF3"] });
+    expect(first).toBeDefined();
+    expect(index.issues().some((i) => i.code === "INVALID_FRONTMATTER")).toBe(true);
+
+    // A no-op echo of the same broken file must not bump the revision.
+    const revision = index.revision;
+    expect(await index.applyChange({ changed: ["9CABCDEF3"] })).toBeUndefined();
+    expect(index.revision).toBe(revision);
+  });
+
   it("drops parse issues keyed by files that vanish within a touched shard", async () => {
     const index = new GraphIndex(refinoDir);
     await index.ready();
