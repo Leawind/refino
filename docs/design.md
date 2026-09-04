@@ -177,7 +177,7 @@ Web 读接口在图存在 issues 时照常返回数据并附带 issues；CLI 查
 
 画布以问题角标呈现，不因 Agent 任务执行中的瞬态无效状态阻塞浏览。
 
-编辑功能要求 `@refino/storage` 补充 update/delete 写 API（当前仅有 create），并对 grounds 引用做有效性校验；写入改为原子写。
+编辑功能的写入经由 `@refino/storage` 的 update/delete 写 API（原子写，grounds 引用有效性在落盘前校验）；PUT 到一个尚不存在的合法 id 则以该 id 创建，用于外部删除后的同 id 重建。
 
 ## 测试工具
 

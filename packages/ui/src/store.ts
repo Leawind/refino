@@ -288,6 +288,9 @@ export const store = {
     state.creatingType = type;
     state.detailOpen = true;
     setFormFrom(null);
+    // A new premise defaults its confirmation time to now (matches the CLI's
+    // --now); the value stays editable.
+    if (type === "premise") detailForm.confirmed = new Date().toISOString();
   },
   cancelCreate(): void {
     state.creatingType = null;
