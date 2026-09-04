@@ -56,6 +56,26 @@ describe("queries", () => {
     expect(getAncestors(graph, "1A2B3C4D")).toEqual([]);
   });
 
+  it("maxDepth bounds the traversal without changing order", () => {
+    expect(getAncestors(graph, "E5F6G7H8", { maxDepth: 1 }).map((a) => a.node.id)).toEqual([
+      "1A2B3C4D",
+      "D4E5F6G7",
+    ]);
+    expect(getDependents(graph, "A1B2C3D4", { maxDepth: 1 }).map((a) => a.node.id)).toEqual([
+      "D4E5F6G7",
+    ]);
+    // Depth 0 includes nothing: the queried node itself is always excluded.
+    expect(getAncestors(graph, "E5F6G7H8", { maxDepth: 0 })).toEqual([]);
+    expect(getDependents(graph, "A1B2C3D4", { maxDepth: 0 })).toEqual([]);
+    // The full closure still equals the unbounded default.
+    expect(getAncestors(graph, "E5F6G7H8", { maxDepth: 99 })).toEqual(
+      getAncestors(graph, "E5F6G7H8"),
+    );
+    expect(getDependents(graph, "A1B2C3D4", { maxDepth: 99 })).toEqual(
+      getDependents(graph, "A1B2C3D4"),
+    );
+  });
+
   it("dependents are the transitive closure of downstream constraints", () => {
     expect(getDependents(graph, "A1B2C3D4").map((d) => [d.node.id, d.depth])).toEqual([
       ["D4E5F6G7", 1],

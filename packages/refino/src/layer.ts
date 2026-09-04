@@ -24,6 +24,7 @@ export interface LayerNode {
 export function assignLayers(nodes: readonly LayerNode[]): Map<string, number> {
   const byId = new Map(nodes.map((node) => [node.id, node] as const));
   const groundsIn = new Map<string, string[]>();
+  const tentative = new Map<string, number>();
   for (const [id, node] of byId) {
     groundsIn.set(
       id,
@@ -32,19 +33,38 @@ export function assignLayers(nodes: readonly LayerNode[]): Map<string, number> {
   }
 
   const layers = new Map<string, number>();
-  // Strict phase: a node layers only once every ground is layered, so
-  // layers settle to the longest-path values (fixed-point iteration).
-  let progressed = true;
-  while (progressed) {
-    progressed = false;
-    for (const id of byId.keys()) {
-      if (layers.has(id)) continue;
-      const grounds = groundsIn.get(id)!;
-      if (grounds.some((g) => !layers.has(g))) continue;
-      let layer = 0;
-      for (const g of grounds) layer = Math.max(layer, layers.get(g)! + 1);
-      layers.set(id, layer);
-      progressed = true;
+  // Strict phase (Kahn over grounds edges): a node layers only once every
+  // in-set ground is layered, and its layer is the longest grounds chain
+  // ending there. The layer values are unique for the input set, so the
+  // processing order only affects traversal, never the result.
+  const pending = new Map<string, number>();
+  const dependents = new Map<string, string[]>();
+  const queue: string[] = [];
+  for (const [id, grounds] of groundsIn) {
+    pending.set(id, grounds.length);
+    if (grounds.length === 0) {
+      layers.set(id, 0);
+      queue.push(id);
+    }
+    for (const g of grounds) {
+      const list = dependents.get(g);
+      if (list) list.push(id);
+      else dependents.set(g, [id]);
+    }
+  }
+  queue.sort();
+  for (let head = 0; head < queue.length; head++) {
+    const ground = queue[head]!;
+    const groundLayer = layers.get(ground)!;
+    for (const dependent of dependents.get(ground) ?? []) {
+      const candidate = groundLayer + 1;
+      if (candidate > (tentative.get(dependent) ?? 0)) tentative.set(dependent, candidate);
+      const left = pending.get(dependent)! - 1;
+      pending.set(dependent, left);
+      if (left === 0) {
+        layers.set(dependent, tentative.get(dependent)!);
+        queue.push(dependent);
+      }
     }
   }
   // Cycle-breaking phase: leftover nodes sit on or behind a cycle. Id

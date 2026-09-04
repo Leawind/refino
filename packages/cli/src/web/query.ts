@@ -78,11 +78,12 @@ export function neighbors(
 ): QueryGroup<Neighborhood>[] {
   return queryGroups(graph, ids, (g, id): Neighborhood[] => {
     const depth = new Map<string, number>([[id, 0]]);
-    for (const entry of getAncestors(g, id)) {
-      if (entry.depth <= params.ancestorDepth) depth.set(entry.node.id, entry.depth);
+    // Depth-bounded traversals: only the requested generations expand, so a
+    // shallow hover does not walk the full ancestor/dependent closure.
+    for (const entry of getAncestors(g, id, { maxDepth: params.ancestorDepth })) {
+      depth.set(entry.node.id, entry.depth);
     }
-    for (const entry of getDependents(g, id)) {
-      if (entry.depth > params.descendantDepth) continue;
+    for (const entry of getDependents(g, id, { maxDepth: params.descendantDepth })) {
       const previous = depth.get(entry.node.id);
       if (previous === undefined || entry.depth < previous) depth.set(entry.node.id, entry.depth);
     }
