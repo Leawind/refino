@@ -7,8 +7,9 @@
  * (union of all laid-out nodes) only constrains the viewport, it is never
  * rendered:
  *
- * - zoom: the bbox long side on screen must not shrink below the viewport
- *   short side (the minimum zoom); the maximum zoom is a configured cap;
+ * - zoom: the bbox long side on screen must not shrink below half the
+ *   viewport short side (the minimum zoom); the maximum zoom is a
+ *   configured cap;
  * - pan: the bbox must keep intersecting the viewport (it must never slide
  *   fully out of view).
  *
@@ -37,12 +38,12 @@ export interface Viewport {
 
 const SCALE_FLOOR = 0.02;
 
-/** The minimum zoom: bbox long side on screen ≥ viewport short side. */
+/** The minimum zoom: bbox long side on screen ≥ half the viewport short side. */
 export function minScale(box: CameraBox, viewport: Viewport): number {
   const longSide = Math.max(box.maxX - box.minX, box.maxY - box.minY);
   if (longSide <= 0) return SCALE_FLOOR;
   const shortSide = Math.min(viewport.width, viewport.height);
-  return Math.max(SCALE_FLOOR, shortSide / longSide);
+  return Math.max(SCALE_FLOOR, (shortSide / 2) / longSide);
 }
 
 export function clampScale(

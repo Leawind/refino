@@ -22,17 +22,17 @@ const intersectsViewport = (camera: { scale: number; tx: number; ty: number }): 
 };
 
 describe("zoom limits", () => {
-  it("derives the minimum zoom from the bbox long side vs the viewport short side", () => {
-    expect(minScale(box, viewport)).toBeCloseTo(672 / 900, 6);
+  it("derives the minimum zoom from the bbox long side vs half the viewport short side", () => {
+    expect(minScale(box, viewport)).toBeCloseTo(672 / 2 / 900, 6);
   });
 
   it("clamps scale into [minScale, maxScale], the floor winning over the cap", () => {
-    expect(clampScale(0.01, box, viewport, 4)).toBeCloseTo(672 / 900, 6);
+    expect(clampScale(0.01, box, viewport, 4)).toBeCloseTo(672 / 2 / 900, 6);
     expect(clampScale(100, box, viewport, 4)).toBe(4);
     expect(clampScale(1.5, box, viewport, 4)).toBe(1.5);
     // A degenerate single-node bbox forces a high floor that beats the cap.
     const tiny: CameraBox = { minX: 0, minY: 0, maxX: 150, maxY: 44 };
-    expect(clampScale(1, tiny, viewport, 4)).toBeGreaterThan(4);
+    expect(clampScale(1, tiny, viewport, 4)).toBeCloseTo(336 / 150, 6);
   });
 });
 
@@ -53,7 +53,7 @@ describe("pan clamping", () => {
 
   it("clamps scale while panning a too-far zoomed-out camera", () => {
     const camera = clampCamera({ scale: 0.001, tx: 0, ty: 0 }, box, viewport);
-    expect(camera.scale).toBeCloseTo(672 / 900, 6);
+    expect(camera.scale).toBeCloseTo(672 / 2 / 900, 6);
   });
 });
 
@@ -66,12 +66,12 @@ describe("fit camera", () => {
     expect(right).toBeCloseTo(viewport.width - 24, 1);
     expect(bottom).toBeLessThan(viewport.height);
 
-    // Long side ≥ 336 keeps the floor below the cap, so the cap applies.
+    // Long side ≥ 168 keeps the floor below the cap, so the cap applies.
     const capped = fitCamera({ minX: 0, minY: 0, maxX: 350, maxY: 300 }, viewport, 2, 24);
     expect(capped.scale).toBe(2);
     // A degenerate tiny bbox raises the floor above the cap; the floor wins.
     const tiny = fitCamera({ minX: 0, minY: 0, maxX: 150, maxY: 44 }, viewport, 2, 24);
-    expect(tiny.scale).toBeCloseTo(672 / 150, 6);
+    expect(tiny.scale).toBeCloseTo(336 / 150, 6);
   });
 });
 
