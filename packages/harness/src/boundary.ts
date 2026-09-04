@@ -6,15 +6,22 @@ import type { RefinoNode } from "refino";
 import type { AuthorizationContext, ModificationCheck, NodeZone } from "./types.js";
 
 /**
- * Validate an authorization context against the graph: all ids must exist and
- * frozen ids must reference constraint nodes (premise updates follow the
- * maintenance protocol, never the context's frozen list). Throws
- * `HarnessError` on the first violation.
+ * Validate an authorization context against the graph: all ids must exist,
+ * appear at most once per list, and frozen ids must reference constraint
+ * nodes (premises join the zone only as ancestors of frozen constraints).
+ * Throws `HarnessError` on the first violation.
  */
 export function validateContext(graph: Graph, context: AuthorizationContext): void {
   const missing = unknownNodes(graph, [...context.anchors, ...context.frozen]);
   if (missing.length > 0) {
     throw new HarnessError("UNKNOWN_NODE", `Unknown node ids: ${missing.join(", ")}`);
+  }
+  const duplicated = [...duplicates(context.anchors), ...duplicates(context.frozen)];
+  if (duplicated.length > 0) {
+    throw new HarnessError(
+      "DUPLICATE_CONTEXT_ID",
+      `Authorization context lists duplicate ids: ${duplicated.join(", ")}`,
+    );
   }
   const notConstraint = context.frozen.filter((id) => graph.nodes.get(id)!.type !== "constraint");
   if (notConstraint.length > 0) {
@@ -23,6 +30,17 @@ export function validateContext(graph: Graph, context: AuthorizationContext): vo
       `The frozen list must reference constraint nodes: ${notConstraint.join(", ")}`,
     );
   }
+}
+
+/** Ids that appear more than once in the list, in first-duplicate order. */
+function duplicates(ids: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const duplicated = new Set<string>();
+  for (const id of ids) {
+    if (seen.has(id)) duplicated.add(id);
+    else seen.add(id);
+  }
+  return [...duplicated];
 }
 
 /**
@@ -54,8 +72,8 @@ export function frozenFrontier(graph: Graph, context: AuthorizationContext): Ref
 /**
  * Constraints that may still be frozen under the context: every constraint
  * outside the frozen zone. Freeze candidates exclude zone members — freezing
- * them would change nothing. Premises are never freezable; they follow the
- * maintenance protocol. Sorted by id.
+ * them would change nothing. Premises are never named directly; they join
+ * the zone as ancestors of frozen constraints. Sorted by id.
  */
 export function freezableConstraints(graph: Graph, context: AuthorizationContext): RefinoNode[] {
   validateContext(graph, context);
@@ -65,10 +83,9 @@ export function freezableConstraints(graph: Graph, context: AuthorizationContext
 
 /**
  * Check whether a node may be modified under the given authorization context.
- * Everything outside the frozen zone is within the modification space;
- * frozen constraints are blocked with an escalation report, and premises are
- * blocked because their updates follow the maintenance protocol (2.0),
- * whether or not they sit in the zone. Unknown ids throw `HarnessError`.
+ * Everything outside the frozen zone is within the modification space,
+ * constraints and premises alike; a node in the zone — whatever its type —
+ * is blocked with an escalation report. Unknown ids throw `HarnessError`.
  */
 export function checkModification(
   graph: Graph,
@@ -78,7 +95,7 @@ export function checkModification(
   validateContext(graph, context);
   const zone = zoneOf(graph, context, id);
   if (zone === "modifiable") return { id, zone, allowed: true };
-  return { id, zone, allowed: false, report: { id, zone, affected: getDependents(graph, id) } };
+  return { id, zone, allowed: false, report: { id, affected: getDependents(graph, id) } };
 }
 
 /** Check a batch of nodes; unknown ids fail the whole check via `HarnessError`. */
@@ -117,7 +134,6 @@ export function frozenDependents(
 function zoneOf(graph: Graph, context: AuthorizationContext, id: string): NodeZone {
   const node = graph.nodes.get(id);
   if (!node) throw new HarnessError("UNKNOWN_NODE", `Unknown node id: ${id}`);
-  if (node.type === "premise") return "premise";
   return frozenIds(graph, context).has(id) ? "frozen" : "modifiable";
 }
 
@@ -127,7 +143,10 @@ function frozenIds(graph: Graph, context: AuthorizationContext): Set<string> {
   const queue = [...context.frozen];
   for (let head = 0; head < queue.length; head++) {
     const id = queue[head]!;
-    for (const ground of graph.nodes.get(id)?.grounds ?? []) {
+    // Premises declare no grounds, so only constraints extend the closure.
+    const node = graph.nodes.get(id);
+    const grounds = node?.type === "constraint" ? node.grounds : [];
+    for (const ground of grounds) {
       if (!frozen.has(ground)) {
         frozen.add(ground);
         queue.push(ground);

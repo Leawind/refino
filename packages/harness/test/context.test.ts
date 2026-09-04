@@ -5,14 +5,14 @@ import { contextBlocks, diffContext, renderContext } from "../src/context.js";
 import type { AuthorizationContext } from "../src/types.js";
 
 function node(id: string, type: NodeType, grounds?: string[]): RefinoNode {
-  return {
+  const base = {
     id,
-    type,
     file: `nodes/${id.slice(0, 2)}/${id.slice(2)}-${type}.md`,
     summary: `${id} summary.`,
     body: `${id} body.`,
-    ...(grounds !== undefined && { grounds }),
   };
+  if (type === "premise") return { ...base, type };
+  return { ...base, type, grounds: grounds ?? [] };
 }
 
 const A1 = "A1B2C3D4";

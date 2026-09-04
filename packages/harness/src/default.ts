@@ -14,7 +14,7 @@ import type { DefaultContext } from "./types.js";
 export function defaultAuthorizationContext(graph: Graph, maxAutoNodes = 1024): DefaultContext {
   const complete = graph.nodes.size <= maxAutoNodes;
   const frozen = [...graph.nodes.values()]
-    .filter((n) => n.type === "constraint" && (n.grounds?.length ?? 0) === 0)
+    .filter((n) => n.type === "constraint" && n.grounds.length === 0)
     .map((n) => n.id)
     .sort();
   const anchors = complete ? [...graph.nodes.keys()].sort() : [];

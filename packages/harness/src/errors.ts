@@ -1,4 +1,4 @@
-export type HarnessErrorCode = "UNKNOWN_NODE" | "FROZEN_NOT_CONSTRAINT";
+export type HarnessErrorCode = "UNKNOWN_NODE" | "FROZEN_NOT_CONSTRAINT" | "DUPLICATE_CONTEXT_ID";
 
 export class HarnessError extends Error {
   readonly code: HarnessErrorCode;

@@ -8,13 +8,16 @@ export interface AuthorizationContext {
   /**
    * Scope anchor node ids: the CRG nodes loaded when the task starts. They
    * determine the initial decision context, not what may be modified.
+   * Duplicates are rejected by `validateContext`.
    */
   anchors: string[];
   /**
    * Frozen constraint ids naming the frozen zone: the zone is these
-   * constraints plus all their ancestor nodes (docs/crg.md 2.4). Everything
-   * outside the zone is the modification space; new nodes created in the
-   * task belong to it.
+   * constraints plus all their ancestor nodes, constraints and premises
+   * alike (docs/crg.md 2.4). Everything outside the zone is the modification
+   * space; new nodes created in the task belong to it. Premises are never
+   * named directly — they join the zone as ancestors — and duplicates are
+   * rejected by `validateContext`.
    */
   frozen: string[];
 }
@@ -23,17 +26,15 @@ export interface AuthorizationContext {
 export type NodeZone =
   /** A node in the frozen zone: readable, not modifiable. */
   | "frozen"
-  /** A constraint outside the frozen zone: within the modification space. */
-  | "modifiable"
-  /** A premise: premise updates follow the maintenance protocol, not this context. */
-  | "premise";
+  /** A node outside the frozen zone: within the modification space. */
+  | "modifiable";
 
 /** Result of checking one node against the modification space. */
 export interface ModificationCheck {
   id: string;
   zone: NodeZone;
   allowed: boolean;
-  /** Present when the modification is not allowed. */
+  /** Present when the modification is not allowed (`zone` is `"frozen"`). */
   report?: EscalationReport;
 }
 
@@ -45,7 +46,6 @@ export interface ModificationCheck {
 export interface EscalationReport {
   /** The blocked node. */
   id: string;
-  zone: Exclude<NodeZone, "modifiable">;
   /** Downstream constraints a change to the blocked node would affect. */
   affected: NodeWithDepth[];
 }

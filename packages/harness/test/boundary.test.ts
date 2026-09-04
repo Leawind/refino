@@ -13,14 +13,14 @@ import { HarnessError } from "../src/errors.js";
 import type { AuthorizationContext } from "../src/types.js";
 
 function node(id: string, type: NodeType, grounds?: string[]): RefinoNode {
-  return {
+  const base = {
     id,
-    type,
     file: `nodes/${id.slice(0, 2)}/${id.slice(2)}-${type}.md`,
     summary: "Body.",
     body: "Body.",
-    ...(grounds !== undefined && { grounds }),
   };
+  if (type === "premise") return { ...base, type: "premise" };
+  return { ...base, type: "constraint", grounds: grounds ?? [] };
 }
 
 /**
@@ -67,6 +67,18 @@ describe("validateContext", () => {
       expect.objectContaining({ code: "FROZEN_NOT_CONSTRAINT" }) as unknown as Error,
     );
   });
+
+  it("rejects duplicate anchor ids", () => {
+    expect(() => validateContext(graphOf(), { anchors: [A1, A1], frozen: [E5] })).toThrow(
+      expect.objectContaining({ code: "DUPLICATE_CONTEXT_ID" }) as unknown as Error,
+    );
+  });
+
+  it("rejects duplicate frozen ids", () => {
+    expect(() => validateContext(graphOf(), { anchors: [], frozen: [E5, E5] })).toThrow(
+      expect.objectContaining({ code: "DUPLICATE_CONTEXT_ID" }) as unknown as Error,
+    );
+  });
 });
 
 describe("frozenZone", () => {
@@ -108,7 +120,6 @@ describe("checkModification", () => {
     const check = checkModification(graphOf(), ctx, A1);
     expect(check.allowed).toBe(false);
     expect(check.zone).toBe("frozen");
-    expect(check.report?.zone).toBe("frozen");
     expect(check.report?.affected.map((n) => n.node.id)).toEqual([D4, E5, B2]);
   });
 
@@ -121,11 +132,19 @@ describe("checkModification", () => {
     });
   });
 
-  it("blocks premise updates: they follow the maintenance protocol", () => {
+  it("allows premise updates outside the frozen zone: same mechanism as constraints", () => {
+    // ctx freezes {A1, Z9}; the premise P1 is not in the zone.
+    const check = checkModification(graphOf(), ctx, P1);
+    expect(check.allowed).toBe(true);
+    expect(check.zone).toBe("modifiable");
+  });
+
+  it("blocks premise updates inside the frozen zone with an escalation report", () => {
+    // Freezing E5 pulls its ancestor premise P1 into the zone.
+    const ctx: AuthorizationContext = { anchors: [], frozen: [E5] };
     const check = checkModification(graphOf(), ctx, P1);
     expect(check.allowed).toBe(false);
-    expect(check.zone).toBe("premise");
-    expect(check.report?.zone).toBe("premise");
+    expect(check.zone).toBe("frozen");
     expect(check.report?.affected.map((n) => n.node.id)).toEqual([E5, B2]);
   });
 
