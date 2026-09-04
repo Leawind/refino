@@ -29,6 +29,7 @@ import GraphFloat from "./components/GraphFloat.vue";
 import SelectionList from "./components/SelectionList.vue";
 import WorkspaceToasts from "./components/WorkspaceToasts.vue";
 import type { LayoutDirection } from "./types";
+import type { LayoutMode } from "./graph/layout/types";
 
 const { t } = useI18n();
 
@@ -50,6 +51,18 @@ const directionOptions = [
   { label: "←", value: "RL" },
   { label: "↑", value: "BT" },
 ];
+
+// Layout selection lives in the persisted canvas config; the direction
+// switch only applies to layouts with a direction (force ignores it).
+const layoutMode = computed(() => workspace.state.config.layoutMode);
+const layoutOptions = computed(() => [
+  { label: t("app.layoutLayered"), value: "layered" },
+  { label: t("app.layoutForce"), value: "force" },
+]);
+
+function setLayoutMode(mode: LayoutMode): void {
+  workspace.setConfig({ layoutMode: mode });
+}
 
 // Expose the theme on <html> so token definitions and naive portals
 // (which render outside .shell) follow the dark/light switch.
@@ -116,9 +129,33 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
                   <SelectionList />
                 </GraphFloat>
                 <GraphFloat placement="bottom-right">
-                  <NPopselect v-model:value="direction" :options="directionOptions" trigger="click">
-                    <NButton circle :title="t('app.direction')">{{ direction }}</NButton>
-                  </NPopselect>
+                  <div class="layout-controls">
+                    <NPopselect
+                      :value="layoutMode"
+                      :options="layoutOptions"
+                      trigger="click"
+                      @update:value="setLayoutMode"
+                    >
+                      <NButton circle :title="t('app.layout')">
+                        <span v-if="layoutMode === 'layered'">≡</span>
+                        <span v-else>⚛</span>
+                      </NButton>
+                    </NPopselect>
+                    <NPopselect
+                      v-model:value="direction"
+                      :options="directionOptions"
+                      trigger="click"
+                      :disabled="layoutMode === 'force'"
+                    >
+                      <NButton
+                        circle
+                        :disabled="layoutMode === 'force'"
+                        :title="t('app.direction')"
+                      >
+                        {{ direction }}
+                      </NButton>
+                    </NPopselect>
+                  </div>
                 </GraphFloat>
                 <GraphFloat placement="bottom-left">
                   <div class="status-pill">
@@ -196,6 +233,11 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
   flex: 1;
   min-height: 0;
   overflow: hidden;
+}
+
+.layout-controls {
+  display: flex;
+  gap: 8px;
 }
 
 .status-pill {
