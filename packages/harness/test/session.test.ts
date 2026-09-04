@@ -43,7 +43,7 @@ describe("pendingReview", () => {
 });
 
 describe("HarnessSession", () => {
-  const ctx = { anchors: ["1A2B3C4D"], frontier: [E5] };
+  const ctx = { anchors: [A1], frozen: [Z9] };
 
   it("batch queries return partial results with per-id errors", () => {
     const session = new HarnessSession(graphOf(), ctx);
@@ -64,14 +64,19 @@ describe("HarnessSession", () => {
 
   it("updateContext returns the incremental delta and switches the context", () => {
     const session = new HarnessSession(graphOf(), ctx);
-    const delta = session.updateContext({ anchors: [], frontier: [E5, D4] });
-    expect(delta).toContainEqual({ type: "frontier_added", id: D4 });
-    expect(session.authorizationContext.frontier).toEqual([E5, D4]);
-    expect(session.blocks().map((b) => b.id)).toContain("frontier:D4E5F6G7");
+    const delta = session.updateContext({ anchors: [A1], frozen: [Z9, D4] });
+    // Freezing D4 pulls its ancestor A1 into the zone as well.
+    expect(delta).toEqual([
+      { type: "frozen_added", id: A1 },
+      { type: "frozen_added", id: D4 },
+    ]);
+    expect(session.authorizationContext.frozen).toEqual([Z9, D4]);
+    expect(session.blocks().map((b) => b.id)).toContain("frozen:D4E5F6G7");
   });
 
   it("checkModification applies the current context", () => {
     const session = new HarnessSession(graphOf(), ctx);
-    expect(session.checkModification([A1])[0]).toMatchObject({ zone: "frozen", allowed: false });
+    expect(session.checkModification([Z9])[0]).toMatchObject({ zone: "frozen", allowed: false });
+    expect(session.checkModification([E5])[0]).toMatchObject({ zone: "modifiable", allowed: true });
   });
 });

@@ -18,10 +18,11 @@ function node(id: string, type: NodeType, grounds?: string[]): RefinoNode {
 const A1 = "A1B2C3D4";
 const D4 = "D4E5F6G7";
 const E5 = "E5F6G7H8";
+const P1 = "1A2B3C4D";
 
 function graphOf(): Graph {
   return buildGraph("/.refino", [
-    node("1A2B3C4D", "premise"),
+    node(P1, "premise"),
     node(A1, "constraint"),
     node(D4, "constraint", [A1]),
     node(E5, "constraint", [D4]),
@@ -29,43 +30,79 @@ function graphOf(): Graph {
 }
 
 describe("contextBlocks", () => {
-  it("renders stable, identifiable blocks per anchor, frozen and frontier node", () => {
-    const blocks = contextBlocks(graphOf(), { anchors: ["1A2B3C4D"], frontier: [E5] });
+  it("renders anchors, all premises and the derived frozen zone with stable ids", () => {
+    const blocks = contextBlocks(graphOf(), { anchors: [A1], frozen: [E5] });
     expect(blocks.map((b) => b.id)).toEqual([
-      "anchor:1A2B3C4D",
-      `frozen:${A1}`,
+      `anchor:${A1}`,
+      `premise:${P1}`,
       `frozen:${D4}`,
-      `frontier:${E5}`,
+      `frozen:${E5}`,
     ]);
-    expect(blocks[0]!.text).toContain("1A2B3C4D summary.");
+    expect(blocks[0]!.text).toContain("A1B2C3D4 summary.");
+  });
+
+  it("injects premises by default even when unreferenced", () => {
+    const blocks = contextBlocks(graphOf(), { anchors: [], frozen: [] });
+    expect(blocks.map((b) => b.id)).toEqual([`premise:${P1}`]);
+  });
+
+  it("does not duplicate a premise selected as an anchor", () => {
+    const blocks = contextBlocks(graphOf(), { anchors: [P1], frozen: [] });
+    expect(blocks.map((b) => b.id)).toEqual([`anchor:${P1}`]);
+  });
+
+  it("does not enumerate modifiable constraints outside the frozen zone", () => {
+    const blocks = contextBlocks(graphOf(), { anchors: [], frozen: [D4] });
+    expect(blocks.map((b) => b.id)).toEqual([`premise:${P1}`, `frozen:${A1}`, `frozen:${D4}`]);
+    expect(blocks.some((b) => b.nodeId === E5)).toBe(false);
   });
 });
 
 describe("renderContext", () => {
-  it("groups blocks into read-only and authorized sections", () => {
-    const text = renderContext(graphOf(), { anchors: [], frontier: [E5] });
-    expect(text).toContain("## 冻结区（只读依据，不可修改）");
-    expect(text).toContain("## 决策前沿（授权修改的边界节点）");
-    expect(text.indexOf("冻结区")).toBeLessThan(text.indexOf("决策前沿"));
+  it("groups blocks into anchors, premises and the read-only frozen section", () => {
+    const text = renderContext(graphOf(), { anchors: [], frozen: [E5] });
+    expect(text).toContain("## 项目前提（客观事实）");
+    expect(text).toContain("## 冻结区（只读，不可修改）");
+    expect(text.indexOf("项目前提")).toBeLessThan(text.indexOf("冻结区"));
+  });
+
+  it("states the complement rule: everything outside the frozen zone is modifiable", () => {
+    const text = renderContext(graphOf(), { anchors: [], frozen: [E5] });
+    expect(text).toContain("冻结区以外的全部约束均属于修改空间");
   });
 });
 
 describe("diffContext", () => {
-  const base: AuthorizationContext = { anchors: ["1A2B3C4D"], frontier: [E5] };
+  const base: AuthorizationContext = { anchors: [P1], frozen: [E5] };
 
-  it("reports anchor and frontier membership changes", () => {
-    const events = diffContext(graphOf(), base, { anchors: [A1], frontier: [D4] });
-    expect(events).toContainEqual({ type: "anchor_added", id: A1 });
-    expect(events).toContainEqual({ type: "anchor_removed", id: "1A2B3C4D" });
-    expect(events).toContainEqual({ type: "frontier_added", id: D4 });
-    expect(events).toContainEqual({ type: "frontier_removed", id: E5 });
+  it("reports anchor changes and derived frozen-zone changes", () => {
+    const events = diffContext(graphOf(), base, { anchors: [A1], frozen: [D4] });
+    expect(events).toEqual(
+      expect.arrayContaining([
+        { type: "anchor_added", id: A1 },
+        { type: "anchor_removed", id: P1 },
+        { type: "frozen_removed", id: E5 },
+      ]),
+    );
+    expect(events.filter((e) => e.type === "frozen_added")).toEqual([]);
   });
 
-  it("reports constraints entering and leaving the frozen zone", () => {
-    const events = diffContext(graphOf(), base, { anchors: [], frontier: [D4] });
-    // base frontier E5 froze {A1, D4}; the new frontier D4 freezes only {A1}
-    expect(events).toContainEqual({ type: "unfrozen", id: D4 });
-    expect(events.filter((e) => e.type === "frozen")).toEqual([]);
+  it("emits nothing when the declared set changes but the frozen zone does not", () => {
+    // E5 freezes {A1, D4, E5}; declaring the closure explicitly is equivalent.
+    const events = diffContext(graphOf(), base, { anchors: [P1], frozen: [D4, E5] });
+    expect(events).toEqual([]);
+  });
+
+  it("reports constraints entering the frozen zone together with their ancestors", () => {
+    const events = diffContext(
+      graphOf(),
+      { anchors: [P1], frozen: [] },
+      { anchors: [P1], frozen: [D4] },
+    );
+    expect(events).toEqual([
+      { type: "frozen_added", id: A1 },
+      { type: "frozen_added", id: D4 },
+    ]);
   });
 
   it("returns no events for identical contexts", () => {

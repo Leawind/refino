@@ -1,4 +1,4 @@
-export type HarnessErrorCode = "UNKNOWN_NODE" | "FRONTIER_NOT_CONSTRAINT" | "EMPTY_FRONTIER";
+export type HarnessErrorCode = "UNKNOWN_NODE" | "FROZEN_NOT_CONSTRAINT";
 
 export class HarnessError extends Error {
   readonly code: HarnessErrorCode;

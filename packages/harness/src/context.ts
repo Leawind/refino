@@ -1,19 +1,36 @@
 import type { Graph } from "refino";
 import { frozenZone, validateContext } from "./boundary.js";
+import { byId } from "./types.js";
 import type { AuthorizationContext, ContextBlock, DeltaEvent } from "./types.js";
 
 /**
  * Render the authorization context as stable, identifiable blocks: one per
- * anchor, frozen constraint, frontier constraint and frontier refinement.
- * Blocks carry summaries only; full bodies are fetched on demand via tools.
+ * anchor, per premise (premises are injected by default, docs/crg.md 2.2)
+ * and per frozen constraint. Blocks carry summaries only; full bodies are
+ * fetched on demand via tools. Constraints outside the frozen zone are
+ * intentionally not enumerated — they form the modification space by
+ * complement. Premise members of the zone are covered by their premise
+ * blocks and are not repeated.
  */
 export function contextBlocks(graph: Graph, context: AuthorizationContext): ContextBlock[] {
   validateContext(graph, context);
   const blocks: ContextBlock[] = [];
+  const anchors = new Set(context.anchors);
   for (const id of context.anchors) {
     blocks.push({ id: `anchor:${id}`, kind: "anchor", nodeId: id, text: line(graph, id) });
   }
+  const premises = byId([...graph.nodes.values()].filter((n) => n.type === "premise"));
+  for (const node of premises) {
+    if (anchors.has(node.id)) continue;
+    blocks.push({
+      id: `premise:${node.id}`,
+      kind: "premise",
+      nodeId: node.id,
+      text: line(graph, node.id),
+    });
+  }
   for (const node of frozenZone(graph, context)) {
+    if (anchors.has(node.id) || node.type === "premise") continue;
     blocks.push({
       id: `frozen:${node.id}`,
       kind: "frozen",
@@ -21,28 +38,14 @@ export function contextBlocks(graph: Graph, context: AuthorizationContext): Cont
       text: line(graph, node.id),
     });
   }
-  const refinements = new Set<string>();
-  for (const frontierId of context.frontier) {
-    blocks.push({
-      id: `frontier:${frontierId}`,
-      kind: "frontier",
-      nodeId: frontierId,
-      text: line(graph, frontierId),
-    });
-    for (const id of forwardClosure(graph, frontierId)) {
-      if (!context.frontier.includes(id)) refinements.add(id);
-    }
-  }
-  for (const id of [...refinements].sort()) {
-    blocks.push({ id: `refinement:${id}`, kind: "refinement", nodeId: id, text: line(graph, id) });
-  }
   return blocks;
 }
 
 /**
- * Render the full context as markdown, grouped into a read-only frozen zone
- * and the authorized modification space below the frontier. Summaries only;
- * the model expands relevant nodes via tools (two-level injection).
+ * Render the full context as markdown, grouped into anchors, premises and
+ * the read-only frozen zone; the complement statement closes the render.
+ * Summaries only; the model expands relevant nodes via tools (two-level
+ * injection).
  */
 export function renderContext(graph: Graph, context: AuthorizationContext): string {
   const blocks = contextBlocks(graph, context);
@@ -52,19 +55,21 @@ export function renderContext(graph: Graph, context: AuthorizationContext): stri
   };
   return [
     section("anchor", "## 作用域锚点"),
-    section("frozen", "## 冻结区（只读依据，不可修改）"),
-    section("frontier", "## 决策前沿（授权修改的边界节点）"),
-    section("refinement", "## 前沿以内（授权继续细化的空间）"),
+    section("premise", "## 项目前提（客观事实）"),
+    section("frozen", "## 冻结区（只读，不可修改）"),
+    "冻结区以外的全部约束均属于修改空间，可以修改或继续细化。",
   ]
     .filter((part) => part.length > 0)
     .join("\n\n");
 }
 
 /**
- * Incremental delta between two contexts: anchor/frontier membership changes
- * plus which constraints entered or left the frozen zone. Inject these events
- * instead of re-rendering the full context to keep the prompt-cache prefix
- * stable. `next` is validated against the graph.
+ * Incremental delta between two contexts: anchor membership changes plus the
+ * per-node diff of the derived frozen zones — freezing one node emits events
+ * for its ancestors too. Premise zone membership is not evented: premise
+ * blocks are always injected, so it changes nothing model-visible. Inject
+ * these events instead of re-rendering the full context to keep the
+ * prompt-cache prefix stable. `next` is validated against the graph.
  */
 export function diffContext(
   graph: Graph,
@@ -79,19 +84,19 @@ export function diffContext(
   for (const id of prev.anchors) {
     if (!next.anchors.includes(id)) events.push({ type: "anchor_removed", id });
   }
-  for (const id of next.frontier) {
-    if (!prev.frontier.includes(id)) events.push({ type: "frontier_added", id });
-  }
-  for (const id of prev.frontier) {
-    if (!next.frontier.includes(id)) events.push({ type: "frontier_removed", id });
-  }
-  const prevFrozen = new Set(frozenZone(graph, prev).map((n) => n.id));
-  const nextFrozen = new Set(frozenZone(graph, next).map((n) => n.id));
+  const zoneIds = (context: AuthorizationContext): Set<string> =>
+    new Set(
+      frozenZone(graph, context)
+        .filter((n) => n.type === "constraint")
+        .map((n) => n.id),
+    );
+  const prevFrozen = zoneIds(prev);
+  const nextFrozen = zoneIds(next);
   for (const id of nextFrozen) {
-    if (!prevFrozen.has(id)) events.push({ type: "frozen", id });
+    if (!prevFrozen.has(id)) events.push({ type: "frozen_added", id });
   }
   for (const id of prevFrozen) {
-    if (!nextFrozen.has(id)) events.push({ type: "unfrozen", id });
+    if (!nextFrozen.has(id)) events.push({ type: "frozen_removed", id });
   }
   return events;
 }
@@ -100,17 +105,4 @@ function line(graph: Graph, id: string): string {
   const node = graph.nodes.get(id)!;
   const type = node.type === "premise" ? "premise" : "constraint";
   return `- ${node.id} [${type}] ${node.summary}`;
-}
-
-/** ids reachable from a seed by following `dependents` forwards, seed included. */
-function forwardClosure(graph: Graph, seed: string): Set<string> {
-  const seen = new Set<string>();
-  const queue = [seed];
-  for (let head = 0; head < queue.length; head++) {
-    const id = queue[head]!;
-    if (seen.has(id)) continue;
-    seen.add(id);
-    for (const dependent of graph.dependents.get(id) ?? []) queue.push(dependent);
-  }
-  return seen;
 }

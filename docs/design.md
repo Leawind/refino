@@ -14,7 +14,7 @@
 | `@refino/cli`           | `refino` 引擎的命令行薄封装                                                                                                                       | 已有           |
 | `@refino/testkit`       | 各包测试共用的夹具与工具函数                                                                                                                      | 已有           |
 | `@refino/ui`            | CRG 可视化编辑组件库（Vue 3）                                                                                                                     | 已有（脚手架） |
-| `@refino/harness`       | 任务界定层（作用域锚点、修改边界、冻结区、授权上下文、冲突检测与越界升级）与 vibe coding 工具插件的公共逻辑（上下文增量生成、模型技能、注入协议） | 已有           |
+| `@refino/harness`       | 任务界定层（作用域锚点、冻结区与修改空间、授权上下文、冲突检测与越界升级）与 vibe coding 工具插件的公共逻辑（上下文增量生成、模型技能、注入协议） | 已有           |
 | `@refino/<tool>-plugin` | 各 vibe coding 工具的插件，如 `@refino/dsh-plugin`（dsh 适配，以 Cordis 插件形式接入，bundle 形式分发）                                           | 设计中         |
 | `@refino/desktop`       | 桌面应用                                                                                                                                          | 未来           |
 | `@refino/vscode`        | VSCode 插件                                                                                                                                       | 未来           |
@@ -46,7 +46,7 @@
 
 ## 任务层归属
 
-任务界定层概念（作用域锚点、修改边界、冻结区、授权上下文）以及冲突检测与越界升级，仅在与 vibe coding 工作流结合时才有意义，不进入引擎：由 `@refino/harness` 与各工具插件实现，引擎为其提供受影响约束集等纯图查询原语。
+任务界定层概念（作用域锚点、冻结区、修改空间、授权上下文）以及冲突检测与越界升级，仅在与 vibe coding 工作流结合时才有意义，不进入引擎：由 `@refino/harness` 与各工具插件实现，引擎为其提供受影响约束集等纯图查询原语。
 
 引擎的受影响约束集查询（`getDependents`，CLI 命令 `refino dependents <id>`）返回某节点变化后可能受影响的所有约束的传递闭包：CRG 中只有约束携带 `grounds` 边，因此依赖闭包中的节点必然全是约束，无需额外过滤。
 
@@ -57,8 +57,8 @@
 ### 用户侧：交互组件
 
 - 锚点选择器：浏览 CRG 节点（列表/图），选择一个或多个作用域锚点。
-- 冻结区选择器：选择决策前沿约束集合，实时预览由前沿反向可达的冻结区范围。
-- 组件属于 `@refino/ui`（Vue 3）；`@refino/harness` 提供其所需的状态模型与计算，冻结区预览即冻结区计算的直接复用。
+- 冻结区选择器：选择若干冻结约束，冻结区即所选约束连同其全部祖先节点（见 crg.md 2.4）。展示与操作细节待交互设计时再定，harness 为其提供所需的状态模型与计算。
+- 组件属于 `@refino/ui`（Vue 3）；`@refino/harness` 提供其所需的状态模型与计算。
 
 ### 模型侧：CRG 访问工具
 
@@ -77,14 +77,14 @@
 
 ### 上下文注入协议
 
-- 初始注入：锚点节点及其依据链，按两级策略渲染——先注入 summary，模型判定相关后再展开全文；显式区分「冻结区约束：只读依据」与「前沿以内：授权修改空间」。
-- 模型可访问全图，但初始上下文只含锚点邻域，其余靠工具按需拉取。
+- 初始注入：锚点、全部前提与冻结区约束，按两级策略渲染——先注入 summary，模型判定相关后再展开全文；显式区分「冻结区约束：只读」与「冻结区以外：授权修改空间」。
+- 模型可访问全图，但初始上下文只含锚点、前提与冻结区，其余靠工具按需拉取。
 
 ### 增量更新与缓存友好
 
 多轮对话中用户选择的锚点与冻结区可能变化。注入协议以缓存友好为约束：
 
-- 上下文分为稳定前缀（已注入的快照）与增量 delta；锚点/冻结区变化时只注入 delta 事件（如「约束 X 不再是前沿，其上游 N 个约束解除冻结」「新增锚点 Y」），不重述全量快照，保持前缀稳定以利用模型的 prompt cache。
+- 上下文分为稳定前缀（已注入的快照）与增量 delta；锚点/冻结区变化时只注入 delta 事件（如「约束 X 解除冻结」「新增锚点 Y」），不重述全量快照，保持前缀稳定以利用模型的 prompt cache。
 - 协议为每个注入块定义稳定的序号或标识，使 delta 可无歧义地引用既有内容。
 
 ### harness 与工具插件的分工
@@ -106,10 +106,11 @@ refino 的四项接入需求中，两项只有进程内 Cordis 插件能实现�
 #### dsh 插件落地形态
 
 - **分发**：npm 包声明 `dsh.bundle` manifest 指向包内 `cordis.patch.yml`，用户经 `dsh plugin --profile <name> add <包>` 安装；git 直装需自包含 `prepare` 构建脚本，发 npm 或 tarball 则免构建许可。
-- **会话初始化**：监听 `agent/session-start`，取会话 cwd 定位 `.refino/`，经 `@refino/storage` 加载图，构造 `HarnessSession`，按两级策略渲染并以 `<system-reminder>` 框架注入（显式区分「冻结区约束：只读依据」与「前沿以内：授权修改空间」）。授权上下文 v1 从插件配置或 `.refino/` 下的会话文件读取。
-- **工具**：`refino_list` / `refino_show` / `refino_grounds` / `refino_ancestors` / `refino_dependents` / `refino_pending_review` 与写入工具；写入内部走引擎 `checkGroundsChange` + `validateGraph` + harness `checkModification`，越界返回结构化升级报告（正常工具结果，非报错）。
+- **默认授权上下文**：未显式指定时，冻结区默认取全部根约束连同其祖先，前提全部注入；图节点数不超过 1024 时锚点取全部节点（初始注入即全图摘要），超过 1024 则要求显式锚点，签发前不注入初始上下文。
+- **会话初始化**：监听 `agent/session-start`，取会话 cwd 定位 `.refino/`，经 `@refino/storage` 加载图，按默认或显式授权上下文构造 `HarnessSession`，按两级策略渲染并以 `<system-reminder>` 框架注入（显式区分「冻结区约束：只读」与「冻结区以外：授权修改空间」）。
+- **工具**：`refino_list` / `refino_show` / `refino_grounds` / `refino_ancestors` / `refino_dependents` / `refino_pending_review` 与写入工具；写入内部走引擎 `checkGroundsChange` + `validateGraph` + harness `checkModification` 与 `frozenDependents`（修改波及冻结约束即升级），越界返回结构化升级报告（正常工具结果，非报错）。
 - **增量同步**：监听 `.refino/nodes/` 分片目录，变更经增量重载产出待审查集与 delta 事件后注入；无监听能力时降级为 touch 驱动（参照 dsh `agent-instructions` 的 `tools/result` 模式）。
-- **锚点/前沿签发**：v1 经 `ctx.commands` 用户命令或配置文件签发；锚点/冻结区选择器组件（`@refino/ui`）的接入属后续工作，走 dsh UI 插件路线。
+- **锚点/冻结区签发**：对话中的指定分三层——v1 经 `ctx.commands` 用户命令（如 `/refino-scope <ids>`）与插件配置签发；工具内经 `ctx.userQuestions.ask()` 支持模型发起、用户多选确认（dsh 限制仅运行时根 agent 可发起）；锚点/冻结区选择器组件（`@refino/ui`）属后续工作，经 dsh Web Client 的 slots/Conversation 节点扩展点接入。
 - **版本策略**：dsh 处于 developer preview，`@deepseek-ai/*` 依赖锁精确版本，CI 对 dsh 升级跑插件冒烟。
 
 ## 命名约定

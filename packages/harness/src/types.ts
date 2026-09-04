@@ -11,28 +11,27 @@ export interface AuthorizationContext {
    */
   anchors: string[];
   /**
-   * Decision frontier constraint ids: the modification boundary. Ancestors
-   * reachable from the frontier form the frozen zone; the frontier and its
-   * refinements are the authorized modification space.
+   * Frozen constraint ids naming the frozen zone: the zone is these
+   * constraints plus all their ancestor nodes (docs/crg.md 2.4). Everything
+   * outside the zone is the modification space; new nodes created in the
+   * task belong to it.
    */
-  frontier: string[];
+  frozen: string[];
 }
 
-/** Where a node sits relative to the modification boundary of a task. */
-export type BoundaryZone =
-  /** A decision frontier node itself. */
-  | "frontier"
-  /** A transitive refinement (dependent) of a frontier node. */
-  | "refinement"
-  /** A frozen ancestor constraint of the frontier: readable, not modifiable. */
+/** Where a node sits relative to the modification space of a task. */
+export type NodeZone =
+  /** A node in the frozen zone: readable, not modifiable. */
   | "frozen"
-  /** Unrelated to the frontier: neither frontier, refinement, nor frozen. */
-  | "outside";
+  /** A constraint outside the frozen zone: within the modification space. */
+  | "modifiable"
+  /** A premise: premise updates follow the maintenance protocol, not this context. */
+  | "premise";
 
-/** Result of checking one node against the modification boundary. */
+/** Result of checking one node against the modification space. */
 export interface ModificationCheck {
   id: string;
-  zone: BoundaryZone;
+  zone: NodeZone;
   allowed: boolean;
   /** Present when the modification is not allowed. */
   report?: EscalationReport;
@@ -46,8 +45,7 @@ export interface ModificationCheck {
 export interface EscalationReport {
   /** The blocked node. */
   id: string;
-  /** Why the modification is blocked. */
-  zone: Exclude<BoundaryZone, "frontier" | "refinement">;
+  zone: Exclude<NodeZone, "modifiable">;
   /** Downstream constraints a change to the blocked node would affect. */
   affected: NodeWithDepth[];
 }
@@ -65,7 +63,7 @@ export interface ContextBlock {
   text: string;
 }
 
-export type ContextBlockKind = "anchor" | "frozen" | "frontier" | "refinement";
+export type ContextBlockKind = "anchor" | "premise" | "frozen";
 
 /**
  * Incremental change between two authorization contexts. Hosts inject only
@@ -75,10 +73,15 @@ export type ContextBlockKind = "anchor" | "frozen" | "frontier" | "refinement";
 export type DeltaEvent =
   | { type: "anchor_added"; id: string }
   | { type: "anchor_removed"; id: string }
-  | { type: "frontier_added"; id: string }
-  | { type: "frontier_removed"; id: string }
-  | { type: "frozen"; id: string }
-  | { type: "unfrozen"; id: string };
+  | { type: "frozen_added"; id: string }
+  | { type: "frozen_removed"; id: string };
+
+/** Result of `defaultAuthorizationContext`. */
+export interface DefaultContext {
+  context: AuthorizationContext;
+  /** Whether the anchors cover every node in the graph. */
+  complete: boolean;
+}
 
 /** Context node ids reference nodes that do not exist in the graph. */
 export function unknownNodes(graph: Graph, ids: readonly string[]): string[] {

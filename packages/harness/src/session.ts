@@ -27,7 +27,7 @@ export interface HarnessHost {
 
 /**
  * A task session over a loaded graph: query tools with batch, partial-success
- * semantics, modification boundary checks and incremental context updates.
+ * semantics, modification space checks and incremental context updates.
  * Platform-agnostic; graph loading and node writes stay with the storage
  * adapter of the consuming package.
  */
@@ -65,7 +65,7 @@ export class HarnessSession {
     return pendingReview(this.graph, changedIds);
   }
 
-  /** Check nodes against the modification boundary; unknown ids throw. */
+  /** Check nodes against the modification space; unknown ids throw. */
   checkModification(ids: readonly string[]): ModificationCheck[] {
     return ids.map((id) => checkModification(this.graph, this.context, id));
   }
