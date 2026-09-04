@@ -32,9 +32,11 @@ function graphOf(): Graph {
 }
 
 describe("pendingReview", () => {
-  it("collects the deduplicated union of dependents of changed premises", () => {
-    expect(pendingReview(graphOf(), ["1A2B3C4D"]).map((n) => n.id)).toEqual([D4, E5, Z9]);
-    expect(pendingReview(graphOf(), [A1]).map((n) => n.id)).toEqual([D4, E5]);
+  it("marks only the direct dependents of the changed nodes (crg.md §1.6)", () => {
+    // P1 is grounded on directly by D4 and Z9; E5 reaches it only through
+    // D4 and is flagged when the D4 review itself modifies it.
+    expect(pendingReview(graphOf(), ["1A2B3C4D"]).map((n) => n.id)).toEqual([D4, Z9]);
+    expect(pendingReview(graphOf(), [A1]).map((n) => n.id)).toEqual([D4]);
   });
 
   it("rejects unknown node ids", () => {
