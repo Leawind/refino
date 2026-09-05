@@ -19,6 +19,13 @@ function locate(id: string): void {
   const cached = workspace.displayed.value.find((node) => node.id === id);
   workspace.select(cached ?? { id, type: "constraint", summary: "" });
 }
+
+/** Entries render by summary; the id is the last resort for nodes the
+ * client never saw (typically externally deleted ones). */
+function labelOf(id: string): string {
+  const cached = workspace.displayed.value.find((node) => node.id === id);
+  return cached === undefined || cached.summary === "" ? id : cached.summary;
+}
 </script>
 
 <template>
@@ -49,7 +56,6 @@ function locate(id: string): void {
         <ul v-else class="entries">
           <li v-for="node in review.pendingVisible.value" :key="node.id" class="entry">
             <div class="texts">
-              <span class="id">{{ node.id }}</span>
               <span class="summary">
                 {{ node.summary === "" ? t("node.untitled") : node.summary }}
               </span>
@@ -81,7 +87,9 @@ function locate(id: string): void {
             :class="{ deleted: entry.deleted }"
           >
             <div class="texts">
-              <span class="id">{{ entry.id }}</span>
+              <span class="summary" :class="{ unknown: labelOf(entry.id) === entry.id }">
+                {{ labelOf(entry.id) }}
+              </span>
               <NTag v-if="entry.deleted" size="tiny" type="error" :bordered="false">
                 {{ t("review.deleted") }}
               </NTag>
@@ -148,11 +156,6 @@ function locate(id: string): void {
   background: rgba(128, 128, 128, 0.1);
 }
 
-.entry.deleted .id {
-  text-decoration: line-through;
-  opacity: 0.6;
-}
-
 .texts {
   display: flex;
   align-items: center;
@@ -160,9 +163,14 @@ function locate(id: string): void {
   min-width: 0;
 }
 
-.id {
+/* Fallback rows for nodes the client never saw still show the raw id. */
+.summary.unknown {
   font-family: monospace;
-  font-size: 12px;
+}
+
+.entry.deleted .summary {
+  text-decoration: line-through;
+  opacity: 0.6;
 }
 
 .summary {

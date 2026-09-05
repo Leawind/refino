@@ -50,7 +50,6 @@ function pick(node: SearchNode): void {
     <ul class="cards">
       <li v-for="root in roots" :key="root.id">
         <button class="card" :title="t('overview.pick')" @click="pick(root)">
-          <span class="id">{{ root.id }}</span>
           <span class="summary">{{ root.summary === "" ? t("node.untitled") : root.summary }}</span>
         </button>
       </li>
@@ -121,12 +120,6 @@ h2 {
 
 .card:hover {
   border-color: var(--refino-primary, #18a058);
-}
-
-.card .id {
-  font-family: monospace;
-  font-size: 10px;
-  opacity: 0.55;
 }
 
 .card .summary {

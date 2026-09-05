@@ -108,7 +108,6 @@ interface Item {
   key: string;
   kind: "action" | "node";
   label: string;
-  sublabel?: string;
   icon?: Component;
   run(): void;
 }
@@ -125,7 +124,6 @@ const items = computed<Item[]>(() => [
     key: `node:${node.id}`,
     kind: "node" as const,
     label: node.summary === "" ? t("node.untitled") : node.summary,
-    sublabel: node.id,
     run: () => workspace.select(node),
   })),
 ]);
@@ -170,8 +168,11 @@ function onKeydown(event: KeyboardEvent): void {
   }
   if (!open.value) return;
   if (event.key === "Escape") {
-    event.preventDefault();
     close();
+    // The app shell's Esc handler (clear selection) also sits on document:
+    // this listener registered first (child before parent), so stop the
+    // event here or closing the palette would clear the selection.
+    event.stopImmediatePropagation();
   } else if (event.key === "ArrowDown") {
     event.preventDefault();
     active.value = Math.min(active.value + 1, items.value.length - 1);
@@ -223,7 +224,6 @@ onBeforeUnmount(() => {
             >
               <NIcon v-if="item.icon !== undefined" :component="item.icon" class="icon" />
               <span class="label">{{ item.label }}</span>
-              <span v-if="item.sublabel !== undefined" class="sublabel">{{ item.sublabel }}</span>
               <span class="kind">{{
                 item.kind === "action" ? t("palette.action") : t("palette.node")
               }}</span>
@@ -318,12 +318,6 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.sublabel {
-  font-family: monospace;
-  font-size: 10px;
-  opacity: 0.55;
 }
 
 .kind {
