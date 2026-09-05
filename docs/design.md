@@ -54,19 +54,23 @@
 
 集成 refino 后，agent 需要面向用户与 AI 模型两组能力。本节确定 `@refino/harness` 与各工具插件（首个为 `@refino/dsh-plugin`）的功能边界。
 
-### 用户侧：交互组件
+### 用户侧：授权控制台
 
-- 锚点选择器：浏览 CRG 节点（列表/图），选择一个或多个作用域锚点。
-- 冻结区选择器：选择若干冻结约束，冻结区即所选约束连同其全部祖先节点（见 crg.md 2.4）。展示与操作细节待交互设计时再定，harness 为其提供所需的状态模型与计算。
-- 组件属于 `@refino/ui`（Vue 3）；`@refino/harness` 提供其所需的状态模型与计算。
+锚点与冻结区的选择统一为单个**授权控制台**组件，不再分设两个选择器。控制台是"上下文编译器的前端"：人签发的授权上下文与模型收到的注入上下文是同一对象的两种投影。同一交互覆盖三个时机——开局签发、任务中途调整、越界升级的裁决（升级的解法就是再签发：解冻或改锚后以 delta 续行任务）。
+
+- 冻结区呈现为画布罩层；`frozenFrontier`（冻结区最小表示）节点带锁角标，解冻作用于 frontier；冻结候选来自 `freezableConstraints`。
+- 冻结传播可视化：勾选候选时实时高亮将随之人区的全部祖先，并给出「将冻结 N 个约束、M 个前提」的计数，避免只见 id 不见传播；`ctx.userQuestions.ask()` 确认面板沿用同一呈现。
+- 注入预览：实时渲染 `renderContext` 文本并估算规模（块数与字符量，harness 提供估算原语），确认后签发。
+- 待审查徽标：控制台常驻显示当前待审查集。
+- 组件属于 `@refino/ui`（Vue 3），画布以挑选模式复用（罩层、角标、选择回调）；`@refino/harness` 提供状态模型与计算。宿主经注入的数据通道客户端（图查询子集 + 授权操作）与组件通信；`refino web` 不挂载控制台，浏览域不含授权概念。
 
 ### 模型侧：CRG 访问工具
 
 模型不通过直接操作 `.refino/` 文件访问 CRG，而是使用 harness 暴露的结构化工具：
 
-- 读取：`list`、`show`、`grounds`、`ancestors`、`dependents`（受影响约束集）。
+- 读取：`list`、`search`（按摘要/ID 关键字分页搜索，语义与 Web `GET /api/search` 对齐；大规模图下 `list` 不可用时的定位手段）、`show`、`grounds`、`ancestors`、`dependents`（受影响约束集）、`siblings`（强兄弟：共享直接依据的约束，供细化时参考同级决策）。
 - 待审查查询：前提变化后处于待审查状态的约束集合（派生态，内存计算）。
-- 写入：新增、修改、删除节点，写入前经授权上下文校验；越界（目标落在冻结区）即拒绝，并返回结构化升级报告（阻挡约束及其图上位置、受影响下游约束、建议与替代方案占位）。写入前 grounds 校验经由引擎 `checkGroundsChange` 原语，结构校验经由引擎 `validateGraph`。
+- 写入：新增、修改、删除节点；`update` 采用部分更新语义（与 CLI `update` 对齐：省略的字段保持不变，传空串即清除），grounds 仍整体替换并经校验，避免模型凭记忆重打未读取的正文。写入前经授权上下文校验；越界（目标落在冻结区）即拒绝，并返回结构化升级报告（阻挡约束及其图上位置、受影响下游约束、建议与替代方案占位）。写入前 grounds 校验经由引擎 `checkGroundsChange` 原语，结构校验经由引擎 `validateGraph`。
 - 写入经由 `@refino/storage`。
 
 ### 批量查询
@@ -106,11 +110,11 @@ refino 的四项接入需求中，两项只有进程内 Cordis 插件能实现�
 #### dsh 插件落地形态
 
 - **分发**：npm 包声明 `dsh.bundle` manifest 指向包内 `cordis.patch.yml`，用户经 `dsh plugin --profile <name> add <包>` 安装；git 直装需自包含 `prepare` 构建脚本，发 npm 或 tarball 则免构建许可。
-- **默认授权上下文**：未显式指定时，冻结区默认取全部根约束连同其祖先，前提全部注入；图节点数不超过 1024 时锚点取全部节点（初始注入即全图摘要），超过 1024 则要求显式锚点，签发前不注入初始上下文。
-- **会话初始化**：监听 `agent/session-start`，取会话 cwd 定位 `.refino/`，经 `@refino/storage` 加载图，按默认或显式授权上下文构造 `HarnessSession`，按两级策略渲染并以 `<system-reminder>` 框架注入（显式区分「冻结区约束：只读」与「冻结区以外：授权修改空间」）。
-- **工具**：`refino_list` / `refino_show` / `refino_grounds` / `refino_ancestors` / `refino_dependents` / `refino_pending_review` 与写入工具；写入内部走引擎 `checkGroundsChange` + `validateGraph` + harness `checkModification`，越界（目标落在冻结区）返回结构化升级报告（正常工具结果，非报错）。修改空间沿细化方向向下封闭（见 crg.md 2.4），写入无需下游波及冻结区的检查。
-- **增量同步**：监听 `.refino/nodes/` 分片目录，变更经增量重载产出待审查集与 delta 事件后注入；无监听能力时降级为 touch 驱动（参照 dsh `agent-instructions` 的 `tools/result` 模式）。
-- **锚点/冻结区签发**：对话中的指定分三层——v1 经 `ctx.commands` 用户命令（如 `/refino-scope <ids>`）与插件配置签发；工具内经 `ctx.userQuestions.ask()` 支持模型发起、用户多选确认（dsh 限制仅运行时根 agent 可发起）；锚点/冻结区选择器组件（`@refino/ui`）属后续工作，经 dsh Web Client 的 slots/Conversation 节点扩展点接入。
+- **默认授权上下文**：默认值仅在未显式签发时使用——冻结区默认取全部根约束连同其祖先，前提全部注入；图节点数不超过 1024 时锚点取全部节点（初始注入即全图摘要），超过 1024 则要求显式锚点。签发后授权上下文是会话状态：外部变更不再重置为默认值，仅做收敛（签发列表中被删除的节点随之移除，其余保持）。
+- **会话初始化**：监听 `agent/session-start`，取会话 cwd 定位 `.refino/`，经 `@refino/storage` 加载图，按默认或已签发的授权上下文构造 `HarnessSession`，按两级策略渲染并以 `<system-reminder>` 框架注入（显式区分「冻结区约束：只读」与「冻结区以外：授权修改空间」）。图超自动锚点预算时不静默：注入极简引导（图已连接、节点数、根约束摘要、以搜索定位并经确认签发锚点），使模型能协助人选锚点。
+- **工具**：`refino_list` / `refino_search`（按摘要/ID 分页搜索，语义与 Web `GET /api/search` 对齐，大规模图下的定位手段）/ `refino_show` / `refino_grounds` / `refino_ancestors` / `refino_dependents` / `refino_siblings`（强兄弟，供细化时参考同级决策）/ `refino_pending_review` 与写入工具；`refino_update_node` 采用部分更新语义（与 CLI `update` 对齐：省略即不变，传空串即清除），grounds 仍整体替换并经校验。写入内部走引擎 `checkGroundsChange` + `validateGraph` + harness `checkModification`，越界（目标落在冻结区）返回结构化升级报告（正常工具结果，非报错）。修改空间沿细化方向向下封闭（见 crg.md 2.4），写入无需下游波及冻结区的检查。
+- **增量同步**：监听 `.refino/nodes/` 分片目录，变更经增量重载产出待审查集与 delta 事件后注入；无监听能力时降级为 touch 驱动（参照 dsh `agent-instructions` 的 `tools/result` 模式）。delta 注入降噪：合并多批事件并设最小注入间隔。
+- **锚点/冻结区签发**：主交互面为授权控制台组件（`@refino/ui`，见「用户侧：授权控制台」），经 dsh Web Client 的 slots/Conversation 节点扩展点挂载；辅助面为 `ctx.commands` 用户命令与工具内 `ctx.userQuestions.ask()` 模型发起的多选确认（dsh 限制仅运行时根 agent 可发起）。命令面：`/refino` 打开控制台、`/refino-anchor` 设锚点、`/refino-freeze` / `/refino-unfreeze`（作用于 frontier 语义并回显传播结果）、`/refino-context` 重述当前上下文、`/refino-pending` 列待审查、`/refino-changes` 列本会话 agent 写入清单。升级报告在宿主支持结构化渲染时呈现为升级卡片（阻挡约束、原因、受影响下游、打开控制台等操作），无宿主 UI 时降级为文本并引导运行 `/refino`。
 - **版本策略**：dsh 处于 developer preview，`@deepseek-ai/*` 依赖锁精确版本，CI 对 dsh 升级跑插件冒烟。
 
 ## 命名约定
@@ -127,7 +131,7 @@ vibe coding 工具插件统一命名为 `@refino/<tool>-plugin`，`<tool>` 为�
 
 ## Web 界面（`refino web`）
 
-`refino web` 是面向人类的 CRG 浏览与编辑工具：通过 CLI 启动本地 HTTP 服务，在浏览器中访问。它只提供对 CRG 本身的访问，与 agent 任务执行无关——作用域锚点选择、冻结区预览等任务界定功能属于工具插件宿主的交互组件，不在本界面范围内。
+`refino web` 是面向人类的 CRG 浏览、编辑与变更审阅工具：通过 CLI 启动本地 HTTP 服务，在浏览器中访问。它只提供对 CRG 本身的访问，与 agent 任务执行无关——作用域锚点选择、冻结区签发（授权控制台）等任务界定功能属于工具插件宿主的交互组件，不在本界面范围内。
 
 跨包的设计决策与契约如下；界面结构、页面与交互细节见 `@refino/ui` 的 README。
 
@@ -169,22 +173,25 @@ vibe coding 工具插件统一命名为 `@refino/<tool>-plugin`，`<tool>` 为�
   - `disconnected`：预算内无法判定关系，`nodes` 仅含被点击节点。
     返回的节点序列只含约束节点与两个端点自身（端点为前提时保留）。
 - `POST /api/query/siblings`：`{ ids, limit? }` → 各节点的强兄弟（共享 ≥1 个直接 grounds 的约束，不含自身与前提），按重叠数降序、id 升序截断。
-- `GET /api/search`：侧栏与依据选择器的分页搜索，`?q=&type=&limit=&cursor=`，轻量返回（id、类型、摘要）。
+- `GET /api/search`：资源浏览器、命令面板与依据选择器的分页搜索，`?q=&type=&limit=&cursor=&roots=`，轻量返回（id、类型、摘要）；`roots` 过滤仅返回 grounds 为空的约束，供项目概览冷启动。
+- `GET /api/stats`：项目概览计数（节点总数、约束数、前提数、根约束数），常驻索引直接聚合。
+- `GET /api/pending`：待审查约束清单。服务端在变更批处理入口以 harness `pendingReview` 相同的派生逻辑维护「自最近一次 `POST /api/reload`（或服务启动）以来直接依赖过变更节点的约束」；被删除的变更节点以其旧图下游计入。确认状态存于客户端偏好（按 id+revision 键，节点再变更自动重新挂起），不进图数据（派生态不持久化）。
 
-侧栏列表不得全量渲染，须经 `/api/search` 分页。
+资源浏览器与命令面板不得全量渲染，须经 `/api/search` 分页。
 
 #### 外部变更同步
 
 工具插件经由 `@refino/storage` 直接写入 `.refino/`，不经过 web 服务，因此服务端内存索引必然与磁盘漂移。同步机制如下：
 
 - **检测**：监听 `.refino/nodes/` 下的分片目录（分片目录数量有界，watch 数随之有界），事件按 500ms 安静期去抖后批量应用；API 写入与外部文件事件走同一个索引更新入口。监听初始化失败时静默降级为纯手动刷新。
-- **推送**：服务端维护单调递增的图修订号（revision），任何来源的变更应用后递增；通过 SSE（`/api/events`）向客户端推送 `{ revision, changed: string[], deleted: string[] }`。SSE 断线重连后按当前 revision 全量比对刷新。
+- **推送**：服务端维护单调递增的图修订号（revision），任何来源的变更应用后递增；通过 SSE（`/api/events`）向客户端推送 `{ revision, changed: string[], deleted: string[], origin }`，`origin: "api" | "file"` 标注变更入口（界面/API 写入或外部文件事件），供变更审阅标注来源，不承诺区分具体客户端。SSE 断线重连后按当前 revision 全量比对刷新。
+- **节点历史（后续课题）**：存储「路径即身份」，节点文件路径稳定，可经 git 提供 per-node log/diff，支撑编辑器中的历史与差异视图；依赖服务端 git 集成，单独立项。
 - **手动刷新**：保留为权威重建通道（服务重启后的累积变更、监听不可用的平台），对应 `POST /api/reload`。
 - **存储写入原子化**：`@refino/storage` 的写入改为临时文件 + rename，避免监听触发的读取撞上写了一半的文件。
 
 #### 编辑冲突处理
 
-详情浮窗打开节点时记录 base 快照。外部变更到达该节点时：
+编辑器（模态）打开节点时记录 base 快照。外部变更到达该节点时：
 
 - 编辑器未打开或无改动：静默更新记录与表单。
 - 有改动且外部只改了用户未动过的字段：静默字段级合并（未动字段取外部值，已动字段保留用户值），轻提示"已合并外部更改"。
