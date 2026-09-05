@@ -57,7 +57,12 @@ function cancelEdit(): void {
 }
 
 function onKeydown(event: KeyboardEvent): void {
-  if (visible.value && event.key === "Escape") close();
+  if (!visible.value || event.key !== "Escape") return;
+  close();
+  // The app shell's Esc handler (clear selection) also sits on document:
+  // this listener registered first (child before parent), so stop the
+  // event here or closing the editor would clear the kept selection.
+  event.stopImmediatePropagation();
 }
 
 onMounted(() => document.addEventListener("keydown", onKeydown));
