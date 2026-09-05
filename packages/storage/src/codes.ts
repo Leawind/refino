@@ -11,6 +11,8 @@ import type { RefinoIssue } from "refino";
 export enum StorageIssueCode {
   /** Frontmatter is not valid YAML, not a mapping, or a known field has the wrong shape. */
   InvalidFrontmatter = "INVALID_FRONTMATTER",
+  /** `confirmed` is not an RFC 3339 timestamp with an explicit UTC offset (checked at the file boundary; the engine's memory form is epoch milliseconds). */
+  InvalidConfirmed = "INVALID_CONFIRMED",
   /** A file under `nodes/` does not have the `<id_2>-<type>.md` shape the storage format requires. */
   InvalidNodePath = "INVALID_NODE_PATH",
   /** The `.refino` directory is missing or not a directory (thrown as a `RefinoError`). */

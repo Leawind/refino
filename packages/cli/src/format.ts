@@ -58,19 +58,23 @@ export function renderNodeHeading(node: { id: string; type: string; grounds?: st
 /**
  * Full human-readable record: heading line, labeled attributes, then the
  * body. Optional attributes (rationale, confirmed) only occupy a line when
- * present, mirroring the JSON shape.
+ * present, mirroring the JSON shape. Confirmed is stored as epoch
+ * milliseconds and rendered in its RFC 3339 (UTC) form.
  */
-export function renderFullRecord(node: {
-  id: string;
-  type: string;
-  summary: string;
-  grounds?: string[];
-  rationale?: string;
-  confirmed?: string;
-  body: string;
-}): string {
+export function renderFullRecord(
+  node: {
+    id: string;
+    type: string;
+    summary: string;
+    grounds?: string[];
+  },
+  content?: { body?: string; rationale?: string },
+): string {
   const lines = [renderNodeHeading(node), `summary: ${node.summary}`];
-  if (node.rationale !== undefined) lines.push(`rationale: ${node.rationale}`);
-  if (node.confirmed !== undefined) lines.push(`confirmed: ${node.confirmed}`);
-  return `${lines.join("\n")}\n\n${node.body}`;
+  if (content?.rationale !== undefined) lines.push(`rationale: ${content.rationale}`);
+  const record = node as { confirmed?: number };
+  if (record.confirmed !== undefined) {
+    lines.push(`confirmed: ${new Date(record.confirmed).toISOString()}`);
+  }
+  return `${lines.join("\n")}\n\n${content?.body ?? ""}`;
 }

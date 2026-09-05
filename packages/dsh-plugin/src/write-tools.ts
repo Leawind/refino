@@ -5,19 +5,22 @@ import {
   generateId,
   getDependents,
   ID_RE,
-  isValidConfirmed,
   RefinoError,
+  type ConstraintNode,
   type NodeWithDepth,
   type RefinoNode,
 } from "refino";
 import { checkModification, HarnessError } from "@refino/harness";
 import {
+  confirmedToMs,
   createConstraint,
   createPremise,
   deleteNode,
+  isValidConfirmed,
   readNode,
   updateConstraint,
   updatePremise,
+  type NodeContent,
 } from "@refino/storage";
 import { depthLite, issueLite, lite, type WriteResult } from "./shapes.js";
 import { renderWrite } from "./render.js";
@@ -66,7 +69,10 @@ function createPremiseTool(get: () => RefinoWorkspace | undefined): ToolDefiniti
         return invalidConfirmed(args.confirmed);
       }
       try {
-        const id = await createPremise(ws.refinoDir, args);
+        const id = await createPremise(ws.refinoDir, {
+          ...args,
+          confirmed: args.confirmed === undefined ? undefined : confirmedToMs(args.confirmed),
+        });
         const outcome = await ws.sync([id]);
         return { ok: true, id, pending: outcome.pending.map(lite) };
       } catch (error) {
@@ -185,22 +191,28 @@ type UpdateArgs = {
 };
 
 /**
- * The updated summary per the partial semantics (docs/design.md): an omitted
- * summary keeps an explicit one and stays body-derived otherwise, so updating
- * the body alone keeps the fallback in sync; an empty string clears the
- * explicit summary. Reads the file for the explicit-summary flag, which the
- * in-memory graph does not carry.
+ * Read what a partial update needs from the file: the paged content (body,
+ * rationale live there, not on the resident node) plus the summary per the
+ * partial semantics (docs/design.md) — an omitted summary keeps an explicit
+ * one and stays body-derived otherwise, so updating the body alone keeps the
+ * fallback in sync; an empty string clears the explicit summary.
  */
-async function mergedSummary(
+async function readForUpdate(
   ws: RefinoWorkspace,
   id: string,
   args: UpdateArgs,
-): Promise<string | undefined | WriteResult> {
+): Promise<{ summary: string | undefined; content: NodeContent } | WriteResult> {
   const read = await readNode(ws.refinoDir, id);
   if (read.node === null) return { ok: false, error: `节点 "${id}" 不存在` };
-  if (args.summary === undefined)
-    return read.summaryExplicit === true ? read.node.summary : undefined;
-  return args.summary === "" ? undefined : args.summary;
+  const summary =
+    args.summary === undefined
+      ? read.summaryExplicit === true
+        ? read.node.summary
+        : undefined
+      : args.summary === ""
+        ? undefined
+        : args.summary;
+  return { summary, content: read.content ?? { body: "" } };
 }
 
 async function updatePremiseNode(
@@ -216,18 +228,18 @@ async function updatePremiseNode(
   }
   // Rationale and grounds do not apply to premises; per the misplaced-field
   // policy they are silently ignored instead of rejected.
-  const summary = await mergedSummary(ws, node.id, args);
-  if (typeof summary === "object") return summary;
+  const read = await readForUpdate(ws, node.id, args);
+  if ("ok" in read) return read;
   try {
     await updatePremise(ws.refinoDir, node.id, {
-      body: args.body ?? node.body,
-      summary,
+      body: args.body ?? read.content.body,
+      summary: read.summary,
       confirmed:
         args.confirmed === undefined
           ? node.confirmed
           : args.confirmed === ""
             ? undefined
-            : args.confirmed,
+            : confirmedToMs(args.confirmed),
     });
   } catch (error) {
     return writeFailure(error);
@@ -252,15 +264,15 @@ async function updateConstraintNode(
       return { ok: false, error: "grounds 校验未通过", issues: issues.map(issueLite) };
     }
   }
-  const summary = await mergedSummary(ws, node.id, args);
-  if (typeof summary === "object") return summary;
+  const read = await readForUpdate(ws, node.id, args);
+  if ("ok" in read) return read;
   try {
     await updateConstraint(ws.refinoDir, node.id, {
-      body: args.body ?? node.body,
-      summary,
+      body: args.body ?? read.content.body,
+      summary: read.summary,
       rationale:
         args.rationale === undefined
-          ? node.rationale
+          ? read.content.rationale
           : args.rationale === ""
             ? undefined
             : args.rationale,
@@ -323,13 +335,7 @@ function checkProspectiveGrounds(
   id: string,
   grounds: string[],
 ): ReturnType<typeof checkGroundsChange> {
-  const synthetic: RefinoNode = {
-    id,
-    type: "constraint",
-    summary: "",
-    body: "",
-    grounds,
-  };
+  const synthetic: ConstraintNode = { id, type: "constraint", summary: "", grounds };
   const prospective = buildGraph([...graph.nodes.values(), synthetic]);
   return checkGroundsChange(prospective, synthetic, grounds);
 }

@@ -1,6 +1,6 @@
 export * from "./types.js";
-export { buildGraph } from "./graph.js";
-export { validateGraph, checkGroundsChange, isValidConfirmed } from "./validate.js";
+export { buildGraph, addNode, removeNode, setGrounds, updateNode } from "./graph.js";
+export { validateGraph, checkGroundsChange } from "./validate.js";
 export { generateId, ID_CHARSET, ID_RE } from "./id.js";
 export {
   requireNode,

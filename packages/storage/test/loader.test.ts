@@ -5,7 +5,7 @@ import { IssueCode } from "refino";
 import { StorageIssueCode } from "../src/codes.js";
 
 describe("loadGraph", () => {
-  it("builds the graph and the dependents index from a nodes/ directory", async () => {
+  it("builds the resident graph with children back-references from a nodes/ directory", async () => {
     const root = await createRefino({
       "nodes/1A/2B3C4D-premise.md": premise("1A2B3C4D"),
       "nodes/A1/B2C3D4-constraint.md": constraint("A1B2C3D4", undefined),
@@ -21,9 +21,10 @@ describe("loadGraph", () => {
         "D4E5F6G7",
         "E5F6G7H8",
       ]);
-      expect(graph.dependents.get("A1B2C3D4")).toEqual(["D4E5F6G7"]);
-      expect(graph.dependents.get("D4E5F6G7")).toEqual(["E5F6G7H8"]);
-      expect(graph.dependents.get("1A2B3C4D")).toEqual(["E5F6G7H8"]);
+      expect(graph.nodes.get("A1B2C3D4")?.children).toEqual(["D4E5F6G7"]);
+      expect(graph.nodes.get("D4E5F6G7")?.children).toEqual(["E5F6G7H8"]);
+      expect(graph.nodes.get("1A2B3C4D")?.children).toEqual(["E5F6G7H8"]);
+      expect(graph.nodes.get("E5F6G7H8")?.children).toEqual([]);
       expect(graph.nodes.get("1A2B3C4D")?.type).toBe("premise");
       expect(graph.nodes.get("1A2B3C4D")?.confirmed).toBeUndefined();
     } finally {

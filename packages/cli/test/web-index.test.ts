@@ -154,7 +154,7 @@ describe("GraphIndex incremental updates", () => {
     await updateConstraint(refinoDir, C1, { body: "增量更新的内容。", grounds: [P1] });
     const changed = await index.applyChange({ changed: [C1] });
     expect(changed).toEqual({ revision: start + 1, changed: [C1], deleted: [] });
-    expect(await index.readBody(C1)).toBe("增量更新的内容。");
+    expect((await index.readContent(C1))?.body).toBe("增量更新的内容。");
 
     // An externally deleted file read back as absent turns into a deletion.
     await deleteNode(refinoDir, C1);

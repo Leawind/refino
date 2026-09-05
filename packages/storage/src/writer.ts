@@ -2,6 +2,7 @@ import { mkdir, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { generateId, ID_RE, IssueCode, RefinoError } from "refino";
 import type { NodeType } from "refino";
+import { confirmedToRfc3339 } from "./parser.js";
 import { serializeNode } from "./serialize.js";
 
 const NODES_DIR = "nodes";
@@ -31,8 +32,8 @@ export interface CreateOptions {
 }
 
 export interface CreatePremiseOptions extends CreateOptions {
-  /** RFC 3339 timestamp with an explicit UTC offset. */
-  confirmed?: string;
+  /** Confirmation time as epoch milliseconds; stored as RFC 3339 (UTC). */
+  confirmed?: number;
 }
 
 export interface CreateConstraintOptions extends CreateOptions {
@@ -47,7 +48,10 @@ export async function createPremise(
   refinoDir: string,
   opts: CreatePremiseOptions,
 ): Promise<string> {
-  const fields: Record<string, unknown> = { confirmed: opts.confirmed, summary: opts.summary };
+  const fields: Record<string, unknown> = {
+    confirmed: confirmedToRfc3339OrUndefined(opts.confirmed),
+    summary: opts.summary,
+  };
   return createNode(refinoDir, "premise", fields, opts.body, opts.id);
 }
 
@@ -94,6 +98,11 @@ async function createNode(
   return id;
 }
 
+/** Epoch milliseconds as the file's RFC 3339 form; undefined stays absent from the file. */
+function confirmedToRfc3339OrUndefined(confirmed: number | undefined): string | undefined {
+  return confirmed === undefined ? undefined : confirmedToRfc3339(confirmed);
+}
+
 /**
  * Canonical `.refino`-relative path of a node, always forward-slash:
  * `nodes/<first 2 id chars>/<rest>-<type>.md`. The `-` separator is
@@ -126,8 +135,8 @@ export interface UpdateOptions {
 }
 
 export interface UpdatePremiseOptions extends UpdateOptions {
-  /** RFC 3339 timestamp with an explicit UTC offset. */
-  confirmed?: string;
+  /** Confirmation time as epoch milliseconds; stored as RFC 3339 (UTC). */
+  confirmed?: number;
 }
 
 export interface UpdateConstraintOptions extends UpdateOptions {
@@ -143,7 +152,10 @@ export async function updatePremise(
   id: string,
   opts: UpdatePremiseOptions,
 ): Promise<void> {
-  const fields: Record<string, unknown> = { confirmed: opts.confirmed, summary: opts.summary };
+  const fields: Record<string, unknown> = {
+    confirmed: confirmedToRfc3339OrUndefined(opts.confirmed),
+    summary: opts.summary,
+  };
   await updateNode(refinoDir, "premise", id, fields, opts.body);
 }
 

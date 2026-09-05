@@ -126,7 +126,9 @@ export function createStore(client: RefinoClient, workspace: Workspace) {
     detailForm.body = node?.body ?? "";
     detailForm.rationale = node?.rationale ?? "";
     detailForm.grounds = [...(node?.grounds ?? [])];
-    detailForm.confirmed = node?.confirmed ?? "";
+    // The wire carries epoch milliseconds; the form edits the RFC 3339 form.
+    detailForm.confirmed =
+      node?.confirmed === undefined ? "" : new Date(node.confirmed).toISOString();
   }
 
   function setDetail(
@@ -234,8 +236,15 @@ export function createStore(client: RefinoClient, workspace: Workspace) {
         // Silent field-level merge: untouched fields adopt the external
         // values, the user's edits survive. The base stays the version the
         // edits were based on, so the merged state still counts as unsaved
-        // and the save stays enabled.
-        const mergedNode: NodeRecord = { ...external.node, ...merge.merged };
+        // and the save stays enabled. The merged confirmed (an RFC 3339
+        // form string) goes back to the wire's epoch-millisecond form.
+        const confirmedMs = Date.parse(merge.merged.confirmed);
+        const mergedNode: NodeRecord = {
+          ...external.node,
+          ...merge.merged,
+          confirmed:
+            merge.merged.confirmed === "" || Number.isNaN(confirmedMs) ? undefined : confirmedMs,
+        };
         state.detail.node = mergedNode;
         state.detail.revision = external.revision;
         state.detail.issues = external.issues;

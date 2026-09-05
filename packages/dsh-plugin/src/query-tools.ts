@@ -205,11 +205,16 @@ function showTool(get: () => RefinoWorkspace | undefined): ToolDefinition {
     async execute(args) {
       const ws = requireWorkspace(get);
       const groups = queryGroups(ws.graph, args.ids, (graph, id) => [requireNode(graph, id)]);
-      const results: QueryEntryFull[] = groups.map((group) =>
-        "error" in group
-          ? { id: group.id, error: group.error }
-          : { id: group.id, node: fullLite(group.results[0]!) },
-      );
+      const results: QueryEntryFull[] = [];
+      for (const group of groups) {
+        if ("error" in group) {
+          results.push({ id: group.id, error: group.error });
+          continue;
+        }
+        // Body and rationale are paged content; fetch them per id.
+        const content = await ws.content(group.id);
+        results.push({ id: group.id, node: fullLite(group.results[0]!, content) });
+      }
       return { results };
     },
   });
@@ -389,7 +394,7 @@ function fullEntrySchema() {
           body: { type: "string", required: true },
           rationale: { type: "string" },
           grounds: { type: "array", items: { type: "string" } },
-          confirmed: { type: "string" },
+          confirmed: { type: "number" },
         },
       },
       error: { type: "string" },

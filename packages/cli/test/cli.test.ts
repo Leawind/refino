@@ -173,7 +173,7 @@ describe("refino cli", () => {
 
       const premiseView = await run(["--root", emptyRoot, "show", "1A2B3C4D"]);
       expect(premiseView.out).toContain("summary: A premise summary.");
-      expect(premiseView.out).toContain("confirmed: 2026-05-01T00:00:00Z");
+      expect(premiseView.out).toContain("confirmed: 2026-05-01T00:00:00.000Z");
       expect(premiseView.out).not.toContain("rationale:");
     } finally {
       await removeRefino(emptyRoot);
@@ -276,11 +276,11 @@ describe("refino cli", () => {
         expect(now.code).toBe(0);
         const premiseShow = await run(["--root", emptyRoot, "--json", "show", "1A2B3C4D"]);
         const [premiseGroup] = JSON.parse(premiseShow.out) as Array<{
-          results: Array<{ confirmed?: string }>;
+          results: Array<{ confirmed?: number }>;
         }>;
-        expect(premiseGroup!.results[0]!.confirmed).toMatch(
-          /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/,
-        );
+        // Confirmed is epoch milliseconds on the wire.
+        expect(premiseGroup!.results[0]!.confirmed).toBeTypeOf("number");
+        expect(premiseGroup!.results[0]!.confirmed as number).toBeGreaterThan(0);
       } finally {
         await removeRefino(emptyRoot);
       }
@@ -744,10 +744,10 @@ describe("refino cli", () => {
       const list = await run(["--root", emptyRoot, "--json", "list", "--type", "premise"]);
       const nodes = JSON.parse(list.out) as Array<{ id: string }>;
       const show = await run(["--root", emptyRoot, "--json", "show", nodes[0]!.id]);
-      const [group] = JSON.parse(show.out) as Array<{ results: Array<{ confirmed?: string }> }>;
-      expect(group!.results[0]!.confirmed).toMatch(
-        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/,
-      );
+      const [group] = JSON.parse(show.out) as Array<{ results: Array<{ confirmed?: number }> }>;
+      // Confirmed is epoch milliseconds on the wire.
+      expect(group!.results[0]!.confirmed).toBeTypeOf("number");
+      expect(group!.results[0]!.confirmed as number).toBeGreaterThan(0);
     } finally {
       await removeRefino(emptyRoot);
     }

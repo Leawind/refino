@@ -1,3 +1,4 @@
+import type { NodeContent } from "@refino/storage";
 import type { NodeWithDepth, RefinoNode } from "refino";
 
 /**
@@ -25,7 +26,8 @@ export interface FullNodeLite {
   body: string;
   rationale?: string;
   grounds?: string[];
-  confirmed?: string;
+  /** Confirmation time as epoch milliseconds (premises only). */
+  confirmed?: number;
 }
 
 export interface IssueLite {
@@ -123,14 +125,14 @@ export function depthLite(entry: NodeWithDepth): NodeDepthLite {
   return { ...lite(entry.node), depth: entry.depth };
 }
 
-export function fullLite(node: RefinoNode): FullNodeLite {
-  const base = { id: node.id, type: node.type, summary: node.summary, body: node.body };
+export function fullLite(node: RefinoNode, content?: NodeContent): FullNodeLite {
+  const base = { id: node.id, type: node.type, summary: node.summary, body: content?.body ?? "" };
   return node.type === "premise"
     ? { ...base, ...(node.confirmed !== undefined ? { confirmed: node.confirmed } : {}) }
     : {
         ...base,
         grounds: node.grounds,
-        ...(node.rationale !== undefined ? { rationale: node.rationale } : {}),
+        ...(content?.rationale !== undefined ? { rationale: content.rationale } : {}),
       };
 }
 

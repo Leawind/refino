@@ -1,6 +1,7 @@
 import { parse as parseYaml } from "yaml";
 import {
   IssueCode,
+  RefinoError,
   type ConstraintNode,
   type NodeType,
   type PremiseNode,
@@ -11,11 +12,45 @@ import { StorageIssueCode, type StorageIssue } from "./codes.js";
 const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---(?:\n|$)/;
 const EMPTY_FRONTMATTER_RE = /^---\n---(?:\n|$)/;
 
+/** RFC 3339 timestamp; the UTC offset (Z or ±HH:MM) is mandatory. */
+const CONFIRMED_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
+
+/** Whether the value is a valid premise `confirmed` timestamp in its file form. */
+export function isValidConfirmed(value: string): boolean {
+  return CONFIRMED_RE.test(value);
+}
+
+/** The file's RFC 3339 `confirmed` form as epoch milliseconds (validate first). */
+export function confirmedToMs(value: string): number {
+  return Date.parse(value);
+}
+
+/** The epoch-millisecond `confirmed` form as the file's RFC 3339 form (UTC, Z offset). */
+export function confirmedToRfc3339(ms: number): string {
+  if (!Number.isFinite(ms)) {
+    throw new RefinoError(
+      StorageIssueCode.InvalidConfirmed,
+      `"confirmed" must be a finite epoch-millisecond number, got ${ms}.`,
+    );
+  }
+  return new Date(ms).toISOString();
+}
+
+/** Paged node content: everything that lives in the file but not in the engine's resident memory model. */
+export interface NodeContent {
+  /** Full body text (trimmed). */
+  body: string;
+  /** Why the decision was made; independent and optional, constraints only. */
+  rationale?: string;
+}
+
 export const SUMMARY_MAX_LENGTH = 100;
 
 export interface ParseResult {
   /** The parsed node, or null when the frontmatter could not be parsed. */
   node: RefinoNode | null;
+  /** The node's paged content; undefined exactly when `node` is null. */
+  content?: NodeContent;
   issues: StorageIssue[];
   /**
    * Whether the summary came from an explicit "summary" frontmatter field.
@@ -26,7 +61,7 @@ export interface ParseResult {
 }
 
 /**
- * Parse one node file into a node object.
+ * Parse one node file into a resident node record plus its paged content.
  *
  * `id` is derived by the loader from the file path (path is identity). `file`
  * is the `.refino`-relative path in either separator style, normalized to the
@@ -53,7 +88,9 @@ export function parseNodeSource(
     fields = parsed;
   }
 
-  const body = match ? normalized.slice(match[0].length).trim() : normalized.trim();
+  const content: NodeContent = {
+    body: match ? normalized.slice(match[0].length).trim() : normalized.trim(),
+  };
 
   // The summary is an independent attribute (docs/crg.md). A "summary"
   // frontmatter field takes precedence; the first-paragraph fallback keeps
@@ -62,7 +99,7 @@ export function parseNodeSource(
   let summary: string;
   let summaryExplicit = false;
   if (summaryField === undefined || summaryField === null) {
-    summary = extractSummary(body);
+    summary = extractSummary(content.body);
   } else if (typeof summaryField === "string" && summaryField.trim() !== "") {
     summary = summaryField;
     summaryExplicit = true;
@@ -73,68 +110,68 @@ export function parseNodeSource(
       file: canonicalFile,
       nodeId: id,
     });
-    summary = extractSummary(body);
+    summary = extractSummary(content.body);
   }
 
-  const base = { id, summary, body };
+  const base = { id, summary };
   const node: RefinoNode =
     expectedType === "premise"
-      ? parsePremise(base, fields, canonicalFile, id, issues)
-      : parseConstraint(base, fields, canonicalFile, id, issues);
+      ? parsePremise(base, fields, canonicalFile, issues)
+      : parseConstraint(base, fields, content, canonicalFile, issues);
 
-  return { node, issues, summaryExplicit };
+  return { node, content, issues, summaryExplicit };
 }
 
 /**
- * Premise fields: `confirmed`. A declared `grounds` is a misplaced attribute
- * (edges only come from constraint grounds) and is silently ignored, like any
+ * Premise fields: `confirmed` as epoch milliseconds, converted from the
+ * file's RFC 3339 form. A declared `grounds` is a misplaced attribute (edges
+ * only come from constraint grounds) and is silently ignored, like any
  * unknown frontmatter field — no issue is reported.
  */
 function parsePremise(
-  base: { id: string; summary: string; body: string },
+  base: { id: string; summary: string },
   fields: Record<string, unknown>,
   file: string,
-  id: string,
   issues: StorageIssue[],
 ): PremiseNode {
   const node: PremiseNode = { ...base, type: "premise" };
   const confirmed = fields["confirmed"];
   if (confirmed !== undefined && confirmed !== null) {
-    if (typeof confirmed === "string" && confirmed.trim() === confirmed && confirmed !== "") {
-      node.confirmed = confirmed;
+    if (typeof confirmed === "string" && isValidConfirmed(confirmed)) {
+      node.confirmed = confirmedToMs(confirmed);
     } else {
       issues.push({
-        code: IssueCode.InvalidConfirmed,
+        code: StorageIssueCode.InvalidConfirmed,
         message: '"confirmed" must be an RFC 3339 timestamp with an explicit UTC offset.',
         file,
-        nodeId: id,
+        nodeId: base.id,
       });
     }
   }
   return node;
 }
 
-/** Constraint fields: `grounds` (absent -> []) and `rationale`. */
+/** Constraint fields: `grounds` (absent -> []); `rationale` lands in the paged content. */
 function parseConstraint(
-  base: { id: string; summary: string; body: string },
+  base: { id: string; summary: string },
   fields: Record<string, unknown>,
+  content: NodeContent,
   file: string,
-  id: string,
   issues: StorageIssue[],
 ): ConstraintNode {
   const node: ConstraintNode = { ...base, type: "constraint", grounds: [] };
-  const grounds = parseGrounds(file, id, fields["grounds"], issues);
+  const grounds = parseGrounds(file, base.id, fields["grounds"], issues);
   if (grounds) node.grounds = grounds;
   const rationale = fields["rationale"];
   if (rationale !== undefined && rationale !== null) {
     if (typeof rationale === "string") {
-      node.rationale = rationale;
+      content.rationale = rationale;
     } else {
       issues.push({
         code: StorageIssueCode.InvalidFrontmatter,
         message: '"rationale" must be a string.',
         file,
-        nodeId: id,
+        nodeId: base.id,
       });
     }
   }

@@ -1,6 +1,19 @@
-import { buildGraph, checkGroundsChange, IssueCode, isValidConfirmed, validateGraph } from "refino";
-import type { Graph, RefinoIssue, RefinoNode } from "refino";
-import { loadGraph, nodeRelativeFile, readNode, type StorageIssue } from "@refino/storage";
+import {
+  addNode,
+  buildGraph,
+  checkGroundsChange,
+  removeNode,
+  updateNode,
+  validateGraph,
+} from "refino";
+import type { Graph, GraphNode, RefinoIssue, RefinoNode } from "refino";
+import {
+  loadGraph,
+  nodeRelativeFile,
+  readNode,
+  type NodeContent,
+  type StorageIssue,
+} from "@refino/storage";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -11,20 +24,20 @@ type IndexIssue = RefinoIssue | StorageIssue;
  * Process-resident graph index over a `.refino` directory (v1 of the
  * server-side index architecture in docs/design.md).
  *
- * Two memory layers: a light index (id, type, grounds, summary and the small
- * frontmatter fields — the resident graph carries `body: ""`) plus on-demand
- * bodies read back from disk via the path-is-identity rule and kept in an
- * LRU. `validateGraph` runs once at load; afterwards graph issues are
- * recomputed incrementally, scoped to each applied change and its direct
+ * Two memory layers: the resident graph (id, type, summary, grounds,
+ * confirmed and the derived children back-references) plus on-demand content
+ * (body, rationale) read back from disk via the path-is-identity rule and
+ * kept in an LRU. `validateGraph` runs once at load; afterwards graph issues
+ * are recomputed incrementally, scoped to each applied change and its direct
  * dependents, and parse issues are re-stored from every file re-read, so
  * externally introduced problems surface without a full reload.
  *
  * `applyChange` is the single incremental update entry: API writes and
  * external file events both re-read the affected ids from disk through it,
  * so the index is a pure mirror of `.refino/` regardless of write path.
- * Change detection covers the light fields plus the file mtime, so
- * body-only external edits (invisible to the light fields) still bump the
- * revision, reach SSE clients and guard PUT saves against silent
+ * Change detection covers the resident fields plus the file mtime, so
+ * content-only external edits (invisible to the resident fields) still bump
+ * the revision, reach SSE clients and guard PUT saves against silent
  * overwrites. mtime is a conservative signal: rewriting a file with
  * identical content also counts as a change.
  */
@@ -41,15 +54,15 @@ export interface ChangeEvent {
 }
 
 interface Entry {
-  /** Resident node record; `body` is always "" (read on demand). */
-  node: RefinoNode;
+  /** Resident graph-attached node record; body and rationale are paged, not part of it. */
+  node: GraphNode;
   /** Global revision at which this node last changed. */
   revision: number;
-  /** File mtime (ms) captured with the last read; body-level change signal. */
+  /** File mtime (ms) captured with the last read; content-level change signal. */
   mtimeMs: number;
 }
 
-const BODY_CACHE_MAX = 500;
+const CONTENT_CACHE_MAX = 500;
 
 /** Initial revision after the first full load. */
 const INITIAL_REVISION = 1;
@@ -70,7 +83,7 @@ export class GraphIndex {
   #parseIssues = new Map<string, IndexIssue[]>();
   #graphIssues = new Map<string, IndexIssue[]>();
   #revision = 0;
-  #bodies = new Map<string, string>();
+  #contents = new Map<string, NodeContent>();
   #sortedIds: string[] | undefined;
   #subscribers = new Set<(event: ChangeEvent) => void>();
   /**
@@ -102,7 +115,7 @@ export class GraphIndex {
     return this.#revision;
   }
 
-  /** The resident light graph (nodes carry `body: ""`). */
+  /** The resident graph (topology and summaries; content is paged). */
   get graph(): Graph {
     return this.#graph;
   }
@@ -137,30 +150,30 @@ export class GraphIndex {
     );
   }
 
-  /** Node body on demand (path is identity), LRU-cached. */
-  async readBody(id: string): Promise<string | undefined> {
+  /** Node content on demand (path is identity), LRU-cached. */
+  async readContent(id: string): Promise<NodeContent | undefined> {
     if (!this.#entries.has(id)) return undefined;
-    const cached = this.#bodies.get(id);
+    const cached = this.#contents.get(id);
     if (cached !== undefined) {
-      this.#bodies.delete(id);
-      this.#bodies.set(id, cached);
+      this.#contents.delete(id);
+      this.#contents.set(id, cached);
       return cached;
     }
-    const { node } = await readNode(this.refinoDir, id);
-    if (node === null) return undefined;
-    this.cacheBody(id, node.body);
-    return node.body;
+    const read = await readNode(this.refinoDir, id);
+    if (read.content === undefined) return undefined;
+    this.cacheContent(id, read.content);
+    return read.content;
   }
 
   /** Constraints pending review since the last reload / service start, sorted by id. */
-  pending(): RefinoNode[] {
+  pending(): GraphNode[] {
     return [...this.#pendingIds]
       .sort()
       .map((id) => this.#graph.nodes.get(id))
-      .filter((node): node is RefinoNode => node !== undefined);
+      .filter((node) => node !== undefined);
   }
 
-  /** Counts for the project-overview cold start; derived from the light index. */
+  /** Counts for the project-overview cold start; derived from the resident index. */
   stats(): { nodes: number; constraints: number; premises: number; roots: number } {
     let constraints = 0;
     let premises = 0;
@@ -213,10 +226,10 @@ export class GraphIndex {
   /**
    * The single incremental update entry. Re-reads every id from disk (path
    * is identity), applies additions/updates/removals, and reports only ids
-   * whose light fields actually changed — no-ops never bump the revision, so
-   * duplicate notifications (an API write followed by its own watcher echo)
-   * stay silent. Every re-read's parse issues are (re)stored, so externally
-   * introduced problems surface here as they do on a full load.
+   * whose resident fields actually changed — no-ops never bump the revision,
+   * so duplicate notifications (an API write followed by its own watcher
+   * echo) stay silent. Every re-read's parse issues are (re)stored, so
+   * externally introduced problems surface here as they do on a full load.
    *
    * `shards` are directories touched by the incoming file events. Parse
    * issues are keyed by file for nodes whose id never resolved (invalid id
@@ -244,13 +257,18 @@ export class GraphIndex {
       // rechecked after the change (e.g. grounds that now dangle).
       const affected = new Set(ids);
       for (const id of ids) {
-        for (const dependent of this.#graph.dependents.get(id) ?? []) affected.add(dependent);
+        for (const dependent of this.#graph.nodes.get(id)?.children ?? []) affected.add(dependent);
       }
       const reads = await Promise.all(ids.map((id) => readNode(this.refinoDir, id)));
       const staleFileIssues = await this.staleFileIssueKeys(touchedShards);
 
       // From here on the batch applies synchronously: readers never observe a half-applied batch.
-      const applied: Array<{ node: RefinoNode; mtimeMs: number; issues: StorageIssue[] }> = [];
+      const applied: Array<{
+        node: RefinoNode;
+        content?: NodeContent;
+        mtimeMs: number;
+        issues: StorageIssue[];
+      }> = [];
       const removed: string[] = [];
       /** Pre-mutation direct dependents of removed ids — they review the removal. */
       const removedDependents = new Map<string, string[]>();
@@ -263,7 +281,7 @@ export class GraphIndex {
         if (read.node === null) {
           if (existing !== undefined) {
             removed.push(id);
-            removedDependents.set(id, [...(this.#graph.dependents.get(id) ?? [])]);
+            removedDependents.set(id, [...existing.node.children]);
           }
           // A file that yields no node can still carry parse issues; store
           // them unless an identical batch is already cached (no-op echoes
@@ -276,7 +294,12 @@ export class GraphIndex {
           !sameLightFields(existing.node, read.node) ||
           existing.mtimeMs !== read.mtimeMs
         ) {
-          applied.push({ node: read.node, mtimeMs: read.mtimeMs ?? 0, issues: read.issues });
+          applied.push({
+            node: read.node,
+            content: read.content,
+            mtimeMs: read.mtimeMs ?? 0,
+            issues: read.issues,
+          });
         }
       }
       if (
@@ -290,8 +313,8 @@ export class GraphIndex {
 
       this.#revision++;
       this.#sortedIds = undefined;
-      for (const read of applied) this.putNode(read.node, read.mtimeMs, read.issues);
-      for (const id of removed) this.removeNode(id);
+      for (const read of applied) this.putEntry(read.node, read.content, read.mtimeMs, read.issues);
+      for (const id of removed) this.dropEntry(id);
       for (const key of staleFileIssues) this.#parseIssues.delete(key);
       this.storeParseIssues(orphanIssues);
       this.recheckGraphIssues(affected);
@@ -299,7 +322,7 @@ export class GraphIndex {
       // Pending review: changed nodes contribute their direct dependents in
       // the new graph; removed nodes their pre-mutation dependents.
       for (const read of applied) {
-        for (const dependent of this.#graph.dependents.get(read.node.id) ?? []) {
+        for (const dependent of this.#graph.nodes.get(read.node.id)?.children ?? []) {
           this.#pendingIds.add(dependent);
         }
       }
@@ -332,78 +355,59 @@ export class GraphIndex {
     for (const issue of issues) storeIssue(parseMap, issue);
     const graphMap = new Map<string, IndexIssue[]>();
     for (const issue of validateGraph(graph)) storeIssue(graphMap, issue);
-    const nodes = [...graph.nodes.values()].map((node) => ({ ...node, body: "" }));
-    this.#graph = buildGraph(nodes);
+    this.#graph = graph;
     this.#entries = new Map(
-      nodes.map((node) => [
+      [...graph.nodes.values()].map((node) => [
         node.id,
         { node, revision: INITIAL_REVISION, mtimeMs: mtimes.get(node.id) ?? 0 },
       ]),
     );
     this.#parseIssues = parseMap;
     this.#graphIssues = graphMap;
-    this.#bodies.clear();
+    this.#contents.clear();
     this.#sortedIds = undefined;
     this.#revision = INITIAL_REVISION;
   }
 
-  private putNode(node: RefinoNode, mtimeMs: number, parseIssues: StorageIssue[]): void {
-    const existing = this.#entries.get(node.id);
-    if (existing !== undefined) this.dropDependents(existing.node);
-    const resident = { ...node, body: "" };
-    this.#entries.set(node.id, { node: resident, revision: this.#revision, mtimeMs });
-    this.#graph.nodes.set(node.id, resident);
-    this.addDependents(resident);
+  private putEntry(
+    node: RefinoNode,
+    content: NodeContent | undefined,
+    mtimeMs: number,
+    parseIssues: StorageIssue[],
+  ): void {
+    // Engine primitives keep the children back-references consistent; the
+    // resident record replaces summary, confirmed and grounds wholesale.
+    if (this.#graph.nodes.has(node.id)) updateNode(this.#graph, node);
+    else addNode(this.#graph, node);
+    this.#entries.set(node.id, {
+      node: this.#graph.nodes.get(node.id)!,
+      revision: this.#revision,
+      mtimeMs,
+    });
     this.dropParseIssues(node.id);
     this.#graphIssues.delete(node.id);
     this.storeParseIssues(parseIssues);
-    // The freshly read body warms the LRU for the next readBody.
-    this.cacheBody(node.id, node.body);
+    // The freshly read content warms the LRU for the next readContent.
+    if (content !== undefined) this.cacheContent(node.id, content);
   }
 
-  private removeNode(id: string): void {
+  private dropEntry(id: string): void {
     const existing = this.#entries.get(id);
     if (existing === undefined) return;
-    this.dropDependents(existing.node);
+    removeNode(this.#graph, id);
     this.#entries.delete(id);
-    this.#graph.nodes.delete(id);
-    this.#bodies.delete(id);
+    this.#contents.delete(id);
     this.dropParseIssues(id);
     this.#graphIssues.delete(id);
-  }
-
-  private addDependents(node: RefinoNode): void {
-    if (node.type !== "constraint") return;
-    for (const ground of node.grounds) {
-      if (!this.#graph.nodes.has(ground)) continue; // dangling grounds surface as issues, not edges
-      const list = this.#graph.dependents.get(ground);
-      if (list === undefined) {
-        this.#graph.dependents.set(ground, [node.id]);
-      } else if (!list.includes(node.id)) {
-        list.push(node.id);
-        list.sort();
-      }
-    }
-  }
-
-  private dropDependents(node: RefinoNode): void {
-    if (node.type !== "constraint") return;
-    for (const ground of node.grounds) {
-      const list = this.#graph.dependents.get(ground);
-      if (list === undefined) continue;
-      const filtered = list.filter((id) => id !== node.id);
-      if (filtered.length === 0) this.#graph.dependents.delete(ground);
-      else this.#graph.dependents.set(ground, filtered);
-    }
   }
 
   /**
    * Incremental graph-issue recheck scoped to the affected ids and their
    * former direct dependents: per-node grounds issues come from the engine's
    * `checkGroundsChange` (a cycle must pass through an affected node, and
-   * dangling grounds only appear on nodes grounding on changed ids), the
-   * confirmed format check complements it. Parse issues are untouched (they
-   * are re-stored from the file reads) and issues elsewhere in the graph are
+   * dangling grounds only appear on nodes grounding on changed ids). Premise
+   * checks happen at the file boundary (parse issues); parse issues are
+   * re-stored from the file reads, and issues elsewhere in the graph are
    * unaffected by the change and stay cached.
    */
   private recheckGraphIssues(affected: Iterable<string>): void {
@@ -411,19 +415,9 @@ export class GraphIndex {
       this.#graphIssues.delete(id);
       const entry = this.#entries.get(id);
       if (entry === undefined) continue;
-      const found: RefinoIssue[] = [];
       const { node } = entry;
-      if (node.type === "premise") {
-        if (node.confirmed !== undefined && !isValidConfirmed(node.confirmed)) {
-          found.push({
-            code: IssueCode.InvalidConfirmed,
-            message: `"confirmed" must be an RFC 3339 timestamp with an explicit UTC offset (Z or ±HH:MM), got "${node.confirmed}".`,
-            nodeId: node.id,
-          });
-        }
-      } else {
-        found.push(...checkGroundsChange(this.#graph, node, node.grounds));
-      }
+      if (node.type !== "constraint") continue; // edges only come from constraint grounds
+      const found = checkGroundsChange(this.#graph, node, node.grounds);
       if (found.length > 0) this.#graphIssues.set(id, found);
     }
   }
@@ -479,12 +473,12 @@ export class GraphIndex {
     return stale;
   }
 
-  private cacheBody(id: string, body: string): void {
-    this.#bodies.delete(id);
-    this.#bodies.set(id, body);
-    if (this.#bodies.size > BODY_CACHE_MAX) {
-      const oldest = this.#bodies.keys().next().value;
-      if (oldest !== undefined) this.#bodies.delete(oldest);
+  private cacheContent(id: string, content: NodeContent): void {
+    this.#contents.delete(id);
+    this.#contents.set(id, content);
+    if (this.#contents.size > CONTENT_CACHE_MAX) {
+      const oldest = this.#contents.keys().next().value;
+      if (oldest !== undefined) this.#contents.delete(oldest);
     }
   }
 
@@ -514,10 +508,9 @@ function storeIssue(cache: Map<string, IndexIssue[]>, issue: IndexIssue): void {
 }
 
 /**
- * Change detection over the light fields the resident index tracks. Body
- * content is intentionally excluded (bodies are not resident; body-only
- * external edits surface on reload). Read bodies come in with the node but
- * are dropped when the entry is stored.
+ * Change detection over the resident fields the index tracks. Paged content
+ * (body, rationale) is intentionally excluded — it is not resident, and
+ * content-only external edits surface through the file mtime instead.
  */
 function sameLightFields(previous: RefinoNode, read: RefinoNode): boolean {
   if (previous.type !== read.type) return false;
@@ -529,7 +522,6 @@ function sameLightFields(previous: RefinoNode, read: RefinoNode): boolean {
   return (
     previous.type === "constraint" &&
     read.type === "constraint" &&
-    previous.rationale === read.rationale &&
     sameGrounds(previous.grounds, read.grounds)
   );
 }

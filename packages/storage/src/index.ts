@@ -2,6 +2,14 @@ export { StorageIssueCode, type StorageIssue } from "./codes.js";
 export { loadGraph, readNode } from "./loader.js";
 export type { LoadResult, ReadNodeResult } from "./loader.js";
 export {
+  confirmedToMs,
+  confirmedToRfc3339,
+  extractSummary,
+  isValidConfirmed,
+  parseNodeSource,
+} from "./parser.js";
+export type { NodeContent, ParseResult } from "./parser.js";
+export {
   createPremise,
   createConstraint,
   updatePremise,

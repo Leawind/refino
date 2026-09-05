@@ -2,15 +2,18 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  confirmedToMs,
   createConstraint,
   createPremise,
   deleteNode,
+  isValidConfirmed,
   loadGraph,
   nodeRelativeFile,
   readNode,
   StorageIssueCode,
   updateConstraint,
   updatePremise,
+  type NodeContent,
   type StorageIssue,
 } from "@refino/storage";
 import { CommanderError, Command, Option } from "commander";
@@ -22,7 +25,6 @@ import {
   getDependents,
   getGrounds,
   ID_RE,
-  isValidConfirmed,
   queryGroups,
   RefinoError,
   requireNode,
@@ -148,23 +150,38 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
     .argument("<ids...>", "node ids")
     .action((ids: string[], _opts, cmd) =>
       run(cmd, async (opts) =>
-        withGraph(io, opts, (graph) => {
+        withGraph(io, opts, async (graph) => {
           const groups = queryGroups(graph, ids, (graph, id) => [requireNode(graph, id)]);
           const missing = groups.some((group) => "error" in group);
+          // Body and rationale are paged content: fetch them per id, since
+          // the resident fields alone cannot render a full record.
+          const contents = new Map<string, NodeContent>();
+          for (const group of groups) {
+            if ("error" in group) continue;
+            const read = await readNode(refinoDir(opts), group.id);
+            if (read.content !== undefined) contents.set(group.id, read.content);
+          }
           if (opts.json) {
             emit(
               io,
               groups.map((group) =>
                 "error" in group
                   ? group
-                  : { id: group.id, results: group.results.map(fullNodeJson) },
+                  : {
+                      id: group.id,
+                      results: group.results.map((node) =>
+                        fullNodeJson(node, contents.get(group.id)),
+                      ),
+                    },
               ),
             );
           } else {
             io.stdout.write(
               `${groups
                 .map((group) =>
-                  "error" in group ? `error: ${group.error}` : renderFullRecord(group.results[0]!),
+                  "error" in group
+                    ? `error: ${group.error}`
+                    : renderFullRecord(group.results[0]!, contents.get(group.id)),
                 )
                 .join("\n\n")}\n`,
             );
@@ -237,11 +254,22 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
               io.stderr.write("error: --now and --confirmed are mutually exclusive\n");
               return 1;
             }
+            if (confirmed !== undefined && !isValidConfirmed(confirmed)) {
+              io.stderr.write(
+                `error: "confirmed" must be an RFC 3339 timestamp with an explicit UTC offset (Z or ±HH:MM), got "${confirmed}"\n`,
+              );
+              return 1;
+            }
             const newId = await createPremise(refinoDir(opts), {
               id,
               body,
               summary,
-              confirmed: now ? new Date().toISOString() : confirmed,
+              confirmed:
+                now === true
+                  ? Date.now()
+                  : confirmed !== undefined
+                    ? confirmedToMs(confirmed)
+                    : undefined,
             });
             emitWritten(io, opts, newId, "premise", "created");
             return 0;
@@ -342,6 +370,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
           return 1;
         }
         const node = read.node;
+        const content = read.content ?? { body: "" };
 
         if (o.summary !== undefined && o.summary.trim() === "") {
           io.stderr.write("error: --summary must be a non-empty string\n");
@@ -371,9 +400,14 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
             return 1;
           }
           await updatePremise(dir, id, {
-            body: o.body ?? node.body,
+            body: o.body ?? content.body,
             summary,
-            confirmed: o.now === true ? new Date().toISOString() : (o.confirmed ?? node.confirmed),
+            confirmed:
+              o.now === true
+                ? Date.now()
+                : o.confirmed !== undefined
+                  ? confirmedToMs(o.confirmed)
+                  : node.confirmed,
           });
         } else {
           let grounds: string[] | undefined;
@@ -399,9 +433,9 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
             }
           }
           await updateConstraint(dir, id, {
-            body: o.body ?? node.body,
+            body: o.body ?? content.body,
             summary,
-            rationale: o.rationale ?? node.rationale,
+            rationale: o.rationale ?? content.rationale,
             grounds: grounds ?? node.grounds,
           });
         }
@@ -432,7 +466,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
           }
           // Direct dependents only: deleting is refused exactly when it would
           // leave dangling grounds behind (mirrors the web API's 409).
-          const dependents = graph.dependents.get(id) ?? [];
+          const dependents = node.children;
           if (dependents.length > 0) {
             const detail = `grounded on by ${dependents.join(", ")}`;
             if (force !== true) {
@@ -511,13 +545,13 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
 async function withGraph(
   io: CliIo,
   opts: GlobalOptions,
-  query: (graph: Graph) => number,
+  query: (graph: Graph) => number | Promise<number>,
 ): Promise<number> {
   try {
     const { graph, issues: parseIssues } = await loadGraph(refinoDir(opts));
     const issues: (RefinoIssue | StorageIssue)[] = [...parseIssues, ...validateGraph(graph)];
     if (issues.length > 0) return reportBlockingIssues(io, opts, issues);
-    return query(graph);
+    return await query(graph);
   } catch (error) {
     return fail(io, error);
   }
@@ -649,13 +683,13 @@ function emitDepths(
   }
 }
 
-function fullNodeJson(node: RefinoNode): Record<string, unknown> {
+function fullNodeJson(node: RefinoNode, content?: NodeContent): Record<string, unknown> {
   return {
     ...nodeJson(node),
-    body: node.body,
+    body: content?.body ?? "",
     ...(node.type === "constraint" &&
-      node.rationale !== undefined && {
-        rationale: node.rationale,
+      content?.rationale !== undefined && {
+        rationale: content.rationale,
       }),
     ...(node.type === "premise" &&
       node.confirmed !== undefined && {
@@ -681,9 +715,9 @@ function withPhantomConstraint(
   id: string,
   grounds: string[],
 ): { graph: Graph; node: ConstraintNode } {
-  const node: ConstraintNode = { id, type: "constraint", summary: "", body: "", grounds };
+  const node: ConstraintNode = { id, type: "constraint", summary: "", grounds };
   const nodes = new Map(graph.nodes);
-  nodes.set(id, node);
+  nodes.set(id, { ...node, children: [] });
   return { graph: { ...graph, nodes }, node };
 }
 
@@ -703,7 +737,7 @@ async function loadGraphForWrite(refinoDir: string): Promise<Graph> {
     return (await loadGraph(refinoDir)).graph;
   } catch (error) {
     if (error instanceof RefinoError && error.code === StorageIssueCode.RefinoDirNotFound) {
-      return { nodes: new Map(), dependents: new Map() };
+      return { nodes: new Map() };
     }
     throw error;
   }

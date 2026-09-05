@@ -63,9 +63,7 @@ export function frozenZone(graph: Graph, context: AuthorizationContext): RefinoN
 export function frozenFrontier(graph: Graph, context: AuthorizationContext): RefinoNode[] {
   const zone = new Set(frozenZone(graph, context).map((n) => n.id));
   return byId(
-    [...zone]
-      .map((id) => graph.nodes.get(id)!)
-      .filter((n) => !(graph.dependents.get(n.id) ?? []).some((d) => zone.has(d))),
+    [...zone].map((id) => graph.nodes.get(id)!).filter((n) => !n.children.some((d) => zone.has(d))),
   );
 }
 

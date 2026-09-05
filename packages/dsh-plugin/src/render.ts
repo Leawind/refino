@@ -46,7 +46,7 @@ export function renderFullNode(node: FullNodeLite): string {
     );
     if (node.rationale !== undefined) lines.push(`- 理由：${node.rationale}`);
   } else if (node.confirmed !== undefined) {
-    lines.push(`- 确认时间：${node.confirmed}`);
+    lines.push(`- 确认时间：${new Date(node.confirmed).toISOString()}`);
   }
   return [...lines, "", node.body].join("\n");
 }

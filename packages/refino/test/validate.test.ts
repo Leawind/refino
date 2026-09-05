@@ -8,17 +8,17 @@ import { IssueCode } from "refino";
 function node(
   id: string,
   type: NodeType,
-  opts: { grounds?: string[]; confirmed?: string } = {},
+  opts: { grounds?: string[]; confirmed?: number } = {},
 ): RefinoNode {
-  const base = {
-    id,
-    summary: "Body.",
-    body: "Body.",
-  };
   if (type === "premise") {
-    return { ...base, type, ...(opts.confirmed !== undefined && { confirmed: opts.confirmed }) };
+    return {
+      id,
+      type,
+      summary: "Body.",
+      ...(opts.confirmed !== undefined && { confirmed: opts.confirmed }),
+    };
   }
-  return { ...base, type, grounds: opts.grounds ?? [] };
+  return { id, type, summary: "Body.", grounds: opts.grounds ?? [] };
 }
 
 function graphOf(...nodes: RefinoNode[]): Graph {
@@ -85,26 +85,6 @@ describe("validateGraph", () => {
     );
     expect(validateGraph(graph)).toEqual([]);
   });
-
-  it.each([
-    ["missing the UTC offset", "2026-05-01T12:00:00"],
-    ["a date-only value", "2026-05-01"],
-    ["not a timestamp", "yesterday"],
-  ])("reports INVALID_CONFIRMED for confirmed %s", (_label, confirmed) => {
-    const graph = graphOf(node("1A2B3C4D", "premise", { confirmed }));
-    const issues = validateGraph(graph);
-    expect(issues.map((i) => i.code)).toEqual([IssueCode.InvalidConfirmed]);
-    expect(issues[0]?.nodeId).toBe("1A2B3C4D");
-  });
-
-  it.each(["2026-05-01T12:00:00Z", "2026-05-01T12:00:00+08:00", "2026-05-01T12:00:00.123-05:30"])(
-    "accepts confirmed %s",
-    (confirmed) => {
-      const graph = graphOf(node("1A2B3C4D", "premise", { confirmed }));
-      expect(validateGraph(graph)).toEqual([]);
-      expect(graph.nodes.get("1A2B3C4D")?.confirmed).toBe(confirmed);
-    },
-  );
 });
 
 describe("checkGroundsChange", () => {

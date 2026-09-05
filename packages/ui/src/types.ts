@@ -53,7 +53,8 @@ export interface SearchPage {
   nextCursor?: string;
 }
 
-/** Full node record as exposed by GET /api/nodes/:id. */
+/** Full node record as exposed by GET /api/nodes/:id. Confirmed is epoch
+ * milliseconds on the wire; the storage layer keeps RFC 3339 in the files. */
 export interface NodeRecord {
   id: string;
   type: NodeType;
@@ -61,7 +62,7 @@ export interface NodeRecord {
   body: string;
   grounds?: string[];
   rationale?: string;
-  confirmed?: string;
+  confirmed?: number;
 }
 
 /** GET /api/nodes/:id — full node plus per-node issues and the revision for

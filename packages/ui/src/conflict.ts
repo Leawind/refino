@@ -36,7 +36,8 @@ export interface EditorSource {
   body: string;
   rationale?: string;
   grounds?: readonly string[];
-  confirmed?: string;
+  /** Epoch milliseconds on the wire; the editor edits its RFC 3339 form. */
+  confirmed?: number;
 }
 
 /** Editor-facing fields of a node record, with defaults filled in. */
@@ -46,7 +47,7 @@ export function toEditorFields(node: EditorSource): EditorFields {
     body: node.body,
     rationale: node.rationale ?? "",
     grounds: [...(node.grounds ?? [])],
-    confirmed: node.confirmed ?? "",
+    confirmed: node.confirmed === undefined ? "" : new Date(node.confirmed).toISOString(),
   };
 }
 

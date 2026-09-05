@@ -6,23 +6,16 @@ import {
   type RefinoNode,
 } from "./types.js";
 
-/** RFC 3339 timestamp; the UTC offset (Z or ±HH:MM) is mandatory. */
-const CONFIRMED_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
-
-/** Whether the value is a valid premise `confirmed` timestamp. */
-export function isValidConfirmed(value: string): boolean {
-  return CONFIRMED_RE.test(value);
-}
-
 /**
  * Structural validation of a loaded graph:
- * 1. premise `confirmed` timestamps are RFC 3339 with an explicit UTC offset;
- * 2. every `grounds` reference resolves to an existing node;
- * 3. constraint -> constraint paths are acyclic.
+ * 1. every `grounds` reference resolves to an existing node;
+ * 2. constraint -> constraint paths are acyclic.
  *
- * (Parse-level rules — unique ids, id validity — are checked while loading;
- * see `loadGraph`. A `grounds` field on a premise is a misplaced attribute
- * and silently ignored, not a validation target.)
+ * Purely topological: resident fields only, so it runs regardless of which
+ * paged content is loaded. Parse-level rules — unique ids, id validity, the
+ * RFC 3339 form of premise `confirmed` — are checked while loading; see
+ * `@refino/storage`. A `grounds` field on a premise is a misplaced attribute
+ * and silently ignored, not a validation target.
  *
  * Cycle reporting is deterministic: each distinct cycle is reported once,
  * rotated so its smallest id comes first.
@@ -31,16 +24,7 @@ export function validateGraph(graph: Graph): RefinoIssue[] {
   const issues: RefinoIssue[] = [];
 
   for (const node of sortedValues(graph.nodes)) {
-    if (node.type === "premise") {
-      if (node.confirmed !== undefined && !CONFIRMED_RE.test(node.confirmed)) {
-        issues.push({
-          code: IssueCode.InvalidConfirmed,
-          message: `"confirmed" must be an RFC 3339 timestamp with an explicit UTC offset (Z or ±HH:MM), got "${node.confirmed}".`,
-          nodeId: node.id,
-        });
-      }
-      continue; // edges only come from constraint grounds
-    }
+    if (node.type !== "constraint") continue; // edges only come from constraint grounds
     for (const ground of node.grounds) {
       if (!graph.nodes.has(ground)) {
         issues.push({

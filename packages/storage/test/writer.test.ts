@@ -2,7 +2,7 @@ import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { ID_RE, IssueCode, validateGraph } from "refino";
-import { loadGraph } from "../src/loader.js";
+import { loadGraph, readNode } from "../src/loader.js";
 import {
   atomicWriteFile,
   createConstraint,
@@ -32,19 +32,19 @@ describe("writer", () => {
     }
   });
 
-  it("createPremise serializes confirmed into frontmatter", async () => {
+  it("createPremise serializes confirmed (epoch ms) as RFC 3339 frontmatter", async () => {
     const root = await createRefino({});
     try {
       const id = await createPremise(`${root}/.refino`, {
         body: "PostgreSQL 16.\n",
-        confirmed: "2026-05-01T00:00:00Z",
+        confirmed: Date.parse("2026-05-01T00:00:00Z"),
       });
       const source = await readFile(
         `${root}/.refino/nodes/${id.slice(0, 2)}/${id.slice(2)}-premise.md`,
         "utf8",
       );
       expect(source).toContain("confirmed:");
-      expect(source).toContain("2026-05-01T00:00:00Z");
+      expect(source).toContain("2026-05-01T00:00:00.000Z");
       expect(source.endsWith("PostgreSQL 16.\n")).toBe(true);
     } finally {
       await removeRefino(root);
@@ -66,8 +66,9 @@ describe("writer", () => {
       expect(node).toMatchObject({
         type: "constraint",
         grounds: [premiseId],
-        rationale: "Keeps DB access testable.",
       });
+      const read = await readNode(`${root}/.refino`, id);
+      expect(read.content).toMatchObject({ rationale: "Keeps DB access testable." });
     } finally {
       await removeRefino(root);
     }
@@ -270,7 +271,7 @@ describe("writer: update and delete", () => {
       const id = await createPremise(`${root}/.refino`, {
         body: "Old body.",
         summary: "Old summary.",
-        confirmed: "2026-05-01T00:00:00Z",
+        confirmed: Date.parse("2026-05-01T00:00:00Z"),
       });
       await updatePremise(`${root}/.refino`, id, {
         body: "New body.",
@@ -285,7 +286,7 @@ describe("writer: update and delete", () => {
       expect(source).not.toContain("confirmed");
       const { graph, issues } = await loadGraph(`${root}/.refino`);
       expect(issues).toEqual([]);
-      expect(graph.nodes.get(id)).toMatchObject({ type: "premise", body: "New body." });
+      expect(graph.nodes.get(id)).toMatchObject({ type: "premise", summary: "New summary." });
       expect(graph.nodes.get(id)?.confirmed).toBeUndefined();
     } finally {
       await removeRefino(root);
@@ -308,10 +309,12 @@ describe("writer: update and delete", () => {
       const { graph, issues } = await loadGraph(`${root}/.refino`);
       expect(issues).toEqual([]);
       const node = graph.nodes.get(id);
-      expect(node).toMatchObject({ type: "constraint", body: "Decision v2." });
+      expect(node).toMatchObject({ type: "constraint", summary: "Decision v2." });
       // An explicit empty array is serialized as `grounds: []`.
       expect(node?.grounds).toEqual([]);
-      expect(node?.rationale).toBeUndefined();
+      const read = await readNode(`${root}/.refino`, id);
+      expect(read.content?.rationale).toBeUndefined();
+      expect(read.content?.body).toBe("Decision v2.");
     } finally {
       await removeRefino(root);
     }
@@ -420,7 +423,7 @@ describe("writer: atomic writes", () => {
       const { graph, issues } = await loadGraph(`${root}/.refino`);
       expect(issues).toEqual([]);
       expect(graph.nodes.size).toBe(1);
-      expect(graph.nodes.get(id)).toMatchObject({ body: "Kept." });
+      expect(graph.nodes.get(id)).toMatchObject({ summary: "Kept." });
     } finally {
       await removeRefino(root);
     }

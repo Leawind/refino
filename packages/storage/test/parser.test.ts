@@ -27,7 +27,7 @@ describe("parseNodeSource", () => {
       "完整的推导与权衡过程。",
     ].join("\n");
 
-    const { node, issues } = parseNodeSource(
+    const { node, content, issues } = parseNodeSource(
       "E5F6G7H8",
       "nodes/E5/F6G7H8-constraint.md",
       "constraint",
@@ -38,21 +38,24 @@ describe("parseNodeSource", () => {
       id: "E5F6G7H8",
       type: "constraint",
       summary: "实现必须通过 Repository 层。",
-      body: "实现必须通过 Repository 层。\n\n完整的推导与权衡过程。",
       grounds: ["1A2B3C4D", "D4E5F6G7"],
+    });
+    expect(content).toEqual({
+      body: "实现必须通过 Repository 层。\n\n完整的推导与权衡过程。",
       rationale: "业务层不得直接依赖数据库。",
     });
   });
 
   it("accepts an empty frontmatter block", () => {
-    const { node, issues } = parseNodeSource(
+    const { node, content, issues } = parseNodeSource(
       "1A2B3C4D",
       "nodes/1A/2B3C4D-premise.md",
       "premise",
       "---\n---\n\nBody.\n",
     );
     expect(issues).toEqual([]);
-    expect(node?.body).toBe("Body.");
+    expect(content?.body).toBe("Body.");
+    expect(node?.summary).toBe("Body.");
   });
 
   it("derives type from the caller, not from frontmatter", () => {
@@ -66,14 +69,14 @@ describe("parseNodeSource", () => {
   });
 
   it("silently ignores unknown frontmatter fields", () => {
-    const { node, issues } = parseNodeSource(
+    const { content, issues } = parseNodeSource(
       "1A2B3C4D",
       "nodes/1A/2B3C4D-premise.md",
       "premise",
       "---\nsource: somewhere\ncustom: [1, 2]\n---\n\nBody.\n",
     );
     expect(issues).toEqual([]);
-    expect(node?.body).toBe("Body.");
+    expect(content?.body).toBe("Body.");
   });
 
   it("omits grounds for a root constraint declared without the field", () => {
@@ -110,7 +113,7 @@ describe("parseNodeSource", () => {
 
   it("normalizes CRLF line endings and a leading BOM", () => {
     const source = `\uFEFF---\r\ngrounds: []\r\n---\r\n\r\nFirst\r\nparagraph continues.\r\n\r\nRationale.\r\n`;
-    const { node, issues } = parseNodeSource(
+    const { node, content, issues } = parseNodeSource(
       "A1B2C3D4",
       "nodes/A1/B2C3D4-constraint.md",
       "constraint",
@@ -118,7 +121,7 @@ describe("parseNodeSource", () => {
     );
     expect(issues).toEqual([]);
     expect(node?.summary).toBe("First paragraph continues.");
-    expect(node?.body).toBe("First\nparagraph continues.\n\nRationale.");
+    expect(content?.body).toBe("First\nparagraph continues.\n\nRationale.");
   });
 
   it("uses the first paragraph as summary, collapsing internal whitespace", () => {
@@ -132,7 +135,7 @@ describe("parseNodeSource", () => {
   });
 
   it("prefers an explicit summary frontmatter field over the first paragraph", () => {
-    const { node, issues } = parseNodeSource(
+    const { node, content, issues } = parseNodeSource(
       "A1B2C3D4",
       "nodes/A1/B2C3D4-constraint.md",
       "constraint",
@@ -140,7 +143,7 @@ describe("parseNodeSource", () => {
     );
     expect(issues).toEqual([]);
     expect(node?.summary).toBe("Short relevance summary.");
-    expect(node?.body).toBe("First paragraph that is not the summary.");
+    expect(content?.body).toBe("First paragraph that is not the summary.");
   });
 
   it("accepts a summary frontmatter field on premise nodes", () => {
@@ -207,7 +210,35 @@ describe("parseNodeSource", () => {
       "---\ngrounds: [A1B2C3D4]\n---\n\nBody.\n",
     );
     expect(issues).toEqual([]);
-    expect(node).toEqual({ id: "2B3C4D5E", type: "premise", summary: "Body.", body: "Body." });
+    expect(node).toEqual({ id: "2B3C4D5E", type: "premise", summary: "Body." });
+  });
+
+  it("converts a valid confirmed frontmatter field to epoch milliseconds", () => {
+    const { node, issues } = parseNodeSource(
+      "1A2B3C4D",
+      "nodes/1A/2B3C4D-premise.md",
+      "premise",
+      "---\nconfirmed: 2026-05-01T12:00:00+08:00\n---\n\nBody.\n",
+    );
+    expect(issues).toEqual([]);
+    expect(node?.type).toBe("premise");
+    expect(node).toMatchObject({ confirmed: Date.parse("2026-05-01T12:00:00+08:00") });
+  });
+
+  it.each([
+    ["missing the UTC offset", "2026-05-01T12:00:00"],
+    ["a date-only value", "2026-05-01"],
+    ["not a timestamp", "yesterday"],
+  ])("reports INVALID_CONFIRMED for confirmed %s", (_label, confirmed) => {
+    const { node, issues } = parseNodeSource(
+      "1A2B3C4D",
+      "nodes/1A/2B3C4D-premise.md",
+      "premise",
+      `---\nconfirmed: ${confirmed}\n---\n\nBody.\n`,
+    );
+    expect(issues.map((i) => i.code)).toEqual([StorageIssueCode.InvalidConfirmed]);
+    expect(node).toMatchObject({ id: "1A2B3C4D", type: "premise" });
+    expect(node?.confirmed).toBeUndefined();
   });
 
   it.each([

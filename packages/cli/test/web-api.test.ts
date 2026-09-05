@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
 import { createWebApp } from "../src/web/server.js";
-import { loadGraph } from "@refino/storage";
+import { loadGraph, readNode } from "@refino/storage";
 import { constraint, createRefino, premise, removeRefino } from "@refino/testkit";
 
 let root: string;
@@ -101,7 +101,6 @@ describe("refino web api", () => {
     expect(res.status).toBe(200);
     const { graph } = await loadGraph(refinoDir);
     expect(graph.nodes.get("A1B2C3D4")).toMatchObject({
-      body: "更新后的决策。",
       summary: "更新后的摘要。",
     });
   });
@@ -119,8 +118,8 @@ describe("refino web api", () => {
       body: JSON.stringify({ body: "带理由的约束。", rationale: "改后的理由。", grounds: [] }),
     });
     expect(kept.status).toBe(200);
-    const { graph } = await loadGraph(refinoDir);
-    expect(graph.nodes.get(id)?.rationale).toBe("改后的理由。");
+    const keptRead = await readNode(refinoDir, id);
+    expect(keptRead.content?.rationale).toBe("改后的理由。");
 
     // A save that omits it clears it: absent means removed.
     const cleared = await app().request(`/api/nodes/${id}`, {
@@ -128,8 +127,8 @@ describe("refino web api", () => {
       body: JSON.stringify({ body: "带理由的约束。", grounds: [] }),
     });
     expect(cleared.status).toBe(200);
-    const reloaded = await loadGraph(refinoDir);
-    expect(reloaded.graph.nodes.get(id)?.rationale).toBeUndefined();
+    const clearedRead = await readNode(refinoDir, id);
+    expect(clearedRead.content?.rationale).toBeUndefined();
 
     const premise = await app().request("/api/nodes/premise", {
       method: "POST",

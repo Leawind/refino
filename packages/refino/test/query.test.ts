@@ -6,13 +6,8 @@ import { IssueCode } from "refino";
 
 /** Test factory: build a node directly, bypassing any storage parsing. */
 function node(id: string, type: NodeType, grounds?: string[]): RefinoNode {
-  const base = {
-    id,
-    summary: "Body.",
-    body: "Body.",
-  };
-  if (type === "premise") return { ...base, type };
-  return { ...base, type, grounds: grounds ?? [] };
+  if (type === "premise") return { id, type, summary: "Body." };
+  return { id, type, summary: "Body.", grounds: grounds ?? [] };
 }
 
 function graphOf(...nodes: RefinoNode[]): Graph {
@@ -84,15 +79,17 @@ describe("queries", () => {
     expect(getDependents(graph, "E5F6G7H8")).toEqual([]);
   });
 
-  it("buildGraph indexes the dependents of premises and constraints", () => {
-    expect(graph.dependents.get("1A2B3C4D")).toEqual(["E5F6G7H8"]);
-    expect(graph.dependents.get("A1B2C3D4")).toEqual(["D4E5F6G7"]);
+  it("buildGraph derives the children back-references of premises and constraints", () => {
+    expect(graph.nodes.get("1A2B3C4D")?.children).toEqual(["E5F6G7H8"]);
+    expect(graph.nodes.get("A1B2C3D4")?.children).toEqual(["D4E5F6G7"]);
+    expect(graph.nodes.get("D4E5F6G7")?.children).toEqual(["E5F6G7H8"]);
+    expect(graph.nodes.get("E5F6G7H8")?.children).toEqual([]);
   });
 
-  it("buildGraph leaves unknown grounds out of the dependents index", () => {
+  it("buildGraph leaves unknown grounds out of the children index", () => {
     const dangling = graphOf(node("A1B2C3D4", "constraint", ["Z9Y8X7W6"]));
-    expect(dangling.dependents.has("Z9Y8X7W6")).toBe(false);
-    expect(dangling.dependents.size).toBe(0);
+    expect(dangling.nodes.get("Z9Y8X7W6")).toBeUndefined();
+    expect(dangling.nodes.get("A1B2C3D4")?.children).toEqual([]);
   });
 
   it("queries on unknown nodes throw NODE_NOT_FOUND", () => {

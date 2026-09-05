@@ -1,19 +1,15 @@
 import {
+  confirmedToMs,
   createConstraint,
   createPremise,
   deleteNode,
+  isValidConfirmed,
   updateConstraint,
   updatePremise,
   StorageIssueCode,
+  type NodeContent,
 } from "@refino/storage";
-import {
-  checkGroundsChange,
-  getDependents,
-  ID_RE,
-  isValidConfirmed,
-  IssueCode,
-  RefinoError,
-} from "refino";
+import { checkGroundsChange, getDependents, ID_RE, IssueCode, RefinoError } from "refino";
 import type { Context } from "hono";
 import type { GraphIndex } from "./graph-index.js";
 
@@ -58,13 +54,13 @@ export async function getGraph(c: Context, index: GraphIndex): Promise<Response>
   try {
     const graph = index.graph;
     const nodes = [...graph.nodes.values()].sort(byId);
-    const bodies = await Promise.all(nodes.map((node) => index.readBody(node.id)));
+    const contents = await Promise.all(nodes.map((node) => index.readContent(node.id)));
     return c.json({
       revision: index.revision,
       issues: index.issues(),
       nodes: nodes.map((node, i) => ({
-        ...nodeJson({ ...node, body: bodies[i] ?? "" }),
-        dependents: graph.dependents.get(node.id) ?? [],
+        ...nodeJson({ ...node, ...contents[i] }),
+        dependents: node.children,
       })),
     });
   } catch (error) {
@@ -82,7 +78,7 @@ export async function getValidate(c: Context, index: GraphIndex): Promise<Respon
   }
 }
 
-/** GET /api/nodes/:id — one full node (body on demand) with its issues and the revision for If-Match-style saves. */
+/** GET /api/nodes/:id — one full node (content on demand) with its issues and the revision for If-Match-style saves. */
 export async function getNode(c: Context, index: GraphIndex): Promise<Response> {
   try {
     const id = requireParam(c);
@@ -90,10 +86,10 @@ export async function getNode(c: Context, index: GraphIndex): Promise<Response> 
     if (entry === undefined) {
       throw new RefinoError(IssueCode.NodeNotFound, `Node "${id}" does not exist.`);
     }
-    const body = (await index.readBody(id)) ?? "";
+    const content: NodeContent = (await index.readContent(id)) ?? { body: "" };
     return c.json({
       revision: entry.revision,
-      node: nodeJson({ ...entry.node, body }),
+      node: nodeJson({ ...entry.node, ...content }),
       issues: index.issuesFor(id),
     });
   } catch (error) {
@@ -342,19 +338,19 @@ function readRequiredString(payload: Payload, key: string): string {
 }
 
 /**
- * The payload's `confirmed` timestamp, format-checked. The CLI validates
- * before writing; the web write paths must not store a value that only
- * surfaces later as an INVALID_CONFIRMED issue.
+ * The payload's `confirmed` timestamp as epoch milliseconds, format-checked
+ * at this boundary: the web write paths must not store a value that only
+ * surfaces later as an INVALID_CONFIRMED issue on load.
  */
-function readConfirmed(payload: Payload): string | undefined {
+function readConfirmed(payload: Payload): number | undefined {
   const confirmed = readString(payload, "confirmed");
   if (confirmed !== undefined && !isValidConfirmed(confirmed)) {
     throw new RefinoError(
-      IssueCode.InvalidConfirmed,
+      StorageIssueCode.InvalidConfirmed,
       `"confirmed" must be an RFC 3339 timestamp with an explicit UTC offset (Z or ±HH:MM), got "${confirmed}".`,
     );
   }
-  return confirmed;
+  return confirmed === undefined ? undefined : confirmedToMs(confirmed);
 }
 
 export function readString(payload: Payload, key: string): string | undefined {

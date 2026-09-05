@@ -17,7 +17,7 @@ export function pendingReview(graph: Graph, changedIds: readonly string[]): Refi
   }
   const pending = new Map<string, RefinoNode>();
   for (const id of changedIds) {
-    for (const dependent of graph.dependents.get(id) ?? []) {
+    for (const dependent of graph.nodes.get(id)?.children ?? []) {
       const node = graph.nodes.get(dependent);
       if (node) pending.set(dependent, node);
     }

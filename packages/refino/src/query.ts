@@ -1,14 +1,14 @@
 import { IssueCode, RefinoError } from "./types.js";
-import type { Graph, QueryGroup, RefinoNode } from "./types.js";
+import type { Graph, GraphNode, QueryGroup } from "./types.js";
 
 export interface NodeWithDepth {
-  node: RefinoNode;
+  node: GraphNode;
   /** Distance from the queried node: direct grounds/dependents have depth 1. */
   depth: number;
 }
 
 /** Return the node with the given id, throwing if it does not exist. */
-export function requireNode(graph: Graph, id: string): RefinoNode {
+export function requireNode(graph: Graph, id: string): GraphNode {
   const node = graph.nodes.get(id);
   if (!node) {
     throw new RefinoError(IssueCode.NodeNotFound, `Node "${id}" not found`);
@@ -17,9 +17,9 @@ export function requireNode(graph: Graph, id: string): RefinoNode {
 }
 
 /** Direct grounds of a node, resolved and in declared order. Premises have none. */
-export function getGrounds(graph: Graph, id: string): RefinoNode[] {
+export function getGrounds(graph: Graph, id: string): GraphNode[] {
   const node = requireNode(graph, id);
-  const result: RefinoNode[] = [];
+  const result: GraphNode[] = [];
   for (const ground of node.type === "constraint" ? node.grounds : []) {
     const target = graph.nodes.get(ground);
     if (target) result.push(target);
@@ -69,11 +69,11 @@ export function getDependents(
   options: TraversalOptions = {},
 ): NodeWithDepth[] {
   requireNode(graph, id);
-  return breadthFirst(graph, id, (node) => graph.dependents.get(node.id) ?? [], options.maxDepth);
+  return breadthFirst(graph, id, (node) => node.children, options.maxDepth);
 }
 
 export interface NodeWithOverlap {
-  node: RefinoNode;
+  node: GraphNode;
   /** Number of direct grounds shared with the queried node. */
   overlap: number;
 }
@@ -90,7 +90,7 @@ export function getSiblings(graph: Graph, id: string): NodeWithOverlap[] {
   const overlap = new Map<string, number>();
   const grounds = node.type === "constraint" ? node.grounds : [];
   for (const ground of grounds) {
-    for (const dependent of graph.dependents.get(ground) ?? []) {
+    for (const dependent of graph.nodes.get(ground)?.children ?? []) {
       if (dependent === id) continue;
       overlap.set(dependent, (overlap.get(dependent) ?? 0) + 1);
     }
@@ -120,7 +120,7 @@ export function queryGroups<T>(
 function breadthFirst(
   graph: Graph,
   start: string,
-  neighborsOf: (node: RefinoNode) => string[],
+  neighborsOf: (node: GraphNode) => readonly string[],
   maxDepth?: number,
 ): NodeWithDepth[] {
   const depth = new Map<string, number>([[start, 0]]);

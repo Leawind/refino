@@ -114,10 +114,7 @@ export async function getSearch(c: Context, index: GraphIndex): Promise<Response
       }
       // Premises no constraint grounds on (the CLI's list --unreferenced):
       // candidates for review or removal in maintenance work.
-      if (
-        unreferencedOnly &&
-        (entry.node.type !== "premise" || (index.graph.dependents.get(id) ?? []).length > 0)
-      ) {
+      if (unreferencedOnly && (entry.node.type !== "premise" || entry.node.children.length > 0)) {
         continue;
       }
       if (

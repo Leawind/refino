@@ -2,7 +2,7 @@ import { open, readdir, stat, type FileHandle } from "node:fs/promises";
 import { join } from "node:path";
 import { buildGraph, ID_CHARSET, ID_RE, IssueCode, RefinoError } from "refino";
 import { StorageIssueCode, type StorageIssue } from "./codes.js";
-import { parseNodeSource } from "./parser.js";
+import { parseNodeSource, type NodeContent } from "./parser.js";
 import { nodeFilePath, nodeRelativeFile, NODE_TYPES } from "./writer.js";
 import type { Graph, NodeType, RefinoNode } from "refino";
 
@@ -25,6 +25,8 @@ export interface LoadResult {
 export interface ReadNodeResult {
   /** The parsed node, or null when neither candidate file exists. */
   node: RefinoNode | null;
+  /** The node's paged content (body, rationale); undefined when node is null. */
+  content?: NodeContent;
   issues: StorageIssue[];
   /** File mtime (ms) of the winning candidate; undefined when node is null. */
   mtimeMs?: number;
@@ -86,6 +88,7 @@ export async function readNode(refinoDir: string, id: string): Promise<ReadNodeR
   }));
   const issues: StorageIssue[] = [];
   let node: RefinoNode | null = null;
+  let content: NodeContent | undefined;
   let mtimeMs: number | undefined;
   let summaryExplicit: boolean | undefined;
   for (const candidate of candidates) {
@@ -96,6 +99,7 @@ export async function readNode(refinoDir: string, id: string): Promise<ReadNodeR
     if (parsed.node === null) continue;
     if (node === null) {
       node = parsed.node;
+      content = parsed.content;
       mtimeMs = read.mtimeMs;
       summaryExplicit = parsed.summaryExplicit;
     } else {
@@ -108,12 +112,14 @@ export async function readNode(refinoDir: string, id: string): Promise<ReadNodeR
       break; // both candidates parsed: nothing left to read
     }
   }
-  return { node, issues, mtimeMs, summaryExplicit };
+  return { node, content, issues, mtimeMs, summaryExplicit };
 }
 
 /**
- * Read every node file under `<refinoDir>/nodes/` and build the in-memory
- * graph. Loading is read-only; the only write path is `writer.ts`.
+ * Read every node file under `<refinoDir>/nodes/` and build the resident
+ * in-memory graph. Loading is read-only; the only write path is `writer.ts`.
+ * Paged content (body, rationale) is parsed for summary derivation and then
+ * discarded — the resident graph never holds it.
  *
  * Layout: `nodes/<2-char shard>/<rest>-<type>.md`, where `<type>` is
  * `premise` or `constraint`. The node id is derived from the file path

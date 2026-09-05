@@ -12,14 +12,8 @@ import { HarnessError } from "../src/errors.js";
 import type { AuthorizationContext } from "../src/types.js";
 
 function node(id: string, type: NodeType, grounds?: string[]): RefinoNode {
-  const base = {
-    id,
-    file: `nodes/${id.slice(0, 2)}/${id.slice(2)}-${type}.md`,
-    summary: "Body.",
-    body: "Body.",
-  };
-  if (type === "premise") return { ...base, type: "premise" };
-  return { ...base, type: "constraint", grounds: grounds ?? [] };
+  if (type === "premise") return { id, type: "premise", summary: "Body." };
+  return { id, type: "constraint", summary: "Body.", grounds: grounds ?? [] };
 }
 
 /**
@@ -205,7 +199,7 @@ describe("modification-space closure", () => {
       for (const id of [A1, D4, E5, B2, Z9]) {
         const check = checkModification(graph, ctx, id);
         if (!check.allowed) continue;
-        for (const dependent of graph.dependents.get(id) ?? []) {
+        for (const dependent of graph.nodes.get(id)?.children ?? []) {
           expect(checkModification(graph, ctx, dependent).allowed).toBe(true);
         }
       }

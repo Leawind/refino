@@ -9,7 +9,13 @@ import {
   type AuthorizationContext,
   type DeltaEvent,
 } from "@refino/harness";
-import { startNodeWatcher, loadGraph, type NodeWatcher } from "@refino/storage";
+import {
+  startNodeWatcher,
+  loadGraph,
+  readNode,
+  type NodeContent,
+  type NodeWatcher,
+} from "@refino/storage";
 import {
   getDependents,
   validateGraph,
@@ -92,6 +98,11 @@ export class RefinoWorkspace {
 
   get graph(): Graph {
     return this.#graph;
+  }
+
+  /** Paged node content on demand (body, rationale); the resident graph never holds it. */
+  async content(id: string): Promise<NodeContent | undefined> {
+    return (await readNode(this.#refinoDir, id)).content;
   }
 
   /** Issues from the most recent load (parse-level and structural). */
