@@ -125,8 +125,10 @@ export default {
     truncated: "Truncated at the limit",
     renderCulled: "Rendering culled to fit the budget",
     premises: "Premise facts layer",
-    rangeDegraded: "The two nodes are on different branches; only the clicked node was added",
-    rangeDisconnected: "No relationship within the search budget; only the clicked node was added",
+    rangeDegraded:
+      "The two nodes are on different branches; the selection is now just the clicked node",
+    rangeDisconnected:
+      "No relationship within the search budget; the selection is now just the clicked node",
     glUnavailable: "WebGL 2 is unavailable; the canvas cannot render",
   },
   selection: {

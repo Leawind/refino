@@ -319,7 +319,7 @@ describe("select expands the working set", () => {
 });
 
 describe("selection model", () => {
-  it("appends ancestor range paths in focus order", async () => {
+  it("replaces the selection with the ancestor range", async () => {
     await select(C3);
     await workspace.rangeSelect(lite[C1]!);
     await vi.waitFor(() => expect(workspace.state.selection).toEqual([C3, C2, C1]));
@@ -327,10 +327,17 @@ describe("selection model", () => {
     expect(workspace.state.notice).toBeNull();
   });
 
+  it("clears an earlier multi-selection on shift click", async () => {
+    await select(C6);
+    workspace.toggle(lite[C3]!);
+    await workspace.rangeSelect(lite[C1]!);
+    await vi.waitFor(() => expect(workspace.state.selection).toEqual([C3, C2, C1]));
+  });
+
   it("degrades to the clicked node when no common ancestor exists", async () => {
     await select(C3);
     await workspace.rangeSelect(lite[C5]!);
-    await vi.waitFor(() => expect(workspace.state.selection).toEqual([C3, C5]));
+    await vi.waitFor(() => expect(workspace.state.selection).toEqual([C5]));
     expect(workspace.state.notice).toBe("rangeDegraded");
     workspace.dismissNotice();
   });

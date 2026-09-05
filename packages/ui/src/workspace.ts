@@ -263,11 +263,12 @@ export function createWorkspace(client: RefinoClient) {
     void refresh();
   }
 
-  /** Shift click: append the range between focus and the clicked node. */
+  /** Shift click: replace the selection with the range between focus and
+   * the clicked node. */
   async function rangeSelect(lite: NodeLite): Promise<void> {
     prime(lite);
     const focusId = state.focusId;
-    if (focusId === null || focusId === lite.id) {
+    if (focusId === null) {
       select(lite);
       return;
     }
@@ -275,11 +276,12 @@ export function createWorkspace(client: RefinoClient) {
       const result = await client.queryRange(focusId, lite.id);
       for (const node of result.nodes) prime(node);
       if (result.mode === "ancestor") {
-        appendSelection(result.nodes.map((node) => node.id));
+        setSelection(result.nodes.map((node) => node.id));
       } else {
         // No common ancestor within the budget (definitively or before the
-        // budget ran out): only the clicked node joins, per design.
-        appendSelection([lite.id]);
+        // budget ran out): the clicked node replaces the selection, per
+        // design.
+        setSelection([lite.id]);
         state.notice = result.mode === "disconnected" ? "rangeDisconnected" : "rangeDegraded";
       }
     } catch (error) {
@@ -287,12 +289,6 @@ export function createWorkspace(client: RefinoClient) {
       return;
     }
     await refresh();
-  }
-
-  function appendSelection(ids: readonly string[]): void {
-    const next = [...state.selection];
-    for (const id of ids) if (!next.includes(id)) next.push(id);
-    setSelection(next);
   }
 
   /** Ctrl click: toggle the node's membership in the selection. */
