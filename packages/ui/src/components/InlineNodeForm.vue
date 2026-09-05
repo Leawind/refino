@@ -83,9 +83,11 @@ const renderedBody = computed(() => renderMarkdown(form.body));
     <div class="field">
       <span class="label-row">
         <span class="label">{{ t("node.body") }}</span>
-        <span class="preview-toggle" @click.stop="previewBody = !previewBody">
-          <NSwitch v-model:value="previewBody" size="small" />
-          {{ t("node.preview") }}
+        <!-- The switch toggles via v-model; @click.stop keeps the click from
+             reaching this wrapper, whose own handler would toggle again. -->
+        <span class="preview-toggle">
+          <NSwitch v-model:value="previewBody" size="small" @click.stop />
+          <span @click.stop="previewBody = !previewBody">{{ t("node.preview") }}</span>
         </span>
       </span>
       <!-- Rendered locally from the user-authored markdown source. -->
