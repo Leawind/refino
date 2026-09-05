@@ -22,8 +22,8 @@
     "node": ">=20"
   },
   "dependencies": {
-    "@vicons/ionicons5": "^0.13.0",
     "@refino/harness": "workspace:^",
+    "@vicons/ionicons5": "^0.13.0",
     "katex": "^0.18.5",
     "marked": "^18.0.11",
     "marked-katex-extension": "^5.1.12",
@@ -35,8 +35,10 @@
   },
   "devDependencies": {
     "@refino/testkit": "workspace:*",
+    "@shaderfrog/glsl-parser": "^7.0.1",
     "@vitejs/plugin-vue": "^6.0.0",
     "@vue/test-utils": "^2.4.0",
+    "glslang-validator-prebuilt-predownloaded": "^0.0.2",
     "vite": "^7.0.0",
     "vite-plugin-vue-devtools": "^8.2.1",
     "vue-tsc": "^3.0.0"

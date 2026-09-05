@@ -168,12 +168,18 @@ importers:
       '@refino/testkit':
         specifier: workspace:*
         version: link:../testkit
+      '@shaderfrog/glsl-parser':
+        specifier: ^7.0.1
+        version: 7.0.1
       '@vitejs/plugin-vue':
         specifier: ^6.0.0
         version: 6.0.8(vite@7.3.6(@types/node@24.13.3)(yaml@2.9.0))(vue@3.5.42(typescript@5.9.3))
       '@vue/test-utils':
         specifier: ^2.4.0
         version: 2.5.0(@vue/compiler-dom@3.5.42)(@vue/server-renderer@3.5.42)(vue@3.5.42(typescript@5.9.3))
+      glslang-validator-prebuilt-predownloaded:
+        specifier: ^0.0.2
+        version: 0.0.2
       vite:
         specifier: ^7.0.0
         version: 7.3.6(@types/node@24.13.3)(yaml@2.9.0)
@@ -944,6 +950,10 @@ packages:
     resolution: {integrity: sha512-at8QVep6S3h5Y6gSbdGU06bRY5WJkf6WUduM9YtvYMbYhB1MOFfUgc6kehitQXzOtMSaT70q7f9ydPhpqu821w==}
     cpu: [x64]
     os: [win32]
+
+  '@shaderfrog/glsl-parser@7.0.1':
+    resolution: {integrity: sha512-8mpfsoPeRhesY3pOrzNZBL8uG6N5GVX1EHLBYbd4gzKs+c7vaEIqpTNK5VrffU33qQN4cwpP2v3u4aPPBU32sw==}
+    engines: {node: '>=16'}
 
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
@@ -1737,6 +1747,9 @@ packages:
   glob@13.0.6:
     resolution: {integrity: sha512-Wjlyrolmm8uDpm/ogGyXZXb1Z+Ca2B8NbJwqBVg0axK9GbBeoS7yGV6vjXnYdGm6X53iehEuxxbyiKp8QmN4Vw==}
     engines: {node: 18 || 20 || >=22}
+
+  glslang-validator-prebuilt-predownloaded@0.0.2:
+    resolution: {integrity: sha512-YmMhXD9psUC6dVlfTZ1GB4AaeJIG8DZ3G2oYtWcZ3D15KbVKuhFT2tlq7FqD1cEWrP+kfVaV9dKOrIgKk6mMaw==}
 
   hachure-fill@0.5.2:
     resolution: {integrity: sha512-3GKBOn+m2LX9iq+JC1064cSFprJY4jL1jCXTcpnfER5HYE2l/4EfWSGzkPa/ZDBmYI0ZOEj5VHV/eKnPGkHuOg==}
@@ -3093,6 +3106,8 @@ snapshots:
   '@rollup/rollup-win32-x64-msvc@4.63.1':
     optional: true
 
+  '@shaderfrog/glsl-parser@7.0.1': {}
+
   '@standard-schema/spec@1.1.0': {}
 
   '@types/chai@5.2.3':
@@ -4027,6 +4042,8 @@ snapshots:
       minimatch: 10.2.6
       minipass: 7.1.3
       path-scurry: 2.0.2
+
+  glslang-validator-prebuilt-predownloaded@0.0.2: {}
 
   hachure-fill@0.5.2: {}
 

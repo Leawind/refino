@@ -18,7 +18,7 @@ import {
   type AdaptiveBudget,
   type CullEntry,
 } from "./budget";
-import { createProgram, EDGE_QUAD, type Program, UNIT_QUAD } from "./shaders";
+import { createProgram, EDGE_QUAD, type Program, UNIT_QUAD } from "./programs";
 
 /**
  * WebGL2 canvas renderer for the working set (ui README, "画布"): batched
