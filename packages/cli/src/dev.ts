@@ -32,6 +32,12 @@ export interface GenerateCrgParams {
    * omitted.
    */
   maxDepth?: number;
+  /**
+   * Fraction of companion grounds drawn from shallower layers or premises,
+   * 0-1. Real graphs ground mostly within one layer; only a minority of
+   * nodes span several. Defaults to 0.2 when omitted.
+   */
+  crossLayerRatio: number;
   /** Fraction of premises carrying a confirmed timestamp, 0-1. */
   confirmedRatio: number;
 }
@@ -89,12 +95,16 @@ export function generateCrg(params: GenerateCrgParams, rand: () => number): Gene
   const premiseIds = nodes.map((n) => n.id);
   /** Longest constraint-chain below each constraint (roots: 0, premises ignored). */
   const depths = new Map<string, number>();
-  const constraintIds: string[] = [];
+  /** Constraint ids per depth, in creation order; the last one is the newest. */
+  const layers = new Map<number, string[]>();
   const addConstraint = (index: number, grounds: string[] | undefined): void => {
     const id = nextId();
     const parentDepths = (grounds ?? []).map((g) => depths.get(g) ?? -1);
-    depths.set(id, grounds === undefined ? 0 : 1 + Math.max(-1, ...parentDepths));
-    constraintIds.push(id);
+    const depth = grounds === undefined ? 0 : 1 + Math.max(-1, ...parentDepths);
+    depths.set(id, depth);
+    const layer = layers.get(depth);
+    if (layer === undefined) layers.set(depth, [id]);
+    else layer.push(id);
     nodes.push({
       type: "constraint",
       id,
@@ -107,25 +117,54 @@ export function generateCrg(params: GenerateCrgParams, rand: () => number): Gene
 
   for (let i = 0; i < rootCount; i++) addConstraint(i, undefined);
   for (let i = rootCount; i < constraintCount; i++) {
-    // Ground on premises and/or earlier constraints; maxDepth prunes parents
-    // whose chain is already at the limit (roots always qualify at >= 1).
-    const parents =
-      params.maxDepth === undefined
-        ? constraintIds
-        : constraintIds.filter((id) => (depths.get(id) ?? 0) < params.maxDepth!);
-    const sources = [...premiseIds, ...parents];
-    const count = 1 + Math.floor(rand() * Math.min(params.maxGrounds, sources.length));
-    // Recency bias: anchor on the newest eligible constraint so refinement
-    // chains deepen naturally; further grounds are drawn at random.
-    const chosen = new Set<string>();
-    if (parents.length > 0) chosen.add(parents[parents.length - 1]!);
-    const pool = sources.filter((id) => !chosen.has(id));
-    while (chosen.size < count && pool.length > 0) {
+    const eligibleLayers = [...layers.entries()]
+      .filter(([depth]) => params.maxDepth === undefined || depth < params.maxDepth!)
+      .sort(([a], [b]) => a - b);
+    if (eligibleLayers.length === 0) {
+      // Only possible when no constraint layer qualifies yet (e.g. --roots 0
+      // before any constraint exists): ground on premises, which never
+      // extend a chain.
+      const sources = [...premiseIds];
+      const count = 1 + Math.floor(rand() * Math.min(params.maxGrounds, sources.length));
+      addConstraint(i, takeDistinct(sources, count, rand));
+      continue;
+    }
+    // Deeper layers attract more refinements: square-bias the layer pick so
+    // the frontier keeps growing while earlier layers still receive children.
+    const layerIndex = Math.min(
+      eligibleLayers.length - 1,
+      Math.floor(rand() * rand() * eligibleLayers.length),
+    );
+    const [, anchorLayer] = eligibleLayers[layerIndex]!;
+    const anchor = anchorLayer[anchorLayer.length - 1]!; // newest member
+    // Real graphs ground mostly within one layer; only a minority of nodes
+    // reach across to shallower layers or premises. A node is cross-layer as
+    // a whole; companions never mix the two pools, and thin pools simply
+    // yield fewer grounds.
+    const sameLayer = anchorLayer.slice(0, -1);
+    const crossLayer = [
+      ...premiseIds,
+      ...eligibleLayers.slice(0, layerIndex).flatMap(([, ids]) => [...ids]),
+    ];
+    const crossNode = rand() < params.crossLayerRatio;
+    const count = 1 + Math.floor(rand() * params.maxGrounds);
+    const chosen = new Set<string>([anchor]);
+    const pool = crossNode ? crossLayer : sameLayer;
+    for (let k = 1; k < count && pool.length > 0; k++) {
       chosen.add(pool.splice(Math.floor(rand() * pool.length), 1)[0]!);
     }
     addConstraint(i, [...chosen]);
   }
   return nodes;
+}
+
+/** Remove up to `count` random entries from `items` (mutates the array). */
+function takeDistinct<T>(items: T[], count: number, rand: () => number): T[] {
+  const picked: T[] = [];
+  for (let i = 0; i < count && items.length > 0; i++) {
+    picked.push(items.splice(Math.floor(rand() * items.length), 1)[0]!);
+  }
+  return picked;
 }
 
 /** Register the hidden `dev` command group on the program. */
@@ -165,6 +204,12 @@ export function createDevCommand(io: CliIo, run: RunFn): Command {
     )
     .option("--max-depth <n>", "maximum constraint-chain depth (default unlimited)", intAtLeast(1))
     .option(
+      "--cross-layer-ratio <r>",
+      "fraction of companion grounds reaching across layers (default 0.2)",
+      ratio(),
+      0.2,
+    )
+    .option(
       "--confirmed-ratio <r>",
       "fraction of premises carrying a confirmed timestamp, 0-1 (default 1)",
       ratio(),
@@ -184,6 +229,7 @@ export function createDevCommand(io: CliIo, run: RunFn): Command {
           roots?: number;
           maxGrounds: number;
           maxDepth?: number;
+          crossLayerRatio: number;
           confirmedRatio: number;
           seed?: number;
           force: boolean;
@@ -206,6 +252,7 @@ export function createDevCommand(io: CliIo, run: RunFn): Command {
               roots: o.roots,
               maxGrounds: o.maxGrounds,
               maxDepth: o.maxDepth,
+              crossLayerRatio: o.crossLayerRatio,
               confirmedRatio: o.confirmedRatio,
             },
             mulberry32(seed),

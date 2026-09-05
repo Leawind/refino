@@ -47,6 +47,33 @@ function maxChainDepth(nodes: ListedNode[]): number {
   return Math.max(0, ...constraints.map((n) => depth(n.id)));
 }
 
+/**
+ * Distribution of ground-layer spans: how many non-root constraints ground
+ * within a single layer (premises count as their own, bottom layer) versus
+ * across several. Same seed and options give exact, stable numbers.
+ */
+function groundLayerSpans(nodes: ListedNode[]): { single: number; multi: number } {
+  const constraints = nodes.filter((n) => n.type === "constraint");
+  const premiseIds = new Set(nodes.filter((n) => n.type === "premise").map((n) => n.id));
+  const depths = new Map<string, number>();
+  const depth = (id: string): number => {
+    const cached = depths.get(id);
+    if (cached !== undefined) return cached;
+    depths.set(id, 0); // cycle guard; the graph is a DAG
+    const node = constraints.find((n) => n.id === id);
+    const value = node === undefined ? 0 : 1 + Math.max(-1, ...node.grounds!.map(depth));
+    depths.set(id, value);
+    return value;
+  };
+  const spans = { single: 0, multi: 0 };
+  for (const node of constraints) {
+    if ((node.grounds?.length ?? 0) === 0) continue; // roots span nothing
+    const layers = new Set(node.grounds!.map((g) => (premiseIds.has(g) ? -1 : depth(g))));
+    spans[layers.size > 1 ? "multi" : "single"]++;
+  }
+  return spans;
+}
+
 async function listJson(root: string): Promise<ListedNode[]> {
   const list = await run(["--root", root, "--json", "list"]);
   expect(list.code).toBe(0);
@@ -251,7 +278,83 @@ describe("refino dev (hidden command)", () => {
     }
   });
 
-  it("builds a single deep chain when grounds are constrained to one", async () => {
+  it("grounds mostly within one layer and rarely across layers", async () => {
+    vi.stubEnv("REFINO_DEV", "true");
+    const root = await createRefino({});
+    try {
+      const { code } = await run([
+        "--root",
+        root,
+        "dev",
+        "generate",
+        "--nodes",
+        "60",
+        "--premise-ratio",
+        "0.3",
+        "--seed",
+        "42",
+      ]);
+      expect(code).toBe(0);
+
+      const nodes = await listJson(root);
+      // Default cross-layer ratio 0.2; the exact counts are stable for a
+      // fixed seed and lock the distribution against regressions.
+      const spans = groundLayerSpans(nodes);
+      expect(spans.single).toBe(32);
+      expect(spans.multi).toBe(9);
+      expect(spans.single).toBeGreaterThan(spans.multi * 2);
+      expect(maxChainDepth(nodes)).toBeGreaterThanOrEqual(2);
+    } finally {
+      await removeRefino(root);
+    }
+  });
+
+  it("respects --cross-layer-ratio 0 and 1 at the extremes", async () => {
+    vi.stubEnv("REFINO_DEV", "true");
+    const root = await createRefino({});
+    try {
+      const none = await run([
+        "--root",
+        root,
+        "dev",
+        "generate",
+        "--nodes",
+        "40",
+        "--premise-ratio",
+        "0.3",
+        "--cross-layer-ratio",
+        "0",
+        "--seed",
+        "8",
+      ]);
+      expect(none.code).toBe(0);
+      // Without cross-layer grounds, every non-root constraint grounds
+      // strictly within its anchor's layer.
+      expect(groundLayerSpans(await listJson(root)).multi).toBe(0);
+
+      const forced = await run([
+        "--root",
+        root,
+        "dev",
+        "generate",
+        "--nodes",
+        "40",
+        "--premise-ratio",
+        "0.3",
+        "--cross-layer-ratio",
+        "1",
+        "--force",
+        "--seed",
+        "9",
+      ]);
+      expect(forced.code).toBe(0);
+      expect(groundLayerSpans(await listJson(root)).multi).toBeGreaterThan(0);
+    } finally {
+      await removeRefino(root);
+    }
+  });
+
+  it("keeps every non-root constraint to a single ground with --max-grounds 1", async () => {
     vi.stubEnv("REFINO_DEV", "true");
     const root = await createRefino({});
     try {
@@ -269,16 +372,18 @@ describe("refino dev (hidden command)", () => {
         "--max-grounds",
         "1",
         "--seed",
-        "5",
+        "9",
       ]);
       expect(code).toBe(0);
       const nodes = await listJson(root);
       const constraints = nodes.filter((n) => n.type === "constraint");
       expect(constraints).toHaveLength(12);
-      expect(maxChainDepth(nodes)).toBe(11);
       expect(
         constraints.filter((n) => n.grounds !== undefined && n.grounds.length > 1),
       ).toHaveLength(0);
+      // Deterministic for the fixed seed; deeper layers keep receiving
+      // anchors, so the graph does not collapse into a flat fan.
+      expect(maxChainDepth(nodes)).toBe(3);
     } finally {
       await removeRefino(root);
     }
