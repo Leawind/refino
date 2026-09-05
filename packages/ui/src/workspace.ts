@@ -1,6 +1,7 @@
 import { computed, reactive, readonly, shallowRef, type InjectionKey } from "vue";
 import type { RefinoClient } from "./api";
 import { readNumberPreference, readPreference, writePreference } from "./preferences";
+import { TEXT_SCALE_MAX, TEXT_SCALE_MIN } from "./graph/render/renderer";
 import type { LayoutMode } from "./graph/layout/types";
 import type { ChangeEvent, IssueRecord, LayoutDirection, NodeLite } from "./types";
 
@@ -37,10 +38,12 @@ export interface CanvasConfig {
   budgetMode: "auto" | "manual";
   /** Manual render budget in cost units (budgetMode "manual"). */
   budgetManual: number;
-  /** Zoom anchor for ctrl+wheel zooming. */
+  /** Zoom anchor for wheel zooming. */
   zoomAnchor: "cursor" | "center";
   /** Maximum zoom scale. */
   zoomMax: number;
+  /** Canvas text size multiplier (style settings panel). */
+  textScale: number;
   /** Canvas layout algorithm. */
   layoutMode: LayoutMode;
   /** Display direction for directional layouts (force ignores it). */
@@ -58,6 +61,7 @@ const DEFAULT_CONFIG: CanvasConfig = {
   budgetManual: 6000,
   zoomAnchor: "cursor",
   zoomMax: 4,
+  textScale: 1,
   layoutMode: "layered",
   direction: "LR",
 };
@@ -73,6 +77,7 @@ const CONFIG_KEYS: Record<keyof CanvasConfig, string> = {
   budgetManual: "refino.canvas.budgetManual",
   zoomAnchor: "refino.canvas.zoomAnchor",
   zoomMax: "refino.canvas.zoomMax",
+  textScale: "refino.canvas.textScale",
   layoutMode: "refino.canvas.layoutMode",
   direction: "refino.canvas.direction",
 };
@@ -127,6 +132,13 @@ function loadConfig(): CanvasConfig {
         ? "center"
         : "cursor",
     zoomMax: Math.max(0.5, readNumberPreference(CONFIG_KEYS.zoomMax, DEFAULT_CONFIG.zoomMax)),
+    textScale: Math.min(
+      TEXT_SCALE_MAX,
+      Math.max(
+        TEXT_SCALE_MIN,
+        readNumberPreference(CONFIG_KEYS.textScale, DEFAULT_CONFIG.textScale),
+      ),
+    ),
     layoutMode:
       readPreference(CONFIG_KEYS.layoutMode, DEFAULT_CONFIG.layoutMode) === "force"
         ? "force"
@@ -407,17 +419,29 @@ export function createWorkspace(client: RefinoClient) {
     }
   }
 
+  /** Config keys that only affect presentation; changing them re-renders
+   * through the components' own watchers and needs no working-set refresh. */
+  const VIEW_ONLY_CONFIG_KEYS: ReadonlySet<keyof CanvasConfig> = new Set([
+    "budgetManual",
+    "budgetMode",
+    "textScale",
+    "zoomAnchor",
+    "zoomMax",
+  ]);
+
   function setConfig(patch: Partial<CanvasConfig>): void {
     // Writes go through an unknown-valued view: a union key's write type is
     // the intersection of the property types, which is `never` here.
     const target = state.config as Record<keyof CanvasConfig, unknown>;
+    let affectsWorkingSet = false;
     for (const key of Object.keys(patch) as Array<keyof CanvasConfig>) {
       const value = patch[key];
       if (value === undefined) continue;
       target[key] = value;
       writePreference(CONFIG_KEYS[key], String(value));
+      if (!VIEW_ONLY_CONFIG_KEYS.has(key)) affectsWorkingSet = true;
     }
-    void refresh();
+    if (affectsWorkingSet) void refresh();
   }
 
   /**

@@ -28,6 +28,7 @@ const workspace = injectRequired(workspaceKey, "workspace");
 import AppHeader from "./components/AppHeader.vue";
 import ResourceExplorer from "./components/ResourceExplorer.vue";
 import DecisionGraph from "./components/DecisionGraph.vue";
+import CanvasStyleSettings from "./components/CanvasStyleSettings.vue";
 import NodeDetailWindow from "./components/NodeDetailWindow.vue";
 import NodePeek from "./components/NodePeek.vue";
 import GraphFloat from "./components/GraphFloat.vue";
@@ -157,6 +158,7 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
                   <SelectionList />
                 </GraphFloat>
                 <GraphFloat placement="bottom-right">
+                  <CanvasStyleSettings />
                   <div class="layout-controls">
                     <NPopselect
                       :value="layoutMode"

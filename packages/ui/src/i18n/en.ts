@@ -125,6 +125,9 @@ export default {
     truncated: "Truncated at the limit",
     renderCulled: "Rendering culled to fit the budget",
     premises: "Premise facts layer",
+    styleSettings: "Style settings",
+    textSize: "Text size",
+    textSizeReset: "Reset",
     rangeDegraded:
       "The two nodes are on different branches; the selection is now just the clicked node",
     rangeDisconnected:

@@ -182,6 +182,7 @@ function ensureRenderer(): void {
   renderer.onFrameEnd = (info) => emit("renderCulled", info.culled);
   renderer.setZoomAnchor(workspace.state.config.zoomAnchor);
   renderer.setMaxScale(workspace.state.config.zoomMax);
+  renderer.setTextScale(workspace.state.config.textScale);
   renderer.setTheme(readThemeColors());
   renderer.setScene(scene.value);
 }
@@ -202,6 +203,10 @@ watch(
     renderer?.setMaxScale(max);
     renderer?.requestRender();
   },
+);
+watch(
+  () => workspace.state.config.textScale,
+  (scale) => renderer?.setTextScale(scale),
 );
 watch(
   () => store.state.theme,

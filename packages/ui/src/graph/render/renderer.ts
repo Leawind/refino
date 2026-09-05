@@ -29,7 +29,7 @@ import { createProgram, EDGE_QUAD, type Program, UNIT_QUAD } from "./programs";
  * Frames render on damage only (scene/camera/theme changes, resize,
  * running fade animations); the render budget adapts while frames render
  * continuously. The viewport owns a current/target camera pair: inputs
- * (wheel zoom, ctrl+wheel text size, left-drag pan) set clamped targets,
+ * (wheel zoom, left-drag pan) set clamped targets,
  * and the current camera glides towards them. The camera follows the focus
  * (camera.ts focusFollow): an off-screen focus is flown to the center and a
  * relayout displacing the focus is compensated by panning, so a canvas
@@ -95,9 +95,9 @@ export interface RenderInfo {
 const FIT_MARGIN = 24;
 /** Zoom factor per wheel notch unit; wheel zoom is multiplicative. */
 const ZOOM_WHEEL_FACTOR = 0.0015;
-/** Bounds of the ctrl+wheel text size multiplier. */
-const MIN_TEXT_SCALE = 0.5;
-const MAX_TEXT_SCALE = 4;
+/** Bounds of the text size multiplier (canvas style settings). */
+export const TEXT_SCALE_MIN = 0.5;
+export const TEXT_SCALE_MAX = 4;
 /** Left-press movement beyond which the gesture is a pan, not a click. */
 const CLICK_SLOP_PX = 2;
 /** Camera smoothing: time constant of the exponential approach. */
@@ -223,7 +223,7 @@ export class GraphRenderer {
   #camera: Camera = { scale: 1, tx: 0, ty: 0 };
   #target: Camera = { scale: 1, tx: 0, ty: 0 };
   #maxScale = 4;
-  /** Text size multiplier on top of the camera scale (ctrl+wheel). */
+  /** Text size multiplier on top of the camera scale (style settings). */
   #textScale = 1;
   #zoomAnchor: "cursor" | "center" = "cursor";
   #cssWidth = 0;
@@ -297,8 +297,8 @@ export class GraphRenderer {
 
     canvas.addEventListener("webglcontextlost", this.#onContextLost);
     canvas.addEventListener("webglcontextrestored", this.#onContextRestored);
-    // Wheel zooms the viewport; ctrl+wheel resizes text (README, "视口").
-    // Neither may page-zoom; left-drag pans 1:1 and suppresses the click
+    // Wheel zooms the viewport (README, "视口") and may never page-zoom;
+    // left-drag pans 1:1 and suppresses the click
     // that follows a gesture beyond the click slop.
     canvas.addEventListener("wheel", this.#onWheel, { passive: false });
     canvas.addEventListener("mousedown", this.#onMouseDown);
@@ -478,7 +478,7 @@ export class GraphRenderer {
 
   /** Sets the text size multiplier on top of the camera scale. */
   setTextScale(scale: number): void {
-    this.#textScale = Math.min(MAX_TEXT_SCALE, Math.max(MIN_TEXT_SCALE, scale));
+    this.#textScale = Math.min(TEXT_SCALE_MAX, Math.max(TEXT_SCALE_MIN, scale));
     this.#schedule();
   }
 
@@ -502,19 +502,13 @@ export class GraphRenderer {
   }
 
   #onWheel = (event: WheelEvent): void => {
+    // Wheel zooms the viewport and never page-zooms (README, "视口").
+    // Multiplicative zoom keeps the gesture linear in perceived scale.
     event.preventDefault();
-    if (event.ctrlKey) {
-      // Text size only: multiplicative in perceived size, viewport untouched.
-      const next = this.#textScale * Math.exp(-event.deltaY * ZOOM_WHEEL_FACTOR);
-      this.#textScale = Math.min(MAX_TEXT_SCALE, Math.max(MIN_TEXT_SCALE, next));
-      this.#schedule();
-      return;
-    }
     const box = this.#contentBox();
     if (box === null) return;
     const rect = this.#canvas.getBoundingClientRect();
     const anchor = { x: event.clientX - rect.left, y: event.clientY - rect.top };
-    // Multiplicative zoom keeps the gesture linear in perceived scale.
     this.#target = zoomCamera(
       this.#target,
       Math.exp(-event.deltaY * ZOOM_WHEEL_FACTOR),
@@ -885,7 +879,7 @@ export class GraphRenderer {
     const tx = this.#camera.tx;
     const ty = this.#camera.ty;
     // Glyph metrics are resolved in virtual units so glyph quads are
-    // submitted like every other geometry; the ctrl+wheel multiplier
+    // submitted like every other geometry; the text size multiplier
     // resizes text on top of the camera (README: 文本随视口缩放).
     const fontUnits = LABEL_FONT_PX * this.#textScale;
     const padUnits = LABEL_PAD_X * this.#textScale;
