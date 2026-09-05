@@ -11,6 +11,7 @@ import {
   StorageIssueCode,
   updateConstraint,
   updatePremise,
+  type StorageIssue,
 } from "@refino/storage";
 import { CommanderError, Command, Option } from "commander";
 import {
@@ -75,16 +76,16 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
     .description("build the graph and report all validation issues")
     .action((_opts, cmd) =>
       run(cmd, async (opts) => {
-        const { graph, issues } = await loadGraph(refinoDir(opts));
-        issues.push(...validateGraph(graph));
+        const { graph, issues: parseIssues } = await loadGraph(refinoDir(opts));
+        const issues: (RefinoIssue | StorageIssue)[] = [...parseIssues, ...validateGraph(graph)];
         const counts = countNodes(graph);
         if (opts.json) {
-          emit(io, { ok: issues.length === 0, refinoDir: graph.refinoDir, counts, issues });
+          emit(io, { ok: issues.length === 0, refinoDir: refinoDir(opts), counts, issues });
         } else if (issues.length > 0) {
           io.stdout.write(`${renderIssues(issues)}\n`);
         } else {
           io.stdout.write(
-            `valid: ${counts.constraints} constraints, ${counts.premises} premises (${graph.refinoDir})\n`,
+            `valid: ${counts.constraints} constraints, ${counts.premises} premises (${refinoDir(opts)})\n`,
           );
         }
         return issues.length > 0 ? 1 : 0;
@@ -517,8 +518,8 @@ async function withGraph(
   query: (graph: Graph) => number,
 ): Promise<number> {
   try {
-    const { graph, issues } = await loadGraph(refinoDir(opts));
-    issues.push(...validateGraph(graph));
+    const { graph, issues: parseIssues } = await loadGraph(refinoDir(opts));
+    const issues: (RefinoIssue | StorageIssue)[] = [...parseIssues, ...validateGraph(graph)];
     if (issues.length > 0) return reportBlockingIssues(io, opts, issues);
     return query(graph);
   } catch (error) {
@@ -527,7 +528,11 @@ async function withGraph(
 }
 
 /** Graph issues make query results ambiguous, so queries refuse to run. */
-function reportBlockingIssues(io: CliIo, opts: GlobalOptions, issues: RefinoIssue[]): number {
+function reportBlockingIssues(
+  io: CliIo,
+  opts: GlobalOptions,
+  issues: ReadonlyArray<RefinoIssue | StorageIssue>,
+): number {
   if (opts.json) emit(io, { ok: false, issues });
   else io.stdout.write(`${renderIssues(issues)}\n`);
   return 1;
@@ -664,7 +669,7 @@ function fullNodeJson(node: RefinoNode): Record<string, unknown> {
 }
 
 function nodeJson(node: RefinoNode): Record<string, unknown> {
-  const base = { id: node.id, type: node.type, file: node.file, summary: node.summary };
+  const base = { id: node.id, type: node.type, summary: node.summary };
   return node.type === "constraint" ? { ...base, grounds: node.grounds } : base;
 }
 
@@ -679,7 +684,6 @@ function withPhantomConstraint(graph: Graph, id: string, grounds: string[]): Gra
   nodes.set(id, {
     id,
     type: "constraint",
-    file: nodeRelativeFile("constraint", id),
     summary: "",
     body: "",
     grounds,
@@ -703,7 +707,7 @@ async function loadGraphForWrite(refinoDir: string): Promise<Graph> {
     return (await loadGraph(refinoDir)).graph;
   } catch (error) {
     if (error instanceof RefinoError && error.code === StorageIssueCode.RefinoDirNotFound) {
-      return { refinoDir, nodes: new Map(), dependents: new Map() };
+      return { nodes: new Map(), dependents: new Map() };
     }
     throw error;
   }

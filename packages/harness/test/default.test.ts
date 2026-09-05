@@ -18,7 +18,7 @@ const A1 = "A1B2C3D4";
 const D4 = "D4E5F6G7";
 
 function graphOf(): Graph {
-  return buildGraph("/.refino", [
+  return buildGraph([
     node("1A2B3C4D", "premise"),
     node(A1, "constraint"),
     node(D4, "constraint", [A1]),

@@ -1,8 +1,11 @@
 import { buildGraph, checkGroundsChange, IssueCode, isValidConfirmed, validateGraph } from "refino";
 import type { Graph, RefinoIssue, RefinoNode } from "refino";
-import { loadGraph, nodeRelativeFile, readNode } from "@refino/storage";
+import { loadGraph, nodeRelativeFile, readNode, type StorageIssue } from "@refino/storage";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
+
+/** Issues resident in the index: engine-raised graph issues and storage-raised parse issues. */
+type IndexIssue = RefinoIssue | StorageIssue;
 
 /**
  * Process-resident graph index over a `.refino` directory (v1 of the
@@ -54,7 +57,7 @@ const INITIAL_REVISION = 1;
 export class GraphIndex {
   readonly refinoDir: string;
 
-  #graph: Graph = buildGraph("", []);
+  #graph: Graph = buildGraph([]);
   #entries = new Map<string, Entry>();
   /**
    * Issue cache in two layers. Parse issues come from reading node files
@@ -64,8 +67,8 @@ export class GraphIndex {
    * change and its direct dependents. Both are keyed by node id or by the
    * `.refino`-relative file for issues that never resolved to an id.
    */
-  #parseIssues = new Map<string, RefinoIssue[]>();
-  #graphIssues = new Map<string, RefinoIssue[]>();
+  #parseIssues = new Map<string, IndexIssue[]>();
+  #graphIssues = new Map<string, IndexIssue[]>();
   #revision = 0;
   #bodies = new Map<string, string>();
   #sortedIds: string[] | undefined;
@@ -109,9 +112,9 @@ export class GraphIndex {
   }
 
   /** Issue entries flattened, deduplicated by message and deterministically ordered. */
-  issues(): RefinoIssue[] {
+  issues(): IndexIssue[] {
     const seen = new Set<string>();
-    const all: RefinoIssue[] = [];
+    const all: IndexIssue[] = [];
     for (const list of [...this.#parseIssues.values(), ...this.#graphIssues.values()]) {
       for (const issue of list) {
         if (seen.has(issue.message)) continue;
@@ -125,12 +128,12 @@ export class GraphIndex {
   }
 
   /** Issues that relate to the given node (by id or by its candidate files). */
-  issuesFor(id: string): RefinoIssue[] {
+  issuesFor(id: string): IndexIssue[] {
     const keys = new Set([id, ...candidateFiles(id)]);
     return this.issues().filter(
       (issue) =>
         (issue.nodeId !== undefined && keys.has(issue.nodeId)) ||
-        (issue.file !== undefined && keys.has(issue.file)),
+        ("file" in issue && keys.has(issue.file)),
     );
   }
 
@@ -247,12 +250,12 @@ export class GraphIndex {
       const staleFileIssues = await this.staleFileIssueKeys(touchedShards);
 
       // From here on the batch applies synchronously: readers never observe a half-applied batch.
-      const applied: Array<{ node: RefinoNode; mtimeMs: number; issues: RefinoIssue[] }> = [];
+      const applied: Array<{ node: RefinoNode; mtimeMs: number; issues: StorageIssue[] }> = [];
       const removed: string[] = [];
       /** Pre-mutation direct dependents of removed ids — they review the removal. */
       const removedDependents = new Map<string, string[]>();
       /** Parse issues of files that produced no node (e.g. broken YAML). */
-      const orphanIssues: RefinoIssue[] = [];
+      const orphanIssues: StorageIssue[] = [];
       for (let i = 0; i < ids.length; i++) {
         const id = ids[i]!;
         const read = reads[i]!;
@@ -325,12 +328,12 @@ export class GraphIndex {
   /** Full rescan; replaces every index structure. */
   private async load(): Promise<void> {
     const { graph, issues, mtimes } = await loadGraph(this.refinoDir);
-    const parseMap = new Map<string, RefinoIssue[]>();
+    const parseMap = new Map<string, IndexIssue[]>();
     for (const issue of issues) storeIssue(parseMap, issue);
-    const graphMap = new Map<string, RefinoIssue[]>();
+    const graphMap = new Map<string, IndexIssue[]>();
     for (const issue of validateGraph(graph)) storeIssue(graphMap, issue);
     const nodes = [...graph.nodes.values()].map((node) => ({ ...node, body: "" }));
-    this.#graph = buildGraph(graph.refinoDir, nodes);
+    this.#graph = buildGraph(nodes);
     this.#entries = new Map(
       nodes.map((node) => [
         node.id,
@@ -344,7 +347,7 @@ export class GraphIndex {
     this.#revision = INITIAL_REVISION;
   }
 
-  private putNode(node: RefinoNode, mtimeMs: number, parseIssues: RefinoIssue[]): void {
+  private putNode(node: RefinoNode, mtimeMs: number, parseIssues: StorageIssue[]): void {
     const existing = this.#entries.get(node.id);
     if (existing !== undefined) this.dropDependents(existing.node);
     const resident = { ...node, body: "" };
@@ -415,7 +418,6 @@ export class GraphIndex {
           found.push({
             code: IssueCode.InvalidConfirmed,
             message: `"confirmed" must be an RFC 3339 timestamp with an explicit UTC offset (Z or ±HH:MM), got "${node.confirmed}".`,
-            file: node.file,
             nodeId: node.id,
           });
         }
@@ -427,7 +429,7 @@ export class GraphIndex {
   }
 
   /** Group parse issues by node id or file and merge them into the cache. */
-  private storeParseIssues(issues: readonly RefinoIssue[]): void {
+  private storeParseIssues(issues: readonly StorageIssue[]): void {
     for (const issue of issues) storeIssue(this.#parseIssues, issue);
   }
 
@@ -442,14 +444,14 @@ export class GraphIndex {
    * given fresh batch (compared by message set). Guards the revision against
    * no-op echoes of an unchanged, unparseable file.
    */
-  private parseIssuesChanged(id: string, fresh: readonly RefinoIssue[]): boolean {
+  private parseIssuesChanged(id: string, fresh: readonly StorageIssue[]): boolean {
     const keys = new Set([id, ...candidateFiles(id)]);
     const cached = new Set<string>();
     for (const list of this.#parseIssues.values()) {
       for (const issue of list) {
         if (
           (issue.nodeId !== undefined && keys.has(issue.nodeId)) ||
-          (issue.file !== undefined && keys.has(issue.file))
+          ("file" in issue && keys.has(issue.file))
         ) {
           cached.add(issue.message);
         }
@@ -503,8 +505,8 @@ function candidateFiles(id: string): string[] {
 }
 
 /** Group one issue into a keyed cache under its node id or, failing that, its file. */
-function storeIssue(cache: Map<string, RefinoIssue[]>, issue: RefinoIssue): void {
-  const key = issue.nodeId ?? issue.file;
+function storeIssue(cache: Map<string, IndexIssue[]>, issue: IndexIssue): void {
+  const key = issue.nodeId ?? ("file" in issue ? issue.file : undefined);
   if (key === undefined) return;
   const list = cache.get(key);
   if (list) list.push(issue);
@@ -522,12 +524,11 @@ function sameLightFields(previous: RefinoNode, read: RefinoNode): boolean {
   if (previous.summary !== read.summary) return false;
   // Same discriminant: narrow once and compare the type's own fields.
   if (previous.type === "premise" && read.type === "premise") {
-    return previous.file === read.file && previous.confirmed === read.confirmed;
+    return previous.confirmed === read.confirmed;
   }
   return (
     previous.type === "constraint" &&
     read.type === "constraint" &&
-    previous.file === read.file &&
     previous.rationale === read.rationale &&
     sameGrounds(previous.grounds, read.grounds)
   );

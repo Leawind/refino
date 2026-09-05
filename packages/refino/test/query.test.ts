@@ -4,11 +4,10 @@ import { getAncestors, getDependents, getGrounds, queryGroups, RefinoError } fro
 import type { Graph, NodeType, RefinoNode } from "../src/index.js";
 import { IssueCode } from "refino";
 
-/** Test factory: build a node directly, bypassing any file parsing. */
+/** Test factory: build a node directly, bypassing any storage parsing. */
 function node(id: string, type: NodeType, grounds?: string[]): RefinoNode {
   const base = {
     id,
-    file: `${type}s/${id.slice(0, 2)}/${id.slice(2)}.md`,
     summary: "Body.",
     body: "Body.",
   };
@@ -17,7 +16,7 @@ function node(id: string, type: NodeType, grounds?: string[]): RefinoNode {
 }
 
 function graphOf(...nodes: RefinoNode[]): Graph {
-  return buildGraph("/.refino", nodes);
+  return buildGraph(nodes);
 }
 
 /**

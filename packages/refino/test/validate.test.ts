@@ -4,7 +4,7 @@ import { checkGroundsChange, validateGraph } from "../src/validate.js";
 import type { Graph, NodeType, RefinoNode } from "../src/index.js";
 import { IssueCode } from "refino";
 
-/** Test factory: build a node directly, bypassing any file parsing. */
+/** Test factory: build a node directly, bypassing any storage parsing. */
 function node(
   id: string,
   type: NodeType,
@@ -12,7 +12,6 @@ function node(
 ): RefinoNode {
   const base = {
     id,
-    file: `${type}s/${id.slice(0, 2)}/${id.slice(2)}.md`,
     summary: "Body.",
     body: "Body.",
   };
@@ -23,7 +22,7 @@ function node(
 }
 
 function graphOf(...nodes: RefinoNode[]): Graph {
-  return buildGraph("/.refino", nodes);
+  return buildGraph(nodes);
 }
 
 describe("validateGraph", () => {
@@ -130,7 +129,7 @@ describe("checkGroundsChange", () => {
     const graph = graphOf(node("1A2B3C4D", "premise"), node("A1B2C3D4", "constraint"));
     const issues = checkGroundsChange(graph, "1A2B3C4D", ["A1B2C3D4", "Z9Y8X7W6"]);
     expect(issues.map((i) => i.code)).toEqual([IssueCode.PremiseWithGrounds]);
-    expect(issues[0]).toMatchObject({ nodeId: "1A2B3C4D", file: "premises/1A/2B3C4D.md" });
+    expect(issues[0]).toMatchObject({ nodeId: "1A2B3C4D" });
   });
 
   it("accepts empty grounds on a premise", () => {
@@ -149,11 +148,7 @@ describe("checkGroundsChange", () => {
     const graph = graphOf(node("A1B2C3D4", "constraint"));
     const issues = checkGroundsChange(graph, "A1B2C3D4", ["Z9Y8X7W6"]);
     expect(issues.map((i) => i.code)).toEqual([IssueCode.UnknownGround]);
-    expect(issues[0]).toMatchObject({
-      nodeId: "A1B2C3D4",
-      groundId: "Z9Y8X7W6",
-      file: "constraints/A1/B2C3D4.md",
-    });
+    expect(issues[0]).toMatchObject({ nodeId: "A1B2C3D4", groundId: "Z9Y8X7W6" });
   });
 
   it("reports a self-referencing ground as a closed cycle", () => {

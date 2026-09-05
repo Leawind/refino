@@ -14,7 +14,7 @@ export function isValidConfirmed(value: string): boolean {
  * 2. every `grounds` reference resolves to an existing node;
  * 3. constraint -> constraint paths are acyclic.
  *
- * (Parse-level rules — unique ids, valid file-name ids, no `grounds` on
+ * (Parse-level rules — unique ids, id validity, no `grounds` on
  * premises — are checked while loading; see `loadGraph`.)
  *
  * Cycle reporting is deterministic: each distinct cycle is reported once,
@@ -29,7 +29,6 @@ export function validateGraph(graph: Graph): RefinoIssue[] {
         issues.push({
           code: IssueCode.InvalidConfirmed,
           message: `"confirmed" must be an RFC 3339 timestamp with an explicit UTC offset (Z or ±HH:MM), got "${node.confirmed}".`,
-          file: node.file,
           nodeId: node.id,
         });
       }
@@ -40,7 +39,6 @@ export function validateGraph(graph: Graph): RefinoIssue[] {
         issues.push({
           code: IssueCode.UnknownGround,
           message: `"${node.id}" grounds on unknown node "${ground}".`,
-          file: node.file,
           nodeId: node.id,
           groundId: ground,
         });
@@ -60,7 +58,7 @@ export function validateGraph(graph: Graph): RefinoIssue[] {
  * - the target id does not exist (NODE_NOT_FOUND);
  * - grounds on a premise target (PREMISE_WITH_GROUNDS);
  * - repeated ground ids (INVALID_GROUNDS) — the storage format deduplicates
- *   grounds on load, so writing them would silently diverge from the file;
+ *   grounds on load, so writing them would not round-trip;
  * - grounds referencing nodes that do not exist (UNKNOWN_GROUND);
  * - cycles the change would close (CYCLE) — a ground that is the target
  *   itself or reaches it along existing grounds edges.
@@ -83,7 +81,6 @@ export function checkGroundsChange(
       {
         code: IssueCode.PremiseWithGrounds,
         message: `Premise "${id}" must not declare "grounds".`,
-        file: target.file,
         nodeId: id,
       },
     ];
@@ -101,7 +98,6 @@ export function checkGroundsChange(
       issues.push({
         code: IssueCode.InvalidGrounds,
         message: `"grounds" lists node "${ground}" more than once.`,
-        file: target.file,
         nodeId: id,
       });
     }
@@ -109,7 +105,6 @@ export function checkGroundsChange(
       issues.push({
         code: IssueCode.UnknownGround,
         message: `"${id}" grounds on unknown node "${ground}".`,
-        file: target.file,
         nodeId: id,
         groundId: ground,
       });

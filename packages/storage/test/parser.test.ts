@@ -4,15 +4,15 @@ import { IssueCode } from "refino";
 import { StorageIssueCode } from "../src/codes.js";
 
 describe("parseNodeSource", () => {
-  it("accepts both separator styles and stores the canonical forward-slash form", () => {
-    const { node, issues } = parseNodeSource(
+  it("normalizes backslash paths to the canonical forward-slash form on issues", () => {
+    const { issues } = parseNodeSource(
       "E5F6G7H8",
       "nodes\\E5\\F6G7H8-constraint.md",
       "constraint",
-      "Body.",
+      "---\nsummary: 42\n---\n\nBody.\n",
     );
-    expect(issues).toEqual([]);
-    expect(node).toMatchObject({ id: "E5F6G7H8", file: "nodes/E5/F6G7H8-constraint.md" });
+    expect(issues).toHaveLength(1);
+    expect(issues[0]?.file).toBe("nodes/E5/F6G7H8-constraint.md");
   });
 
   it("parses a constraint with grounds, summary and body", () => {
@@ -37,7 +37,6 @@ describe("parseNodeSource", () => {
     expect(node).toEqual({
       id: "E5F6G7H8",
       type: "constraint",
-      file: "nodes/E5/F6G7H8-constraint.md",
       summary: "实现必须通过 Repository 层。",
       body: "实现必须通过 Repository 层。\n\n完整的推导与权衡过程。",
       grounds: ["1A2B3C4D", "D4E5F6G7"],

@@ -331,12 +331,11 @@ function checkProspectiveGrounds(
   const synthetic: RefinoNode = {
     id,
     type: "constraint",
-    file: "",
     summary: "",
     body: "",
     grounds,
   };
-  const prospective = buildGraph(graph.refinoDir, [...graph.nodes.values(), synthetic]);
+  const prospective = buildGraph([...graph.nodes.values(), synthetic]);
   return checkGroundsChange(prospective, id, grounds);
 }
 

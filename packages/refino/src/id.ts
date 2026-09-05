@@ -2,9 +2,8 @@
  * Node id rule, defined and validated here; every package checks ids against
  * `ID_RE` instead of redefining the rule (see this package's README, "ID
  * 规则"). Ids are 3-16 characters of uppercase letters, digits and
- * underscores; hyphens, dots, spaces and lowercase are invalid. Storage paths
- * rely on ids containing neither `-` (the id/type separator) nor `.` (the
- * file extension).
+ * underscores; hyphens, dots, spaces and lowercase are invalid. Ids contain
+ * neither `-` nor `.`; the storage layer's path scheme relies on this.
  */
 export const ID_RE = /^[A-Z0-9_]{3,16}$/;
 

@@ -77,7 +77,6 @@ describe("toEditorFields", () => {
     const editor = toEditorFields({
       id: "A1B2C3D4",
       type: "premise",
-      file: "nodes/A1/B2C3D4-premise.md",
       summary: "前提",
       body: "正文",
     });

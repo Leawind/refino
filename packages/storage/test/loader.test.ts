@@ -24,7 +24,6 @@ describe("loadGraph", () => {
       expect(graph.dependents.get("A1B2C3D4")).toEqual(["D4E5F6G7"]);
       expect(graph.dependents.get("D4E5F6G7")).toEqual(["E5F6G7H8"]);
       expect(graph.dependents.get("1A2B3C4D")).toEqual(["E5F6G7H8"]);
-      expect(graph.nodes.get("E5F6G7H8")?.file).toBe("nodes/E5/F6G7H8-constraint.md");
       expect(graph.nodes.get("1A2B3C4D")?.type).toBe("premise");
       expect(graph.nodes.get("1A2B3C4D")?.confirmed).toBeUndefined();
     } finally {
@@ -42,7 +41,6 @@ describe("loadGraph", () => {
       expect(graph.nodes.get("019ABCDE")).toMatchObject({
         id: "019ABCDE",
         type: "constraint",
-        file: "nodes/01/9ABCDE-constraint.md",
       });
     } finally {
       await removeRefino(root);

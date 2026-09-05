@@ -268,7 +268,6 @@ export function createStore(client: RefinoClient, workspace: Workspace) {
     return {
       id: "",
       type: "premise",
-      file: "",
       summary: "",
       body: "",
     };

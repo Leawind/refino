@@ -6,13 +6,13 @@ import type { Graph, RefinoNode } from "./types.js";
  */
 
 /**
- * Assemble a graph from parsed nodes: index them by id and build the
- * dependents index. Rejecting duplicate ids is the caller's responsibility.
+ * Assemble a graph from nodes: index them by id and build the dependents
+ * index. Rejecting duplicate ids is the caller's responsibility.
  */
-export function buildGraph(refinoDir: string, nodes: Iterable<RefinoNode>): Graph {
+export function buildGraph(nodes: Iterable<RefinoNode>): Graph {
   const byId = new Map<string, RefinoNode>();
   for (const node of nodes) byId.set(node.id, node);
-  return { refinoDir, nodes: byId, dependents: buildDependentsIndex(byId) };
+  return { nodes: byId, dependents: buildDependentsIndex(byId) };
 }
 
 function buildDependentsIndex(nodes: Graph["nodes"]): Graph["dependents"] {

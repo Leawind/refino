@@ -37,7 +37,6 @@ export function nodeJson(
   return {
     id: node.id,
     type: node.type,
-    file: node.file,
     summary: node.summary,
     body: node.body,
     ...(node.type === "constraint" && { grounds: node.grounds ?? [] }),
@@ -61,7 +60,6 @@ export async function getGraph(c: Context, index: GraphIndex): Promise<Response>
     const nodes = [...graph.nodes.values()].sort(byId);
     const bodies = await Promise.all(nodes.map((node) => index.readBody(node.id)));
     return c.json({
-      refinoDir: graph.refinoDir,
       revision: index.revision,
       issues: index.issues(),
       nodes: nodes.map((node, i) => ({

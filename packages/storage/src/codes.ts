@@ -1,3 +1,5 @@
+import type { RefinoIssue } from "refino";
+
 /**
  * Codes of issues and thrown errors emitted by this package for
  * storage-format violations. Graph-level semantics reuse the engine's
@@ -13,4 +15,15 @@ export enum StorageIssueCode {
   InvalidNodePath = "INVALID_NODE_PATH",
   /** The `.refino` directory is missing or not a directory (thrown as a `RefinoError`). */
   RefinoDirNotFound = "REFINO_DIR_NOT_FOUND",
+}
+
+/**
+ * An issue reported by this package. File paths are persistence vocabulary,
+ * so they live here, not on the engine's `RefinoIssue`: every issue raised
+ * against a file carries its canonical path, which is the only reliable
+ * locator for files that never resolve to a node.
+ */
+export interface StorageIssue extends RefinoIssue {
+  /** Canonical path of the node file, relative to the `.refino` directory. */
+  file: string;
 }

@@ -4,10 +4,9 @@ import {
   type ConstraintNode,
   type NodeType,
   type PremiseNode,
-  type RefinoIssue,
   type RefinoNode,
 } from "refino";
-import { StorageIssueCode } from "./codes.js";
+import { StorageIssueCode, type StorageIssue } from "./codes.js";
 
 const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---(?:\n|$)/;
 const EMPTY_FRONTMATTER_RE = /^---\n---(?:\n|$)/;
@@ -17,7 +16,7 @@ export const SUMMARY_MAX_LENGTH = 100;
 export interface ParseResult {
   /** The parsed node, or null when the frontmatter could not be parsed. */
   node: RefinoNode | null;
-  issues: RefinoIssue[];
+  issues: StorageIssue[];
   /**
    * Whether the summary came from an explicit "summary" frontmatter field.
    * When false, `node.summary` was derived from the body; write paths use
@@ -29,11 +28,12 @@ export interface ParseResult {
 /**
  * Parse one node file into a node object.
  *
- * `id` is derived by the loader from the file path (path is identity); `file`
- * is the `.refino`-relative path in either separator style, always stored in
- * the canonical forward-slash form. A file without frontmatter is a valid
- * node with no fields. The summary comes from the "summary" frontmatter
- * field, falling back to the first paragraph of the body via `extractSummary`.
+ * `id` is derived by the loader from the file path (path is identity). `file`
+ * is the `.refino`-relative path in either separator style, normalized to the
+ * canonical forward-slash form; it exists only to attribute issues to the
+ * file — nodes carry no paths. A file without frontmatter is a valid node
+ * with no fields. The summary comes from the "summary" frontmatter field,
+ * falling back to the first paragraph of the body via `extractSummary`.
  */
 export function parseNodeSource(
   id: string,
@@ -41,7 +41,7 @@ export function parseNodeSource(
   expectedType: NodeType,
   source: string,
 ): ParseResult {
-  const issues: RefinoIssue[] = [];
+  const issues: StorageIssue[] = [];
   const normalized = source.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
   const canonicalFile = file.replace(/\\/g, "/");
 
@@ -76,7 +76,7 @@ export function parseNodeSource(
     summary = extractSummary(body);
   }
 
-  const base = { id, file: canonicalFile, summary, body };
+  const base = { id, summary, body };
   const node: RefinoNode =
     expectedType === "premise"
       ? parsePremise(base, fields, canonicalFile, id, issues)
@@ -87,11 +87,11 @@ export function parseNodeSource(
 
 /** Premise fields: `confirmed`; a declared `grounds` is reported as an issue. */
 function parsePremise(
-  base: { id: string; file: string; summary: string; body: string },
+  base: { id: string; summary: string; body: string },
   fields: Record<string, unknown>,
   file: string,
   id: string,
-  issues: RefinoIssue[],
+  issues: StorageIssue[],
 ): PremiseNode {
   const node: PremiseNode = { ...base, type: "premise" };
   if (fields["grounds"] !== undefined && fields["grounds"] !== null) {
@@ -120,11 +120,11 @@ function parsePremise(
 
 /** Constraint fields: `grounds` (absent -> []) and `rationale`. */
 function parseConstraint(
-  base: { id: string; file: string; summary: string; body: string },
+  base: { id: string; summary: string; body: string },
   fields: Record<string, unknown>,
   file: string,
   id: string,
-  issues: RefinoIssue[],
+  issues: StorageIssue[],
 ): ConstraintNode {
   const node: ConstraintNode = { ...base, type: "constraint", grounds: [] };
   const grounds = parseGrounds(file, id, fields["grounds"], issues);
@@ -148,7 +148,7 @@ function parseConstraint(
 function parseFrontmatter(
   file: string,
   yaml: string,
-  issues: RefinoIssue[],
+  issues: StorageIssue[],
 ): Record<string, unknown> | null {
   let data: unknown;
   try {
@@ -177,7 +177,7 @@ function parseGrounds(
   file: string,
   nodeId: string,
   value: unknown,
-  issues: RefinoIssue[],
+  issues: StorageIssue[],
 ): string[] | undefined {
   if (value === undefined || value === null) return [];
   if (!Array.isArray(value)) {

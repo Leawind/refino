@@ -57,7 +57,6 @@ export interface SearchPage {
 export interface NodeRecord {
   id: string;
   type: NodeType;
-  file: string;
   summary: string;
   body: string;
   grounds?: string[];

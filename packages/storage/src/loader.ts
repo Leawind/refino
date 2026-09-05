@@ -1,10 +1,10 @@
 import { open, readdir, stat, type FileHandle } from "node:fs/promises";
 import { join } from "node:path";
 import { buildGraph, ID_CHARSET, ID_RE, IssueCode, RefinoError } from "refino";
-import { StorageIssueCode } from "./codes.js";
+import { StorageIssueCode, type StorageIssue } from "./codes.js";
 import { parseNodeSource } from "./parser.js";
 import { nodeFilePath, nodeRelativeFile, NODE_TYPES } from "./writer.js";
-import type { Graph, NodeType, RefinoIssue, RefinoNode } from "refino";
+import type { Graph, NodeType, RefinoNode } from "refino";
 
 const NODES_DIR = "nodes";
 
@@ -17,7 +17,7 @@ const SHARD_RE = new RegExp(`^[${ID_CHARSET}]{2}$`);
 export interface LoadResult {
   graph: Graph;
   /** Issues found while reading and parsing node files (including duplicate ids). */
-  issues: RefinoIssue[];
+  issues: StorageIssue[];
   /** Node id -> file mtime (ms) at read time; the baseline for change detection. */
   mtimes: Map<string, number>;
 }
@@ -25,7 +25,7 @@ export interface LoadResult {
 export interface ReadNodeResult {
   /** The parsed node, or null when neither candidate file exists. */
   node: RefinoNode | null;
-  issues: RefinoIssue[];
+  issues: StorageIssue[];
   /** File mtime (ms) of the winning candidate; undefined when node is null. */
   mtimeMs?: number;
   /**
@@ -84,7 +84,7 @@ export async function readNode(refinoDir: string, id: string): Promise<ReadNodeR
     file: nodeRelativeFile(type, id),
     absolute: nodeFilePath(refinoDir, type, id),
   }));
-  const issues: RefinoIssue[] = [];
+  const issues: StorageIssue[] = [];
   let node: RefinoNode | null = null;
   let mtimeMs: number | undefined;
   let summaryExplicit: boolean | undefined;
@@ -101,8 +101,8 @@ export async function readNode(refinoDir: string, id: string): Promise<ReadNodeR
     } else {
       issues.push({
         code: IssueCode.DuplicateId,
-        message: `Duplicate node id "${id}" (already defined in ${node.file}).`,
-        file: parsed.node.file,
+        message: `Duplicate node id "${id}" (already defined in ${nodeRelativeFile(node.type, node.id)}).`,
+        file: candidate.file,
         nodeId: id,
       });
       break; // both candidates parsed: nothing left to read
@@ -144,7 +144,7 @@ export async function loadGraph(refinoDir: string): Promise<LoadResult> {
   }
 
   const nodes: RefinoNode[] = [];
-  const issues: RefinoIssue[] = [];
+  const issues: StorageIssue[] = [];
   const seenIds = new Map<string, string>();
   const mtimes = new Map<string, number>();
 
@@ -153,7 +153,7 @@ export async function loadGraph(refinoDir: string): Promise<LoadResult> {
     shards = await readdir(join(refinoDir, NODES_DIR), { withFileTypes: true });
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return { graph: buildGraph(refinoDir, []), issues, mtimes }; // empty store
+      return { graph: buildGraph([]), issues, mtimes }; // empty store
     }
     throw error;
   }
@@ -209,18 +209,18 @@ export async function loadGraph(refinoDir: string): Promise<LoadResult> {
         issues.push({
           code: IssueCode.DuplicateId,
           message: `Duplicate node id "${node.id}" (already defined in ${existingFile}).`,
-          file: node.file,
+          file: nodeRelativeFile(type, id),
           nodeId: id,
         });
         continue;
       }
-      seenIds.set(node.id, node.file);
+      seenIds.set(node.id, nodeRelativeFile(node.type, node.id));
       mtimes.set(node.id, read.mtimeMs);
       nodes.push(node);
     }
   }
 
-  return { graph: buildGraph(refinoDir, nodes), issues, mtimes };
+  return { graph: buildGraph(nodes), issues, mtimes };
 }
 
 /**

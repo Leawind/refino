@@ -1,3 +1,6 @@
+import type { RefinoIssue } from "refino";
+import type { StorageIssue } from "@refino/storage";
+
 /** Output sinks injected into `main` so tests can capture output in-process. */
 export interface CliIo {
   stdout: { write(text: string): unknown };
@@ -34,11 +37,14 @@ export function renderNodeTable(
     .join("\n");
 }
 
-export function renderIssues(
-  issues: ReadonlyArray<{ code: string; message: string; file?: string }>,
-): string {
+export function renderIssues(issues: ReadonlyArray<RefinoIssue | StorageIssue>): string {
   return issues
-    .map((issue) => `[${issue.code}] ${issue.message}${issue.file ? ` (${issue.file})` : ""}`)
+    .map((issue) => {
+      // File paths are persistence vocabulary: only storage-raised issues
+      // carry one; engine issues locate by node id.
+      const file = "file" in issue ? issue.file : undefined;
+      return `[${issue.code}] ${issue.message}${file ? ` (${file})` : ""}`;
+    })
     .join("\n");
 }
 

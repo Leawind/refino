@@ -117,7 +117,7 @@ const anchorOptions = computed(() => {
 });
 
 function toRefinoNode(node: ConsoleNode): RefinoNode {
-  const base = { id: node.id, summary: node.summary, body: "", file: "" };
+  const base = { id: node.id, summary: node.summary, body: "" };
   return node.type === "premise"
     ? { ...base, type: "premise" }
     : { ...base, type: "constraint", grounds: node.grounds ?? [] };
@@ -128,7 +128,7 @@ onMounted(async () => {
     props.client.fetchGraph(),
     props.client.fetchContext(),
   ]);
-  graph.value = buildGraph("", nodes.map(toRefinoNode));
+  graph.value = buildGraph(nodes.map(toRefinoNode));
   if (context !== null) {
     effective.value = context;
     anchors.value = [...context.anchors];

@@ -22,7 +22,7 @@ const E5 = "E5F6G7H8";
 const Z9 = "Z9Y8X7W6";
 
 function graphOf(): Graph {
-  return buildGraph("/.refino", [
+  return buildGraph([
     node("1A2B3C4D", "premise"),
     node(A1, "constraint"),
     node(D4, "constraint", [A1, "1A2B3C4D"]),

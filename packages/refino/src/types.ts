@@ -13,11 +13,9 @@ export type NodeType = "premise" | "constraint";
 interface NodeBase {
   id: string;
   type: NodeType;
-  /** Path relative to the `.refino` directory, with `/` as the separator regardless of platform, e.g. `nodes/01/9ABCDE-constraint.md`. */
-  file: string;
-  /** Independent summary attribute for quick relevance checks; the storage layer may derive it from the body's first paragraph when the file declares none. */
+  /** Independent summary attribute for quick relevance checks; the storage layer may derive it from the body's first paragraph when none is declared. */
   summary: string;
-  /** Full markdown body (trimmed), excluding frontmatter fields like rationale. */
+  /** Full body text (trimmed), excluding metadata fields like rationale. */
   body: string;
 }
 
@@ -53,9 +51,7 @@ export interface NodeLite {
 }
 
 export interface Graph {
-  /** Path of the `.refino` directory the graph was built from. */
-  refinoDir: string;
-  /** All nodes indexed by id. Node identity is the `id`, never the file path. */
+  /** All nodes indexed by id. Node identity is the `id`. */
   nodes: Map<string, RefinoNode>;
   /** id -> ids of constraints whose `grounds` directly contain that id (sorted, deduplicated). */
   dependents: Map<string, string[]>;
@@ -102,8 +98,6 @@ export interface RefinoIssue {
   /** Wire code; the engine emits `IssueCode` values, other emitters their own. */
   code: string;
   message: string;
-  /** Node file the issue relates to, relative to the `.refino` directory. */
-  file?: string;
   /** Node id the issue relates to. */
   nodeId?: string;
   /** Only for `IssueCode.UnknownGround`: the referenced id that does not exist. */

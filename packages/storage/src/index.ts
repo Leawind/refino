@@ -1,4 +1,4 @@
-export { StorageIssueCode } from "./codes.js";
+export { StorageIssueCode, type StorageIssue } from "./codes.js";
 export { loadGraph, readNode } from "./loader.js";
 export type { LoadResult, ReadNodeResult } from "./loader.js";
 export {
