@@ -2,7 +2,7 @@
 // Text program, fragment stage: alpha-mask the glyph atlas texel with the
 // instance alpha, tinted by the label color.
 
-precision mediump float;
+precision highp float;
 
 in vec2 v_uv;
 in float v_alpha;

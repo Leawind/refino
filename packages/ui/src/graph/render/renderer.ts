@@ -104,6 +104,8 @@ const CLICK_SLOP_PX = 2;
 const CAMERA_TAU_MS = 110;
 /** Camera snap threshold. */
 const CAMERA_EPSILON = 0.01;
+// Geometry constants below are in virtual units: they scale with the
+// viewport zoom like every canvas content (ui README, "视口").
 const LABEL_FONT_PX = 12;
 const LABEL_PAD_X = 10;
 const EDGE_WIDTH = 1.4;
@@ -786,28 +788,14 @@ export class GraphRenderer {
       const base = count * 9;
       // Trim both ends to the node borders: the shaft must not run under the
       // opaque cards, and the arrow tip lands on the downstream border.
-      const fx = (from.node.x + from.node.width / 2) * scale + tx;
-      const fy = (from.node.y + from.node.height / 2) * scale + ty;
-      const sx = (to.node.x + to.node.width / 2) * scale + tx;
-      const sy = (to.node.y + to.node.height / 2) * scale + ty;
-      const [x1, y1] = borderPoint(
-        fx,
-        fy,
-        sx,
-        sy,
-        (from.node.width * scale) / 2,
-        (from.node.height * scale) / 2,
-      );
-      const [x2, y2] = borderPoint(
-        sx,
-        sy,
-        fx,
-        fy,
-        (to.node.width * scale) / 2,
-        (to.node.height * scale) / 2,
-      );
-      // Virtual layout coordinates go through the camera; the shader only
-      // knows CSS pixels.
+      const fx = from.node.x + from.node.width / 2;
+      const fy = from.node.y + from.node.height / 2;
+      const sx = to.node.x + to.node.width / 2;
+      const sy = to.node.y + to.node.height / 2;
+      const [x1, y1] = borderPoint(fx, fy, sx, sy, from.node.width / 2, from.node.height / 2);
+      const [x2, y2] = borderPoint(sx, sy, fx, fy, to.node.width / 2, to.node.height / 2);
+      // Instances are submitted in virtual coordinates; the vertex shader
+      // applies the camera.
       this.#edgeData[base] = x1;
       this.#edgeData[base + 1] = y1;
       this.#edgeData[base + 2] = x2;
@@ -821,6 +809,8 @@ export class GraphRenderer {
     gl.useProgram(program);
     gl.uniform2f(uniform("u_resolution"), this.#canvas.width, this.#canvas.height);
     gl.uniform1f(uniform("u_dpr"), window.devicePixelRatio || 1);
+    gl.uniform1f(uniform("u_scale"), scale);
+    gl.uniform2f(uniform("u_offset"), tx, ty);
     gl.bindVertexArray(this.#edgeVao);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.#edgeInstances);
     gl.bufferData(gl.ARRAY_BUFFER, this.#edgeData.slice(0, count * 9), gl.DYNAMIC_DRAW);
@@ -852,15 +842,14 @@ export class GraphRenderer {
           ? premix(this.#theme.nodeBorder, this.#theme.canvasBg, 0.4)
           : this.#theme.nodeBorder;
       const base = count * 16;
-      this.#nodeData[base] = (node.x + node.width / 2) * scale + tx;
-      this.#nodeData[base + 1] = (node.y + node.height / 2) * scale + ty;
-      this.#nodeData[base + 2] = node.width * scale;
-      this.#nodeData[base + 3] = node.height * scale;
-      // The corner radius lives in virtual space: it grows with the node
-      // under zoom instead of staying a fixed screen size. Premises render
-      // as capsules — the fragment shader clamps the radius to the half
-      // size, so the full half-height is safe to submit.
-      this.#nodeData[base + 4] = (node.premise ? node.height / 2 : CORNER_RADIUS) * scale;
+      // Everything is virtual; the vertex shader applies the camera.
+      this.#nodeData[base] = node.x + node.width / 2;
+      this.#nodeData[base + 1] = node.y + node.height / 2;
+      this.#nodeData[base + 2] = node.width;
+      this.#nodeData[base + 3] = node.height;
+      // Premises render as capsules — the fragment shader clamps the radius
+      // to the half size, so the full half-height is safe to submit.
+      this.#nodeData[base + 4] = node.premise ? node.height / 2 : CORNER_RADIUS;
       this.#nodeData[base + 5] = borderWidth;
       this.#nodeData.set(
         node.premise && !emphasized
@@ -879,6 +868,8 @@ export class GraphRenderer {
     gl.uniform2f(uniform("u_resolution"), this.#canvas.width, this.#canvas.height);
     gl.uniform1f(uniform("u_dpr"), window.devicePixelRatio || 1);
     gl.uniform4fv(uniform("u_primary"), this.#theme.primary);
+    gl.uniform1f(uniform("u_scale"), scale);
+    gl.uniform2f(uniform("u_offset"), tx, ty);
     gl.bindVertexArray(this.#nodeVao);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.#nodeInstances);
     gl.bufferData(gl.ARRAY_BUFFER, this.#nodeData.slice(0, count * 16), gl.DYNAMIC_DRAW);
@@ -891,19 +882,22 @@ export class GraphRenderer {
     if (this.#atlas.full) this.#atlas.reset(); // refill from scratch this frame
 
     const scale = this.#camera.scale;
-    // Text lives in virtual space: it scales with the viewport, and the
-    // ctrl+wheel multiplier resizes it on top (README: 文本随视口缩放).
-    const fontPx = LABEL_FONT_PX * scale * this.#textScale;
-    const padPx = LABEL_PAD_X * scale * this.#textScale;
-    const glyphScale = fontPx / 24; // atlas font pixels → label pixels
+    const tx = this.#camera.tx;
+    const ty = this.#camera.ty;
+    // Glyph metrics are resolved in virtual units so glyph quads are
+    // submitted like every other geometry; the ctrl+wheel multiplier
+    // resizes text on top of the camera (README: 文本随视口缩放).
+    const fontUnits = LABEL_FONT_PX * this.#textScale;
+    const padUnits = LABEL_PAD_X * this.#textScale;
+    const glyphUnits = fontUnits / 24; // atlas font pixels → virtual units
     let count = 0;
     for (const [id, entry] of this.#entries) {
       if (entry.alpha < 0.02 || !this.#admitted.has(id) || !textShown.get(id)) continue;
       const node = entry.node;
-      const maxWidth = (node.width * scale - padPx * 2) / glyphScale;
+      const maxWidth = (node.width - padUnits * 2) / glyphUnits;
       const label = this.#labelFor(node.label, maxWidth);
-      let penX = node.x * scale + this.#camera.tx + padPx;
-      const baseline = node.y * scale + this.#camera.ty + (node.height * scale) / 2 + fontPx * 0.35;
+      let penX = node.x + padUnits;
+      const baseline = node.y + node.height / 2 + fontUnits * 0.35;
       for (const ch of label) {
         const glyph = this.#atlas.glyph(ch);
         if (glyph === undefined) break; // atlas ran full; retries next frame
@@ -911,9 +905,9 @@ export class GraphRenderer {
         if (glyph.width > 0) {
           const base = count * 9;
           this.#textData[base] = penX;
-          this.#textData[base + 1] = baseline - glyph.ascent * glyphScale;
-          this.#textData[base + 2] = glyph.width * glyphScale;
-          this.#textData[base + 3] = glyph.height * glyphScale;
+          this.#textData[base + 1] = baseline - glyph.ascent * glyphUnits;
+          this.#textData[base + 2] = glyph.width * glyphUnits;
+          this.#textData[base + 3] = glyph.height * glyphUnits;
           this.#textData[base + 4] = glyph.u0;
           this.#textData[base + 5] = glyph.v0;
           this.#textData[base + 6] = glyph.u1 - glyph.u0;
@@ -921,7 +915,7 @@ export class GraphRenderer {
           this.#textData[base + 8] = entry.alpha;
           count++;
         }
-        penX += glyph.advance * glyphScale;
+        penX += glyph.advance * glyphUnits;
       }
     }
 
@@ -931,6 +925,8 @@ export class GraphRenderer {
     gl.useProgram(program);
     gl.uniform2f(uniform("u_resolution"), this.#canvas.width, this.#canvas.height);
     gl.uniform1f(uniform("u_dpr"), window.devicePixelRatio || 1);
+    gl.uniform1f(uniform("u_scale"), scale);
+    gl.uniform2f(uniform("u_offset"), tx, ty);
     gl.uniform4fv(uniform("u_color"), this.#theme.text);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.#atlasTexture);

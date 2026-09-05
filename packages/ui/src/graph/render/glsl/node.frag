@@ -1,8 +1,11 @@
 #version 300 es
 // Node program, fragment stage: rounded-rectangle card via an SDF, border
-// ring, and the selection badge disc.
+// ring, and the selection badge disc. All geometry is in virtual units —
+// border widths and the badge scale with the viewport; only the
+// anti-aliasing feather is screen-space (a fixed pixel width divided by the
+// camera scale).
 
-precision mediump float;
+precision highp float;
 
 in vec2 v_local;
 in vec2 v_size;
@@ -12,7 +15,11 @@ in vec4 v_fill;
 in vec4 v_border;
 in vec2 v_flags;   // x: badge, y: alpha
 uniform vec4 u_primary;
+uniform float u_scale;   // virtual units → CSS px
 out vec4 outColor;
+
+// Anti-aliasing feather in CSS px.
+const float AA_PX = 0.75;
 
 float sdRoundBox(vec2 p, vec2 halfSize, float radius) {
   vec2 q = abs(p) - halfSize + vec2(radius);
@@ -20,11 +27,11 @@ float sdRoundBox(vec2 p, vec2 halfSize, float radius) {
 }
 
 void main() {
+  float aa = AA_PX / u_scale;
   vec2 halfSize = v_size * 0.5;
   float radius = min(v_radius, min(halfSize.x, halfSize.y));
   // Shrink by half the border width so the border ring centers on the edge.
   float d = sdRoundBox(v_local - halfSize, halfSize - vec2(v_borderWidth * 0.5), radius);
-  float aa = 0.75;
   float fillMask = 1.0 - smoothstep(0.0, aa, d);
   float halfBorder = v_borderWidth * 0.5;
   float borderMask = 1.0 - smoothstep(halfBorder - aa, halfBorder + aa, abs(d));

@@ -1,30 +1,36 @@
 #version 300 es
 // Edge program, vertex stage: one instanced quad per edge, x along the
-// segment and y across it. GLSL has no cross-file include mechanism, so the
-// camera foot (toClip) and the arrow constants shared with edge.frag are
-// duplicated on purpose; test/glsl.test.ts guards the vert/frag interface.
+// segment and y across it. Instances are submitted in virtual (layout)
+// coordinates; the camera turns them into clip space here, so every
+// dimension below — endpoints, widths, arrow constants — scales with the
+// viewport like the rest of the canvas content. GLSL has no cross-file
+// include mechanism, so the camera foot (toClip) and the arrow constants
+// shared with edge.frag are duplicated on purpose; test/glsl.test.ts guards
+// the vert/frag interface.
 
 precision highp float;
 
 layout(location = 0) in vec2 a_corner;   // x along, y across
-layout(location = 1) in vec2 a_from;
-layout(location = 2) in vec2 a_to;
-layout(location = 3) in float a_width;
+layout(location = 1) in vec2 a_from;     // virtual
+layout(location = 2) in vec2 a_to;       // virtual
+layout(location = 3) in float a_width;   // virtual units
 layout(location = 4) in vec4 a_color;
-uniform vec2 u_resolution;
+uniform float u_scale;                   // virtual units → CSS px
+uniform vec2 u_offset;                   // camera translation, CSS px
 uniform float u_dpr;
-out vec2 v_frame;   // px along / across the segment, from its start
-out float v_len;    // segment length in px
-out float v_half;   // shaft half width in px
+uniform vec2 u_resolution;
+out vec2 v_frame;   // virtual units along / across the segment, from its start
+out float v_len;    // segment length in virtual units
+out float v_half;   // shaft half width in virtual units
 out vec4 v_color;
 
-// Arrowhead geometry in CSS px: length along the segment, half width.
-// Must mirror the constants in edge.frag.
+// Arrowhead geometry in virtual units: length along the segment, half
+// width. Must mirror the constants in edge.frag.
 const float ARROW_LEN = 9.0;
 const float ARROW_HALF_W = 5.0;
 
-vec2 toClip(vec2 cssPoint) {
-  vec2 px = cssPoint * u_dpr;
+vec2 toClip(vec2 virtualPoint) {
+  vec2 px = (virtualPoint * u_scale + u_offset) * u_dpr;
   return vec2((px.x / u_resolution.x) * 2.0 - 1.0, 1.0 - (px.y / u_resolution.y) * 2.0);
 }
 
