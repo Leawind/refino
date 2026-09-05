@@ -96,6 +96,8 @@ export async function getSearch(c: Context, index: GraphIndex): Promise<Response
     }
     const roots = c.req.query("roots");
     const rootsOnly = roots === "1" || roots === "true";
+    const unreferenced = c.req.query("unreferenced");
+    const unreferencedOnly = unreferenced === "1" || unreferenced === "true";
     const rawLimit = Number(c.req.query("limit"));
     const limit = Number.isInteger(rawLimit)
       ? Math.min(Math.max(rawLimit, 1), SEARCH_MAX_LIMIT)
@@ -111,6 +113,14 @@ export async function getSearch(c: Context, index: GraphIndex): Promise<Response
       const entry = index.entry(id)!;
       if (type !== undefined && entry.node.type !== type) continue;
       if (rootsOnly && (entry.node.type !== "constraint" || entry.node.grounds.length > 0)) {
+        continue;
+      }
+      // Premises no constraint grounds on (the CLI's list --unreferenced):
+      // candidates for review or removal in maintenance work.
+      if (
+        unreferencedOnly &&
+        (entry.node.type !== "premise" || (index.graph.dependents.get(id) ?? []).length > 0)
+      ) {
         continue;
       }
       if (

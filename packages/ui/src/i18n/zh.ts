@@ -18,6 +18,19 @@ export default {
     expand: "展开侧栏",
     float: "切换为浮动侧栏",
     dock: "切换为嵌入侧栏",
+    peekHint: "按住 Alt 悬停可速览节点",
+  },
+  explorer: {
+    title: "节点",
+    all: "全部",
+    unreferenced: "未被引用的前提",
+  },
+  inline: {
+    toggle: "展开 / 收起详情",
+    dirty: "有未保存的修改",
+    reset: "重置",
+    openEditor: "在编辑器中打开",
+    resolve: "在编辑器中解决",
   },
   sidebar: {
     constraints: "约束",
@@ -25,13 +38,13 @@ export default {
     search: "按 id / 摘要搜索…",
   },
   window: {
-    expand: "放大",
-    restore: "还原",
     close: "关闭",
   },
   node: {
     premise: "前提",
     constraint: "约束",
+    premises: "前提",
+    constraints: "约束",
     createPremise: "新建前提",
     createConstraint: "新建约束",
     summary: "摘要",

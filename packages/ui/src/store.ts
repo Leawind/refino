@@ -66,6 +66,12 @@ interface State {
   creatingType: "premise" | "constraint" | null;
   theme: Theme;
   locale: Locale;
+  /**
+   * The explorer row expanded into the inline editor (README, "编辑功能"):
+   * the same single edit session as the modal, row-scoped instead of
+   * following the focus. null when no row is expanded.
+   */
+  inlineId: string | null;
   detail: DetailState;
 }
 
@@ -83,6 +89,7 @@ export function createStore(client: RefinoClient, workspace: Workspace) {
     creatingType: null,
     theme: readPreference<Theme>("refino.theme", "light"),
     locale: readPreference<Locale>("refino.locale", "zh"),
+    inlineId: null,
     detail: {
       id: null,
       loading: false,
@@ -186,7 +193,14 @@ export function createStore(client: RefinoClient, workspace: Workspace) {
   async function refreshExternalDetail(): Promise<void> {
     const id = state.detail.id;
     const generation = detailGeneration;
-    if (id === null || !state.detailOpen || state.creatingType !== null || state.detail.loading) {
+    // The session is alive for the modal and the expanded explorer row
+    // alike — and for a collapsed row that still holds a draft, which
+    // keeps merging external changes (README, "编辑功能").
+    const sessionAlive =
+      state.detailOpen ||
+      state.inlineId !== null ||
+      (state.detail.base !== null && changedFields(state.detail.base, detailForm).length > 0);
+    if (id === null || state.creatingType !== null || state.detail.loading || !sessionAlive) {
       return;
     }
     try {
@@ -218,14 +232,15 @@ export function createStore(client: RefinoClient, workspace: Workspace) {
       const merge = mergeExternal(base, detailForm, toEditorFields(external.node));
       if (merge.conflicts.length === 0) {
         // Silent field-level merge: untouched fields adopt the external
-        // values, the user's edits survive.
+        // values, the user's edits survive. The base stays the version the
+        // edits were based on, so the merged state still counts as unsaved
+        // and the save stays enabled.
         const mergedNode: NodeRecord = { ...external.node, ...merge.merged };
-        setDetail(state.detail, {
-          node: mergedNode,
-          revision: external.revision,
-          issues: external.issues,
-          dependents,
-        });
+        state.detail.node = mergedNode;
+        state.detail.revision = external.revision;
+        state.detail.issues = external.issues;
+        state.detail.dependents = dependents;
+        setFormFrom(mergedNode);
         state.detail.mergeNotice++;
         return;
       }
@@ -259,11 +274,12 @@ export function createStore(client: RefinoClient, workspace: Workspace) {
     };
   }
 
-  // The detail editor tracks the focus (last selected node) while open.
+  // The modal editor tracks the focus (last selected node) while open; the
+  // inline row editor is row-scoped and does not follow.
   watch(
-    () => [state.detailOpen, state.creatingType, workspace.state.focusId] as const,
-    ([open, creating, focusId]) => {
-      if (!open || creating !== null) return;
+    () => [state.detailOpen, state.inlineId, state.creatingType, workspace.state.focusId] as const,
+    ([open, inlineId, creating, focusId]) => {
+      if (!open || inlineId !== null || creating !== null) return;
       if (focusId !== null && focusId !== state.detail.id) void loadDetail(focusId);
     },
   );
@@ -281,10 +297,19 @@ export function createStore(client: RefinoClient, workspace: Workspace) {
     state: readonly(state),
     /** The editor form; inputs bind to it directly. */
     form: detailForm,
+    /** Whether the node's edit session holds unsaved changes. */
+    isDirty(id: string): boolean {
+      if (state.detail.id !== id || state.detail.node === null) return false;
+      return (
+        changedFields(state.detail.base ?? toEditorFields(state.detail.node), detailForm).length > 0
+      );
+    },
     /** Single click selects; the detail window opens on double click. When
-     * `id` differs from the loaded one, the detail is (re)loaded fresh. */
+     * `id` differs from the loaded one, the detail is (re)loaded fresh.
+     * Opening the modal takes the session over from an expanded row. */
     openDetail(id?: string): void {
       state.detailOpen = true;
+      state.inlineId = null;
       if (id !== undefined && id !== state.detail.id) void loadDetail(id);
     },
     /** Closing the window keeps the selection. */
@@ -292,9 +317,26 @@ export function createStore(client: RefinoClient, workspace: Workspace) {
       state.detailOpen = false;
       state.creatingType = null;
     },
+    /**
+     * Expand an explorer row into the inline editor: the same edit session
+     * as the modal, row-scoped. Re-expanding the same id keeps the draft;
+     * expanding another id replaces the session (README, "编辑功能").
+     */
+    expandInline(id: string): void {
+      state.inlineId = id;
+      state.detailOpen = false;
+      state.creatingType = null;
+      if (id !== state.detail.id) void loadDetail(id);
+    },
+    /** Collapse the row. The draft stays in the session and resurfaces when
+     * the same row re-expands. */
+    collapseInline(): void {
+      state.inlineId = null;
+    },
     startCreate(type: "premise" | "constraint"): void {
       state.creatingType = type;
       state.detailOpen = true;
+      state.inlineId = null;
       setFormFrom(null);
       // A new premise defaults its confirmation time to now (matches the CLI's
       // --now); the value stays editable.

@@ -1,8 +1,9 @@
 <script setup lang="ts">
-// Detail bar docked below the decision graph: details of the selected
-// node, with edit/create forms. Opens on double click; closing keeps the
-// selection. The bar occupies the bottom of the graph pane; expanding
-// turns it into a near-fullscreen modal with a dimmed backdrop.
+// Full editor modal (README, "细节三层模型"): the ground for creation,
+// long-form editing, grounds multi-select and conflict/deletion decisions.
+// Opens on double click; closing keeps the selection. External changes
+// merge field-by-field per docs/design.md, "编辑冲突处理". The inline row
+// editor of the explorer shares this component's store session.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import {
@@ -19,7 +20,7 @@ import {
   useMessage,
 } from "naive-ui";
 import { renderMarkdown, renderMermaidDiagrams } from "../markdown";
-import { CloseOutline, ContractOutline, ExpandOutline } from "@vicons/ionicons5";
+import { CloseOutline } from "@vicons/ionicons5";
 import FormField from "./FormField.vue";
 import { clientKey, type RefinoClient } from "../api";
 import { injectRequired } from "../context";
@@ -41,53 +42,12 @@ const visible = computed(
   () => store.state.detailOpen && (creating.value || store.state.detail.id !== null),
 );
 
-const expanded = ref(false);
-
-/** Bar height as a percentage of the graph pane; adjustable by dragging
- * the bar's top edge. */
-const MIN_HEIGHT_PERCENT = 15;
-const MAX_HEIGHT_PERCENT = 70;
-const barEl = ref<HTMLElement | null>(null);
-const heightPercent = ref(40);
-
-const barStyle = computed(() =>
-  expanded.value ? undefined : { height: `${heightPercent.value}%` },
-);
-
-let resizeStartY = 0;
-let resizeStartPercent = 0;
-
-function onResizeStart(event: MouseEvent): void {
-  resizeStartY = event.clientY;
-  resizeStartPercent = heightPercent.value;
-  document.addEventListener("mousemove", onResizeMove);
-  document.addEventListener("mouseup", onResizeEnd);
-}
-
-function onResizeMove(event: MouseEvent): void {
-  // Dragging up grows the bar.
-  const delta = resizeStartY - event.clientY;
-  const base = barEl.value?.parentElement?.clientHeight ?? 1;
-  heightPercent.value = Math.min(
-    MAX_HEIGHT_PERCENT,
-    Math.max(MIN_HEIGHT_PERCENT, resizeStartPercent + (delta / base) * 100),
-  );
-}
-
-function onResizeEnd(): void {
-  document.removeEventListener("mousemove", onResizeMove);
-  document.removeEventListener("mouseup", onResizeEnd);
-}
-
-onBeforeUnmount(() => onResizeEnd());
-
 function close(): void {
-  expanded.value = false;
   // Closing keeps the node selected.
   store.closeDetail();
 }
 
-/** Cancel discards unsaved edits; in create mode it hides the bar. */
+/** Cancel discards unsaved edits; in create mode it hides the modal. */
 function cancelEdit(): void {
   if (creating.value) {
     close();
@@ -97,10 +57,7 @@ function cancelEdit(): void {
 }
 
 function onKeydown(event: KeyboardEvent): void {
-  if (!visible.value || event.key !== "Escape") return;
-  // Esc collapses the expanded view first, then hides the bar.
-  if (expanded.value) expanded.value = false;
-  else close();
+  if (visible.value && event.key === "Escape") close();
 }
 
 onMounted(() => document.addEventListener("keydown", onKeydown));
@@ -254,19 +211,9 @@ function nodeLabel(id: string): string {
 
 <template>
   <template v-if="visible">
-    <div v-if="expanded" class="backdrop" @click="expanded = false" />
-    <section ref="barEl" class="detail-bar" :class="{ expanded }" :style="barStyle">
-      <div v-if="!expanded" class="resize-handle" @mousedown.prevent="onResizeStart" />
+    <div class="backdrop" @click="close" />
+    <section class="editor-modal">
       <div class="window-actions">
-        <NButton
-          quaternary
-          circle
-          size="tiny"
-          :title="expanded ? t('window.restore') : t('window.expand')"
-          @click="expanded = !expanded"
-        >
-          <NIcon :component="expanded ? ContractOutline : ExpandOutline" />
-        </NButton>
         <NButton quaternary circle size="tiny" :title="t('window.close')" @click="close">
           <NIcon :component="CloseOutline" />
         </NButton>
@@ -404,9 +351,8 @@ function nodeLabel(id: string): string {
           </FormField>
         </div>
 
-        <template v-if="!creating && selected !== null && expanded">
-          <!-- Dependents are derived from the graph, not stored attributes:
-               only surfaced in the expanded view. -->
+        <template v-if="!creating && selected !== null">
+          <!-- Dependents are derived from the graph, not stored attributes. -->
           <section class="meta">
             <h3>{{ t("node.dependents") }}</h3>
             <template v-if="store.state.detail.dependents.length === 0">—</template>
@@ -454,42 +400,17 @@ function nodeLabel(id: string): string {
   z-index: 55;
 }
 
-.detail-bar {
-  position: relative;
-  flex: none;
-  min-height: 120px;
+.editor-modal {
+  position: fixed;
+  inset: 12px;
   display: flex;
   flex-direction: column;
   background: var(--refino-surface);
-  border-top: 1px solid var(--refino-border);
-  box-sizing: border-box;
-  z-index: 5;
-}
-
-.detail-bar.expanded {
-  position: fixed;
-  inset: 12px;
-  height: auto;
-  min-height: 0;
   border: 1px solid var(--refino-border);
   border-radius: var(--refino-radius);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
   z-index: 60;
   overflow: hidden;
-}
-
-.resize-handle {
-  position: absolute;
-  top: -3px;
-  left: 0;
-  right: 0;
-  height: 6px;
-  cursor: row-resize;
-  z-index: 3;
-}
-
-.resize-handle:hover {
-  background: rgba(24, 160, 88, 0.25);
 }
 
 .window-actions {

@@ -19,15 +19,17 @@ import {
   dateEnUS,
 } from "naive-ui";
 import { injectRequired } from "./context";
+import { installAltTracking } from "./peek";
 import { storeKey } from "./store";
 import { workspaceKey } from "./workspace";
 
 const store = injectRequired(storeKey, "store");
 const workspace = injectRequired(workspaceKey, "workspace");
 import AppHeader from "./components/AppHeader.vue";
-import NodeListPanel from "./components/NodeListPanel.vue";
+import ResourceExplorer from "./components/ResourceExplorer.vue";
 import DecisionGraph from "./components/DecisionGraph.vue";
 import NodeDetailWindow from "./components/NodeDetailWindow.vue";
+import NodePeek from "./components/NodePeek.vue";
 import GraphFloat from "./components/GraphFloat.vue";
 import SelectionList from "./components/SelectionList.vue";
 import WorkspaceToasts from "./components/WorkspaceToasts.vue";
@@ -86,6 +88,8 @@ watchEffect(() => {
 
 onMounted(() => {
   workspace.start();
+  // Alt-peek modifier tracking (README, "交互"); cleaned up on unmount.
+  onBeforeUnmount(installAltTracking());
 });
 onBeforeUnmount(() => {
   workspace.stop();
@@ -131,7 +135,7 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
             {{ t("app.loadError") }}: {{ workspace.state.error }}
           </NAlert>
           <div class="workbench">
-            <NodeListPanel type="constraint" side="left" />
+            <ResourceExplorer />
             <div class="center-pane">
               <div class="graph-area">
                 <DecisionGraph
@@ -186,12 +190,13 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
                     <span v-if="workspace.state.focusId !== null" class="mono">
                       {{ t("status.selected") }}: {{ workspace.state.focusId }}
                     </span>
+                    <span class="hint">{{ t("app.peekHint") }}</span>
                   </div>
                 </GraphFloat>
+                <NodePeek />
               </div>
               <NodeDetailWindow />
             </div>
-            <NodeListPanel type="premise" side="right" />
           </div>
         </div>
       </div>

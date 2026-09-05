@@ -11,6 +11,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { injectRequired } from "../context";
+import { peekHide, peekMove } from "../peek";
 import { storeKey } from "../store";
 import { workspaceKey } from "../workspace";
 
@@ -238,17 +239,28 @@ let hoveredNode: string | null = null;
 
 function onMouseMove(event: MouseEvent): void {
   // While panning, hover follows the grab — freeze it instead of lighting
-  // up whatever slides under the cursor.
-  if (renderer?.dragging === true) return;
+  // up whatever slides under the cursor, and drop the peek.
+  if (renderer?.dragging === true) {
+    if (hoveredNode !== null) peekHide(hoveredNode);
+    return;
+  }
   const id = pickAt(event);
-  if (id === hoveredNode) return;
+  if (id === hoveredNode) {
+    if (id !== null) peekMove(id, event.clientX, event.clientY);
+    return;
+  }
+  if (hoveredNode !== null) peekHide(hoveredNode);
   hoveredNode = id;
   if (id === null) workspace.unhover();
-  else workspace.hover(id);
+  else {
+    workspace.hover(id);
+    peekMove(id, event.clientX, event.clientY);
+  }
   if (canvasEl.value !== null) canvasEl.value.style.cursor = id === null ? "default" : "pointer";
 }
 
 function onMouseLeave(): void {
+  if (hoveredNode !== null) peekHide(hoveredNode);
   hoveredNode = null;
   workspace.unhover();
 }

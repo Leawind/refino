@@ -320,3 +320,49 @@ describe("recreate via PUT", () => {
     expect(putCalls[0]!.body.type).toBe("constraint");
   });
 });
+
+describe("inline edit session", () => {
+  it("expands row-scoped, keeps the draft on collapse, and discards on switching ids", async () => {
+    // Expand the row: the session loads for that id, the modal stays closed.
+    store.expandInline(ID);
+    await waitFor(() => (store.state.detail.node !== null ? true : undefined));
+    expect(store.state.inlineId).toBe(ID);
+    expect(store.state.detailOpen).toBe(false);
+
+    // Editing marks the row dirty; collapsing keeps the draft.
+    store.form.summary = "内联草稿";
+    expect(store.isDirty(ID)).toBe(true);
+    store.collapseInline();
+    expect(store.state.inlineId).toBeNull();
+    expect(store.isDirty(ID)).toBe(true);
+
+    // Re-expanding the same id resurfaces the draft…
+    store.expandInline(ID);
+    expect(store.form.summary).toBe("内联草稿");
+    // …and opening the modal takes the session over.
+    store.openDetail(ID);
+    expect(store.state.inlineId).toBeNull();
+    expect(store.state.detailOpen).toBe(true);
+    store.closeDetail();
+
+    // Expanding another id replaces the session: the old draft is gone.
+    store.expandInline(P1);
+    await waitFor(() => (store.state.detail.node?.id === P1 ? true : undefined));
+    expect(store.form.summary).toBe("前提一");
+  });
+
+  it("keeps external merges running for a collapsed row with a draft", async () => {
+    store.expandInline(ID);
+    await waitFor(() => (store.state.detail.base !== null ? true : undefined));
+    store.form.body = "我的内联编辑"; // only body is edited
+    store.collapseInline();
+
+    // External change touches an untouched field: the silent merge still
+    // applies to the kept session.
+    disk.set(ID, { ...disk.get(ID)!, summary: "外部摘要" });
+    await emit({ revision: 4, changed: [ID], deleted: [] });
+    expect(store.form.body).toBe("我的内联编辑");
+    expect(store.form.summary).toBe("外部摘要");
+    expect(store.isDirty(ID)).toBe(true);
+  });
+});

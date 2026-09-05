@@ -31,12 +31,16 @@ export interface RefinoClient {
   /** POST /api/query/siblings — per-id strong siblings by shared direct grounds. */
   querySiblings(ids: readonly string[], limit?: number): Promise<QueryGroup<SiblingSet>[]>;
 
-  /** GET /api/search — keyset-paginated id/summary search. */
+  /** GET /api/search — keyset-paginated id/summary search. `unreferenced`
+   * restricts premises no constraint grounds on; `roots` to root
+   * constraints. */
   search(params: {
     q?: string;
     type?: "premise" | "constraint";
     limit?: number;
     cursor?: string;
+    roots?: boolean;
+    unreferenced?: boolean;
   }): Promise<SearchPage>;
 
   /** GET /api/nodes/:id — one full node (body on demand). */
@@ -106,6 +110,8 @@ export function createHttpClient(): RefinoClient {
       if (params.type) query.set("type", params.type);
       if (params.limit !== undefined) query.set("limit", String(params.limit));
       if (params.cursor !== undefined) query.set("cursor", params.cursor);
+      if (params.roots === true) query.set("roots", "1");
+      if (params.unreferenced === true) query.set("unreferenced", "1");
       const qs = query.toString();
       return request(`/api/search${qs === "" ? "" : `?${qs}`}`);
     },

@@ -71,6 +71,23 @@ describe("GET /api/search roots filter", () => {
   });
 });
 
+describe("GET /api/search unreferenced filter", () => {
+  it("returns only premises no constraint grounds on", async () => {
+    // The fixture's premise is referenced by C1; create an unreferenced one.
+    const created = await app().request("/api/nodes/premise", {
+      method: "POST",
+      body: JSON.stringify({ body: "未被引用的前提。", summary: "孤儿前提" }),
+    });
+    expect(created.status).toBe(201);
+
+    const res = await app().request("/api/search?unreferenced=1");
+    const body = (await res.json()) as { nodes: Array<{ id: string; type: string }> };
+    expect(body.nodes).toHaveLength(1);
+    expect(body.nodes[0]!.type).toBe("premise");
+    expect(body.nodes[0]!.id).not.toBe("1A2B3C4D");
+  });
+});
+
 describe("GET /api/pending", () => {
   // Each test gets one app for all its requests: the pending set lives in
   // the index's memory and must not be recreated between calls.

@@ -18,6 +18,19 @@ export default {
     expand: "Expand sidebar",
     float: "Switch to floating sidebar",
     dock: "Switch to docked sidebar",
+    peekHint: "Hold Alt and hover to peek a node",
+  },
+  explorer: {
+    title: "Nodes",
+    all: "All",
+    unreferenced: "Unreferenced premises",
+  },
+  inline: {
+    toggle: "Expand / collapse details",
+    dirty: "Unsaved changes",
+    reset: "Reset",
+    openEditor: "Open in editor",
+    resolve: "Resolve in editor",
   },
   sidebar: {
     constraints: "Constraints",
@@ -25,13 +38,13 @@ export default {
     search: "Search by id / summary…",
   },
   window: {
-    expand: "Expand",
-    restore: "Restore",
     close: "Close",
   },
   node: {
     premise: "Premise",
     constraint: "Constraint",
+    premises: "Premises",
+    constraints: "Constraints",
     createPremise: "New premise",
     createConstraint: "New constraint",
     summary: "Summary",

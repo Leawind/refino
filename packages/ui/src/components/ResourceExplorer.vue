@@ -1,13 +1,14 @@
 <script setup lang="ts">
-// Sidebar listing one node type only (constraints on the left, premises on
-// the right). Listings come from the paginated /api/search endpoint — the
-// full graph is never loaded (README, "画布按需查询"). Width is a percentage
-// of the whole interface; dragging it below the minimum collapses it to a
-// floating round button, and dragging back during the same gesture restores
-// it. The panel can dock (push the canvas aside) or float over the canvas.
+// The single resource explorer (README, "布局"): one list for constraints
+// and premises with a type filter and the unreferenced-premises quick view.
+// Listings come from the paginated /api/search endpoint — the full graph is
+// never loaded. Rows expand into the inline editor (single accordion);
+// expansion never touches the panel width. Alt+hover peeks a node. Width is
+// a percentage of the whole interface; dragging below the minimum collapses
+// it to a floating round button, and the panel can dock or float.
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { NButton, NIcon, NInput, NSpin } from "naive-ui";
+import { NButton, NIcon, NInput, NPopselect, NSpin } from "naive-ui";
 import {
   AddOutline,
   ChevronBackOutline,
@@ -17,16 +18,15 @@ import {
 } from "@vicons/ionicons5";
 import { clientKey, type RefinoClient } from "../api";
 import { injectRequired } from "../context";
+import { peekHide, peekMove } from "../peek";
 import { storeKey } from "../store";
 import { workspaceKey } from "../workspace";
+import InlineNodeForm from "./InlineNodeForm.vue";
 import type { NodeType, SearchNode } from "../types";
 
 const client = injectRequired(clientKey, "client");
 const store = injectRequired(storeKey, "store");
 const workspace = injectRequired(workspaceKey, "workspace");
-
-const props = defineProps<{ type: NodeType; side: "left" | "right" }>();
-
 const { t } = useI18n();
 
 const MIN_PERCENT = 4;
@@ -34,22 +34,36 @@ const MAX_PERCENT = 40;
 const PAGE_SIZE = 50;
 const DEBOUNCE_MS = 250;
 
+const SIDE = "left";
+
 const rootEl = ref<HTMLElement | null>(null);
 const widthPercent = ref(20);
 const collapsed = ref(false);
 const floating = ref(false);
 const query = ref("");
 
+/** "all" lists both types; the unreferenced view implies premises. */
+const typeFilter = ref<"all" | NodeType>("all");
+const unreferencedOnly = ref(false);
+const filterOptions = computed(() => [
+  { label: t("explorer.all"), value: "all" },
+  { label: t("node.constraints"), value: "constraint" },
+  { label: t("node.premises"), value: "premise" },
+]);
+const typeLabel = computed(
+  () =>
+    filterOptions.value.find((option) => option.value === typeFilter.value)?.label ??
+    t("explorer.all"),
+);
+
 const widthStyle = computed(() => ({ width: `${widthPercent.value}%` }));
 
 const panelStyle = computed(() => {
   if (collapsed.value) {
-    // No strip: a single round expand button at the same height as the
-    // in-panel collapse button, floating over the canvas.
     return {
       position: "absolute" as const,
       top: "8px",
-      [props.side]: "8px",
+      [`${SIDE}`]: "8px",
       zIndex: 10,
     };
   }
@@ -58,7 +72,7 @@ const panelStyle = computed(() => {
       position: "absolute" as const,
       top: "8px",
       bottom: "8px",
-      [props.side]: "8px",
+      [`${SIDE}`]: "8px",
       zIndex: 15,
       ...widthStyle.value,
     };
@@ -73,13 +87,18 @@ const loading = ref(false);
 let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 let searchToken = 0;
 
+const effectiveType = computed<"premise" | "constraint" | undefined>(() =>
+  unreferencedOnly.value ? "premise" : typeFilter.value === "all" ? undefined : typeFilter.value,
+);
+
 async function fetchPage(cursor: string | undefined, replace: boolean): Promise<void> {
   const token = ++searchToken;
   loading.value = true;
   try {
     const page = await client.search({
       q: query.value.trim(),
-      type: props.type,
+      type: effectiveType.value,
+      unreferenced: unreferencedOnly.value || undefined,
       limit: PAGE_SIZE,
       cursor,
     });
@@ -100,7 +119,8 @@ function refreshLoaded(): void {
   void client
     .search({
       q: query.value.trim(),
-      type: props.type,
+      type: effectiveType.value,
+      unreferenced: unreferencedOnly.value || undefined,
       limit: Math.min(Math.max(items.value.length, PAGE_SIZE), 500),
     })
     .then((page) => {
@@ -110,7 +130,7 @@ function refreshLoaded(): void {
     });
 }
 
-watch(query, () => {
+watch([query, typeFilter, unreferencedOnly], () => {
   clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => void fetchPage(undefined, true), DEBOUNCE_MS);
 });
@@ -148,11 +168,8 @@ function onResizeStart(event: MouseEvent): void {
 
 function onResizeMove(event: MouseEvent): void {
   const delta = event.clientX - startX;
-  const signed = props.side === "left" ? delta : -delta;
   const base = rootEl.value?.parentElement?.clientWidth ?? 1;
-  const percent = startPercent + (signed / base) * 100;
-  // Reaching the minimum just stops shrinking; collapsing is a separate,
-  // explicit action on the panel header.
+  const percent = startPercent + (delta / base) * 100;
   widthPercent.value = Math.min(MAX_PERCENT, Math.max(MIN_PERCENT, percent));
 }
 
@@ -166,22 +183,48 @@ onBeforeUnmount(() => {
   onResizeEnd();
 });
 
-/** Double click opens the detail window; single click only selects. */
-function open(node: SearchNode): void {
+function select(node: SearchNode): void {
   workspace.select(node);
+}
+
+/** Double click opens the modal editor (README, "细节三层模型"). */
+function open(node: SearchNode): void {
+  select(node);
   store.openDetail(node.id);
 }
 
-function select(node: SearchNode): void {
-  workspace.select(node);
+/** Expand the row into the inline editor; expanding selects the node. */
+function toggleExpand(node: SearchNode): void {
+  if (store.state.inlineId === node.id) store.collapseInline();
+  else {
+    select(node);
+    store.expandInline(node.id);
+  }
+}
+
+function onRowMove(event: MouseEvent, node: SearchNode): void {
+  peekMove(node.id, event.clientX, event.clientY);
+}
+
+function onRowLeave(node: SearchNode): void {
+  peekHide(node.id);
+}
+
+/** The edit session belongs to this row (expanded, or a kept draft). */
+function sessionBelongsTo(node: SearchNode): boolean {
+  return store.state.detail.id === node.id;
+}
+
+function isDirty(node: SearchNode): boolean {
+  return sessionBelongsTo(node) && store.isDirty(node.id);
 }
 </script>
 
 <template>
-  <aside ref="rootEl" class="panel" :class="[side, { collapsed, floating }]" :style="panelStyle">
+  <aside ref="rootEl" class="panel" :class="[SIDE, { collapsed, floating }]" :style="panelStyle">
     <template v-if="!collapsed">
       <div class="head">
-        <span class="title">{{ t(`sidebar.${type}s`) }}</span>
+        <span class="title">{{ t("explorer.title") }}</span>
         <NButton
           circle
           size="tiny"
@@ -189,7 +232,7 @@ function select(node: SearchNode): void {
           :title="t('app.collapse')"
           @click="toggleCollapsed"
         >
-          <NIcon :component="side === 'left' ? ChevronBackOutline : ChevronForwardOutline" />
+          <NIcon :component="ChevronBackOutline" />
         </NButton>
         <span class="head-actions">
           <NButton
@@ -205,31 +248,84 @@ function select(node: SearchNode): void {
       </div>
       <div class="search">
         <NInput v-model:value="query" size="small" clearable :placeholder="t('sidebar.search')" />
+        <div class="filters">
+          <NPopselect
+            :value="typeFilter"
+            :options="filterOptions"
+            trigger="click"
+            @update:value="
+              (value: 'all' | NodeType) => ((typeFilter = value), (unreferencedOnly = false))
+            "
+          >
+            <NButton size="tiny" quaternary>{{ typeLabel }}</NButton>
+          </NPopselect>
+          <NButton
+            size="tiny"
+            :quaternary="!unreferencedOnly"
+            :type="unreferencedOnly ? 'primary' : 'default'"
+            :secondary="unreferencedOnly"
+            @click="unreferencedOnly = !unreferencedOnly"
+          >
+            {{ t("explorer.unreferenced") }}
+          </NButton>
+        </div>
       </div>
       <ul class="list" @scroll="onScroll">
         <li class="create-item">
-          <NButton
-            dashed
-            size="small"
-            class="create"
-            :title="type === 'constraint' ? t('node.createConstraint') : t('node.createPremise')"
-            @click="store.startCreate(type)"
-          >
-            <NIcon :component="AddOutline" />
-          </NButton>
+          <div class="create-row">
+            <NButton
+              dashed
+              size="small"
+              class="create"
+              :title="t('node.createConstraint')"
+              @click="store.startCreate('constraint')"
+            >
+              <NIcon :component="AddOutline" />
+              {{ t("node.constraint") }}
+            </NButton>
+            <NButton
+              dashed
+              size="small"
+              class="create"
+              :title="t('node.createPremise')"
+              @click="store.startCreate('premise')"
+            >
+              <NIcon :component="AddOutline" />
+              {{ t("node.premise") }}
+            </NButton>
+          </div>
         </li>
         <li
-          v-for="node in items"
-          :key="node.id"
+          v-for="nodeItem in items"
+          :key="nodeItem.id"
           class="item"
-          :class="{ selected: workspace.state.selection.includes(node.id) }"
-          @click="select(node)"
-          @dblclick="open(node)"
+          :class="{
+            selected: workspace.state.selection.includes(nodeItem.id),
+            expanded: store.state.inlineId === nodeItem.id,
+          }"
+          @click="select(nodeItem)"
+          @dblclick="open(nodeItem)"
+          @mousemove="onRowMove($event, nodeItem)"
+          @mouseleave="onRowLeave(nodeItem)"
         >
-          <div class="summary">
-            {{ node.summary === "" ? t("node.untitled") : node.summary }}
+          <div class="row">
+            <button
+              class="chevron"
+              :class="{ open: store.state.inlineId === nodeItem.id }"
+              :title="t('inline.toggle')"
+              @click.stop="toggleExpand(nodeItem)"
+            >
+              ▸
+            </button>
+            <div class="texts">
+              <div class="summary">
+                {{ nodeItem.summary === "" ? t("node.untitled") : nodeItem.summary }}
+                <span v-if="isDirty(nodeItem)" class="dirty" :title="t('inline.dirty')">◐</span>
+              </div>
+              <div class="id">{{ nodeItem.id }}</div>
+            </div>
           </div>
-          <div class="id">{{ node.id }}</div>
+          <InlineNodeForm :node-id="nodeItem.id" />
         </li>
         <li v-if="loading" class="more">
           <NSpin size="small" />
@@ -238,7 +334,7 @@ function select(node: SearchNode): void {
     </template>
     <template v-else>
       <NButton circle size="small" class="expand" :title="t('app.expand')" @click="toggleCollapsed">
-        <NIcon :component="side === 'left' ? ChevronForwardOutline : ChevronBackOutline" />
+        <NIcon :component="ChevronForwardOutline" />
       </NButton>
     </template>
     <div v-if="!collapsed" class="resize-handle" @mousedown.prevent="onResizeStart" />
@@ -255,11 +351,6 @@ function select(node: SearchNode): void {
   min-width: 0;
   border-right: 1px solid var(--refino-border);
   box-sizing: border-box;
-}
-
-.panel.right {
-  border-right: none;
-  border-left: 1px solid var(--refino-border);
 }
 
 .panel.floating {
@@ -285,30 +376,17 @@ function select(node: SearchNode): void {
   position: relative;
   display: flex;
   align-items: center;
-  /* Float toggle sits on the inner side of each panel. */
   justify-content: flex-end;
   padding: 8px 8px 0;
-}
-
-.panel.right .head {
-  justify-content: flex-start;
 }
 
 .head-btn {
   background: var(--refino-surface) !important;
 }
 
-/* Collapse lives on the screen-edge side of the panel. */
 .collapse {
   position: absolute;
-}
-
-.panel.left .collapse {
   left: 8px;
-}
-
-.panel.right .collapse {
-  right: 8px;
 }
 
 .title {
@@ -324,14 +402,21 @@ function select(node: SearchNode): void {
 }
 
 .search {
-  padding: 8px;
+  padding: 8px 8px 4px;
+}
+
+.filters {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
 }
 
 .list {
   flex: 1;
   overflow-y: auto;
   margin: 0;
-  padding: 0 6px 6px;
+  padding: 4px 6px 6px;
   list-style: none;
   user-select: none;
 }
@@ -341,22 +426,60 @@ function select(node: SearchNode): void {
   list-style: none;
 }
 
+.create-row {
+  display: flex;
+  gap: 6px;
+}
+
 .create {
-  width: 100%;
+  flex: 1;
 }
 
 .item {
-  padding: 6px 8px;
+  padding: 0;
   border-radius: var(--refino-radius);
   cursor: pointer;
 }
 
-.item:hover {
+.row {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 6px 8px;
+}
+
+.item:hover .row {
   background: rgba(128, 128, 128, 0.12);
 }
 
-.item.selected {
+.item.selected .row {
   background: rgba(24, 160, 88, 0.15);
+}
+
+.chevron {
+  flex: none;
+  width: 16px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 20px;
+  padding: 0;
+  opacity: 0.55;
+}
+
+.chevron:hover {
+  opacity: 1;
+}
+
+.chevron.open {
+  transform: rotate(90deg);
+}
+
+.texts {
+  flex: 1;
+  min-width: 0;
 }
 
 .summary {
@@ -364,6 +487,11 @@ function select(node: SearchNode): void {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.dirty {
+  color: #f0a020;
+  margin-left: 4px;
 }
 
 /* Ids are rarely used directly; keep them small, below the summary. */
@@ -389,11 +517,6 @@ function select(node: SearchNode): void {
   width: 6px;
   cursor: col-resize;
   z-index: 5;
-}
-
-.panel.right .resize-handle {
-  right: auto;
-  left: -3px;
 }
 
 .resize-handle:hover {
