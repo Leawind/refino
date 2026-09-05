@@ -2,8 +2,9 @@
 // Center canvas: the working set rendered by the WebGL2 batch renderer
 // (README, "画布"): nodes, edges and labels draw on the GPU with the render
 // budget culling over-budget parts; floating controls stay DOM. Clicking a
-// node selects it, shift+click range-selects, ctrl+click toggles, double
-// click opens the detail bar, hovering pulls in the node's direct grounds.
+// node selects it, shift+click range-selects (replacing the selection),
+// right-click toggles, double click opens the detail bar, hovering pulls in
+// the node's direct grounds.
 // The layout is recomputed from scratch on every working-set change; the
 // camera keeps the focus node at a stable screen position — clicking a node
 // never displaces it — flying only for an off-screen or newly joining
@@ -233,8 +234,17 @@ function onClick(event: MouseEvent): void {
   const lite = byId.value.get(id);
   if (lite === undefined) return;
   if (event.shiftKey) void workspace.rangeSelect(lite);
-  else if (event.ctrlKey || event.metaKey) workspace.toggle(lite);
   else workspace.select(lite);
+}
+
+function onContextMenu(event: MouseEvent): void {
+  // Right click toggles the node's membership; the browser menu stays
+  // suppressed on the canvas (README, "交互").
+  event.preventDefault();
+  const id = pickAt(event);
+  if (id === null) return;
+  const lite = byId.value.get(id);
+  if (lite !== undefined) workspace.toggle(lite);
 }
 
 function onDoubleClick(event: MouseEvent): void {
@@ -279,6 +289,7 @@ function onMouseLeave(): void {
       ref="canvasEl"
       class="gl"
       @click="onClick"
+      @contextmenu="onContextMenu"
       @dblclick="onDoubleClick"
       @mousemove="onMouseMove"
       @mouseleave="onMouseLeave"
