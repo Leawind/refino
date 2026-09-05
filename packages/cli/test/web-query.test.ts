@@ -282,6 +282,59 @@ describe("POST /api/query/range branches with a sibling branch", () => {
   });
 });
 
+describe("POST /api/query/range branches takes one shortest path", () => {
+  // X grounds [Y, Z]; Y and Z both ground W (a diamond: two equal X->W
+  // routes); W2 grounds W; S grounds W2. A branches selection between X and
+  // S walks one of the two routes (id-ascending: Y), never both.
+  const X = "BB000001";
+  const Y = "BB000002";
+  const Z = "BB000003";
+  const W = "BB000004";
+  const W2 = "BB000005";
+  const S = "BB000006";
+
+  let diamondRoot: string;
+  let diamondRefinoDir: string;
+  const diamondApp = (): ReturnType<typeof createWebApp> =>
+    createWebApp({ refinoDir: diamondRefinoDir });
+
+  beforeAll(async () => {
+    diamondRoot = await createRefino({
+      "nodes/BB/000001-constraint.md": constraint(X, [Y, Z], "X。"),
+      "nodes/BB/000002-constraint.md": constraint(Y, [W], "Y。"),
+      "nodes/BB/000003-constraint.md": constraint(Z, [W], "Z。"),
+      "nodes/BB/000004-constraint.md": constraint(W, undefined, "W。"),
+      "nodes/BB/000005-constraint.md": constraint(W2, [W], "W2。"),
+      "nodes/BB/000006-constraint.md": constraint(S, [W2], "S。"),
+    });
+    diamondRefinoDir = join(diamondRoot, ".refino");
+  });
+
+  afterAll(async () => {
+    await removeRefino(diamondRoot);
+  });
+
+  it("keeps only the nodes on one route per side", async () => {
+    const res = await diamondApp().request("/api/query/range", {
+      method: "POST",
+      body: JSON.stringify({ focusId: X, clickedId: S }),
+    });
+    const body = (await res.json()) as {
+      mode: string;
+      nodes: Array<{ id: string; depth: number }>;
+    };
+    expect(body.mode).toBe("branches");
+    expect(body.nodes.map((n) => `${n.id}:${n.depth}`)).toEqual([
+      `${X}:0`,
+      `${Y}:1`,
+      `${W}:2`,
+      `${W2}:3`,
+      `${S}:4`,
+    ]);
+    expect(body.nodes.some((n) => n.id === Z)).toBe(false);
+  });
+});
+
 describe("GET /api/search", () => {
   it("paginates over ascending ids with a keyset cursor", async () => {
     const first = await app().request("/api/search?limit=4");

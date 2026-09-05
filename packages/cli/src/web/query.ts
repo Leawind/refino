@@ -29,9 +29,10 @@ export interface Siblings {
 
 /**
  * Relationship between two range endpoints: ancestor (one reaches the other),
- * branches (different branches; definitive when both ancestor searches
- * completed) or disconnected (budget exhausted before the relationship could
- * be judged). The last two return only the clicked node.
+ * branches (different branches, one shortest path per side through their
+ * common ancestor; definitive when both ancestor searches completed) or
+ * disconnected (budget exhausted before the relationship could be judged).
+ * The last two return only the clicked node.
  */
 export type RangeMode = "ancestor" | "branches" | "disconnected";
 
@@ -125,7 +126,8 @@ export const DEFAULT_RANGE_BUDGET = 10_000;
 /**
  * Range selection between two endpoints (the canvas's shift+click):
  * ancestor — one endpoint reaches the other, nodes are the constraints on
- * all paths between them plus the endpoints; branches — the paths to the
+ * all paths between them plus the endpoints; branches — a single shortest
+ * path between the endpoints, each side walking its grounds upstream to the
  * nearest common ancestor (minimal total path length, ties by id); when no
  * common ancestor exists within the budget the result degrades to only the
  * clicked node, definitively (`branches`) if both searches completed,
@@ -181,30 +183,22 @@ export function range(
   if (lca !== undefined) {
     const fromFocusLca = focusAnc.depths.get(lca)!;
     const fromClickedLca = clickedAnc.depths.get(lca)!;
-    // The constraints on the two paths are the dependents of the LCA that
-    // are also ancestors of the respective endpoint - the same "all paths
-    // between" relation the ancestor mode uses, anchored at the LCA.
-    const down = new Set<string>([lca]);
-    for (const entry of getDependents(graph, lca)) down.add(entry.node.id);
+    // One shortest path per side, both walked down from the LCA: at each
+    // hop the id-ascending direct dependent whose remaining depth to the
+    // endpoint is exactly one less (a shorter hop would contradict the BFS
+    // depths; a longer one would leave the shortest route).
     const depthFromFocus = new Map<string, number>();
-    // Focus-side path: distance read straight off its ancestor map. A node
-    // is kept only when it is a constraint strictly between focus and LCA
-    // (or the LCA itself); premises other than the endpoints never appear.
-    for (const [id, d] of focusAnc.depths) {
-      if (id !== focusId && down.has(id) && graph.nodes.get(id)?.type === "constraint") {
-        depthFromFocus.set(id, d);
-      }
-    }
-    // Clicked-side path: d measures up from clicked; the distance from focus
-    // runs through the LCA as fromFocusLca + (fromClickedLca - d). A node on
-    // both sides keeps its smaller (focus-side) distance.
-    for (const [id, d] of clickedAnc.depths) {
-      if (id === clickedId || !down.has(id)) continue;
-      if (graph.nodes.get(id)?.type !== "constraint") continue;
-      const total = fromFocusLca + (fromClickedLca - d);
+    shortestPathDown(graph, lca, focusId, focusAnc.depths, (id, left) => {
+      depthFromFocus.set(id, left);
+    });
+    shortestPathDown(graph, lca, clickedId, clickedAnc.depths, (id, left) => {
+      // d measures up from clicked; the distance from focus runs through
+      // the LCA. A node on both sides keeps its smaller (focus-side)
+      // distance.
+      const total = fromFocusLca + (fromClickedLca - left);
       const previous = depthFromFocus.get(id);
       if (previous === undefined || total < previous) depthFromFocus.set(id, total);
-    }
+    });
     // Endpoints are kept even when premises.
     depthFromFocus.set(focusId, 0);
     depthFromFocus.set(clickedId, fromFocusLca + fromClickedLca);
@@ -257,6 +251,38 @@ function ancestorRange(
     if (clickedDepth !== undefined) depthFromFocus.set(clickedId, clickedDepth);
   }
   return { mode: "ancestor", nodes: materialize(graph, depthFromFocus, ids) };
+}
+
+/**
+ * One shortest constraint path from the LCA down to an endpoint: at each
+ * hop the id-ascending direct dependent whose remaining depth to the
+ * endpoint is exactly one less. Intermediates need no type filter — a
+ * dependent must carry grounds, so premises never appear mid-path. Only
+ * constraints are assigned: a premise LCA is neither a constraint nor an
+ * endpoint, and the endpoints themselves are the caller's to set.
+ */
+function shortestPathDown(
+  graph: Graph,
+  lcaId: string,
+  endId: string,
+  depths: Map<string, number>,
+  assign: (id: string, left: number) => void,
+): void {
+  let current = lcaId;
+  if (graph.nodes.get(current)?.type === "constraint") assign(current, depths.get(current)!);
+  while (current !== endId) {
+    const remaining = depths.get(current)!;
+    let next: string | undefined;
+    for (const entry of getDependents(graph, current, { maxDepth: 1 })) {
+      if (depths.get(entry.node.id) !== remaining - 1) continue;
+      if (next === undefined || entry.node.id < next) next = entry.node.id;
+    }
+    if (next === undefined) break; // unreachable while the depths agree
+    current = next;
+    if (graph.nodes.get(current)?.type === "constraint") {
+      assign(current, depths.get(current)!);
+    }
+  }
 }
 
 function materialize(
