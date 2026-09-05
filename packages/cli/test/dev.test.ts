@@ -30,21 +30,38 @@ interface ListedNode {
   grounds?: string[];
 }
 
-/** Longest constraint-chain in the listed graph (premises do not extend chains). */
-function maxChainDepth(nodes: ListedNode[]): number {
+/** Constraint-chain depth per constraint id (premises do not extend chains). */
+function constraintDepths(nodes: ListedNode[]): Map<string, number> {
   const constraints = nodes.filter((n) => n.type === "constraint");
   const depths = new Map<string, number>();
   const depth = (id: string): number => {
+    const node = constraints.find((n) => n.id === id);
+    // Premises (and any unknown id) never extend a chain; they must not
+    // enter the map, or layer statistics would count them as a layer.
+    if (node === undefined) return 0;
     const cached = depths.get(id);
     if (cached !== undefined) return cached;
     depths.set(id, 0); // cycle guard; the graph is a DAG
-    const node = constraints.find((n) => n.id === id);
-    // Grounds may reference premises, which never extend a chain.
-    const value = node === undefined ? 0 : 1 + Math.max(-1, ...node.grounds!.map(depth));
+    const value = 1 + Math.max(-1, ...node.grounds!.map(depth));
     depths.set(id, value);
     return value;
   };
-  return Math.max(0, ...constraints.map((n) => depth(n.id)));
+  for (const node of constraints) depth(node.id);
+  return depths;
+}
+
+/** Longest constraint-chain in the listed graph. */
+function maxChainDepth(nodes: ListedNode[]): number {
+  return Math.max(0, ...constraintDepths(nodes).values());
+}
+
+/** Number of constraints per layer, ordered from the shallowest layer. */
+function layerSizes(nodes: ListedNode[]): number[] {
+  const sizes = new Map<number, number>();
+  for (const depth of constraintDepths(nodes).values()) {
+    sizes.set(depth, (sizes.get(depth) ?? 0) + 1);
+  }
+  return [...sizes.entries()].sort(([a], [b]) => a - b).map(([, size]) => size);
 }
 
 /**
@@ -53,22 +70,12 @@ function maxChainDepth(nodes: ListedNode[]): number {
  * across several. Same seed and options give exact, stable numbers.
  */
 function groundLayerSpans(nodes: ListedNode[]): { single: number; multi: number } {
-  const constraints = nodes.filter((n) => n.type === "constraint");
   const premiseIds = new Set(nodes.filter((n) => n.type === "premise").map((n) => n.id));
-  const depths = new Map<string, number>();
-  const depth = (id: string): number => {
-    const cached = depths.get(id);
-    if (cached !== undefined) return cached;
-    depths.set(id, 0); // cycle guard; the graph is a DAG
-    const node = constraints.find((n) => n.id === id);
-    const value = node === undefined ? 0 : 1 + Math.max(-1, ...node.grounds!.map(depth));
-    depths.set(id, value);
-    return value;
-  };
+  const depths = constraintDepths(nodes);
   const spans = { single: 0, multi: 0 };
-  for (const node of constraints) {
+  for (const node of nodes.filter((n) => n.type === "constraint")) {
     if ((node.grounds?.length ?? 0) === 0) continue; // roots span nothing
-    const layers = new Set(node.grounds!.map((g) => (premiseIds.has(g) ? -1 : depth(g))));
+    const layers = new Set(node.grounds!.map((g) => (premiseIds.has(g) ? -1 : depths.get(g)!)));
     spans[layers.size > 1 ? "multi" : "single"]++;
   }
   return spans;
@@ -300,10 +307,14 @@ describe("refino dev (hidden command)", () => {
       // Default cross-layer ratio 0.2; the exact counts are stable for a
       // fixed seed and lock the distribution against regressions.
       const spans = groundLayerSpans(nodes);
-      expect(spans.single).toBe(32);
-      expect(spans.multi).toBe(9);
+      expect(spans.single).toBe(34);
+      expect(spans.multi).toBe(7);
       expect(spans.single).toBeGreaterThan(spans.multi * 2);
-      expect(maxChainDepth(nodes)).toBeGreaterThanOrEqual(2);
+      // The graph must not collapse into its first layers: real refinement
+      // graphs keep several levels with no layer holding most nodes.
+      expect(maxChainDepth(nodes)).toBeGreaterThanOrEqual(4);
+      const constraints = nodes.filter((n) => n.type === "constraint").length;
+      expect(Math.max(...layerSizes(nodes))).toBeLessThan(constraints / 3);
     } finally {
       await removeRefino(root);
     }
@@ -382,8 +393,8 @@ describe("refino dev (hidden command)", () => {
         constraints.filter((n) => n.grounds !== undefined && n.grounds.length > 1),
       ).toHaveLength(0);
       // Deterministic for the fixed seed; deeper layers keep receiving
-      // anchors, so the graph does not collapse into a flat fan.
-      expect(maxChainDepth(nodes)).toBe(3);
+      // anchors, so the graph grows past a flat fan.
+      expect(maxChainDepth(nodes)).toBe(4);
     } finally {
       await removeRefino(root);
     }

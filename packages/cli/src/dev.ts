@@ -129,11 +129,14 @@ export function generateCrg(params: GenerateCrgParams, rand: () => number): Gene
       addConstraint(i, takeDistinct(sources, count, rand));
       continue;
     }
-    // Deeper layers attract more refinements: square-bias the layer pick so
-    // the frontier keeps growing while earlier layers still receive children.
-    const layerIndex = Math.min(
-      eligibleLayers.length - 1,
-      Math.floor(rand() * rand() * eligibleLayers.length),
+    // Deeper layers attract more refinements: square-bias the layer pick
+    // toward the deep end (rand()² skews small, so count the index down from
+    // the deepest). The frontier keeps growing while earlier layers still
+    // receive children — without the bias most nodes would pile up at the
+    // shallowest layer.
+    const layerIndex = Math.max(
+      0,
+      eligibleLayers.length - 1 - Math.floor(rand() * rand() * eligibleLayers.length),
     );
     const [, anchorLayer] = eligibleLayers[layerIndex]!;
     const anchor = anchorLayer[anchorLayer.length - 1]!; // newest member
