@@ -18,11 +18,13 @@ export interface GenerateCrgParams {
   /** Fraction of premises among all nodes, 0-1. */
   premiseRatio: number;
   /**
-   * Number of root constraints (empty grounds). Defaults to roughly 20% of
-   * the constraints when omitted.
+   * Number of root constraints (empty grounds). Defaults to 1 when omitted.
    */
   roots?: number;
-  /** Maximum number of grounds per non-root constraint (>= 1). */
+  /**
+   * Maximum number of grounds per non-root constraint (>= 1). Defaults to
+   * 8 when omitted.
+   */
   maxGrounds: number;
   /**
    * Maximum constraint-chain depth (>= 1): no constraint grounds on a
@@ -52,7 +54,7 @@ export interface GeneratedNode {
 export function generateCrg(params: GenerateCrgParams, rand: () => number): GeneratedNode[] {
   const premiseCount = Math.round(params.nodes * params.premiseRatio);
   const constraintCount = params.nodes - premiseCount;
-  const rootCount = params.roots ?? Math.max(1, Math.ceil(constraintCount * 0.2));
+  const rootCount = params.roots ?? 1;
   if (rootCount > constraintCount) {
     throw new Error(
       `--roots ${rootCount} exceeds the ${constraintCount} constraints implied by --nodes and --premise-ratio`,
@@ -151,14 +153,15 @@ export function createDevCommand(io: CliIo, run: RunFn): Command {
     )
     .option(
       "--roots <n>",
-      "number of root constraints with empty grounds (default: ~20% of constraints)",
+      "number of root constraints with empty grounds (default 1)",
       intAtLeast(0),
+      1,
     )
     .option(
       "--max-grounds <n>",
-      "maximum grounds per non-root constraint (default 2)",
+      "maximum grounds per non-root constraint (default 8)",
       intAtLeast(1),
-      2,
+      8,
     )
     .option("--max-depth <n>", "maximum constraint-chain depth (default unlimited)", intAtLeast(1))
     .option(
