@@ -5,6 +5,10 @@
  * - premise nodes: objective project facts, never have `grounds`;
  * - constraint nodes: project decisions, optionally grounded on premises
  *   and/or upstream constraints.
+ *
+ * A `grounds` field on a premise is an ordinary misplaced attribute, exactly
+ * like any unknown frontmatter field: producers silently ignore it. Edges
+ * only ever come from constraint `grounds`.
  */
 
 export type NodeType = "premise" | "constraint";
@@ -78,8 +82,6 @@ export type QueryGroup<T> = { id: string; results: T[] } | { id: string; error: 
 export enum IssueCode {
   /** A node id (from any source) fails the engine's id rule. */
   InvalidId = "INVALID_ID",
-  /** A premise declares `grounds` (parse) or grounds are applied to a premise target (write check). */
-  PremiseWithGrounds = "PREMISE_WITH_GROUNDS",
   /** A `grounds` list or entry is malformed, or lists the same id more than once. */
   InvalidGrounds = "INVALID_GROUNDS",
   /** `confirmed` is not an RFC 3339 timestamp with an explicit UTC offset. */

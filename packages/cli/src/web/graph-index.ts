@@ -422,7 +422,7 @@ export class GraphIndex {
           });
         }
       } else {
-        found.push(...checkGroundsChange(this.#graph, id, node.grounds));
+        found.push(...checkGroundsChange(this.#graph, node, node.grounds));
       }
       if (found.length > 0) this.#graphIssues.set(id, found);
     }

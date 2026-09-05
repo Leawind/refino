@@ -199,14 +199,18 @@ describe("parseNodeSource", () => {
     expect(issues.map((i) => i.code)).toEqual([StorageIssueCode.InvalidFrontmatter]);
   });
 
-  it.each([
-    [
-      "premise with grounds",
+  it("silently ignores grounds declared on a premise file", () => {
+    const { node, issues } = parseNodeSource(
+      "2B3C4D5E",
       "nodes/1A/2B3C4D-premise.md",
       "premise",
       "---\ngrounds: [A1B2C3D4]\n---\n\nBody.\n",
-      IssueCode.PremiseWithGrounds,
-    ],
+    );
+    expect(issues).toEqual([]);
+    expect(node).toEqual({ id: "2B3C4D5E", type: "premise", summary: "Body.", body: "Body." });
+  });
+
+  it.each([
     [
       "grounds not a list",
       "nodes/A1/B2C3D4-constraint.md",

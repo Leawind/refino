@@ -310,7 +310,7 @@ describe("refino cli", () => {
       }
     });
 
-    it("rejects missing nodes, type mismatches, empty edits and invalid values", async () => {
+    it("rejects missing nodes and empty edits, ignores misplaced options, validates values", async () => {
       const emptyRoot = await createRefino({});
       try {
         await run(["--root", emptyRoot, "new", "premise", "--id", "1A2B3C4D", "--body", "Fact."]);
@@ -323,6 +323,8 @@ describe("refino cli", () => {
         expect(noFields.code).toBe(1);
         expect(noFields.err).toContain("at least one field");
 
+        // Misplaced options are silently ignored, not rejected
+        // (docs/design.md, "存储格式容错").
         const premiseRationale = await run([
           "--root",
           emptyRoot,
@@ -331,8 +333,7 @@ describe("refino cli", () => {
           "--rationale",
           "x",
         ]);
-        expect(premiseRationale.code).toBe(1);
-        expect(premiseRationale.err).toContain("do not support");
+        expect(premiseRationale.code).toBe(0);
 
         const badConfirmed = await run([
           "--root",
@@ -356,8 +357,7 @@ describe("refino cli", () => {
           "Decision.",
         ]);
         const constraintConfirmed = await run(["--root", emptyRoot, "update", "D4E5F6G7", "--now"]);
-        expect(constraintConfirmed.code).toBe(1);
-        expect(constraintConfirmed.err).toContain("do not support");
+        expect(constraintConfirmed.code).toBe(0);
 
         const unknownGround = await run([
           "--root",

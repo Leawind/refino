@@ -1,4 +1,10 @@
-import { IssueCode, type Graph, type RefinoIssue, type RefinoNode } from "./types.js";
+import {
+  IssueCode,
+  type ConstraintNode,
+  type Graph,
+  type RefinoIssue,
+  type RefinoNode,
+} from "./types.js";
 
 /** RFC 3339 timestamp; the UTC offset (Z or ±HH:MM) is mandatory. */
 const CONFIRMED_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
@@ -14,8 +20,9 @@ export function isValidConfirmed(value: string): boolean {
  * 2. every `grounds` reference resolves to an existing node;
  * 3. constraint -> constraint paths are acyclic.
  *
- * (Parse-level rules — unique ids, id validity, no `grounds` on
- * premises — are checked while loading; see `loadGraph`.)
+ * (Parse-level rules — unique ids, id validity — are checked while loading;
+ * see `loadGraph`. A `grounds` field on a premise is a misplaced attribute
+ * and silently ignored, not a validation target.)
  *
  * Cycle reporting is deterministic: each distinct cycle is reported once,
  * rotated so its smallest id comes first.
@@ -32,7 +39,7 @@ export function validateGraph(graph: Graph): RefinoIssue[] {
           nodeId: node.id,
         });
       }
-      continue; // premises declare no grounds
+      continue; // edges only come from constraint grounds
     }
     for (const ground of node.grounds) {
       if (!graph.nodes.has(ground)) {
@@ -51,41 +58,30 @@ export function validateGraph(graph: Graph): RefinoIssue[] {
 }
 
 /**
- * Validate a prospective change of a node's grounds against the current
+ * Validate a prospective change of a constraint's grounds against the current
  * graph without mutating it. All write paths call this before persisting, so
  * graph-level grounds validation has a single source. Reports:
  *
- * - the target id does not exist (NODE_NOT_FOUND);
- * - grounds on a premise target (PREMISE_WITH_GROUNDS);
  * - repeated ground ids (INVALID_GROUNDS) — the storage format deduplicates
  *   grounds on load, so writing them would not round-trip;
  * - grounds referencing nodes that do not exist (UNKNOWN_GROUND);
  * - cycles the change would close (CYCLE) — a ground that is the target
  *   itself or reaches it along existing grounds edges.
  *
- * Pre-existing issues elsewhere in the graph are not reported; callers run
- * `validateGraph` for the full picture. Ground entries are not shape-checked:
- * an entry that cannot be a node id simply does not resolve.
+ * The target is a constraint node whose `id` locates the change within
+ * `graph` (a missing id is the caller's error, not an issue here); a premise
+ * target is unrepresentable — premises take no grounds, and misplaced
+ * grounds are silently ignored everywhere. Pre-existing issues elsewhere in
+ * the graph are not reported; callers run `validateGraph` for the full
+ * picture. Ground entries are not shape-checked: an entry that cannot be a
+ * node id simply does not resolve.
  */
 export function checkGroundsChange(
   graph: Graph,
-  id: string,
+  node: ConstraintNode,
   newGrounds: readonly string[],
 ): RefinoIssue[] {
-  const target = graph.nodes.get(id);
-  if (!target) {
-    return [{ code: IssueCode.NodeNotFound, message: `Node "${id}" not found`, nodeId: id }];
-  }
-  if (target.type === "premise" && newGrounds.length > 0) {
-    return [
-      {
-        code: IssueCode.PremiseWithGrounds,
-        message: `Premise "${id}" must not declare "grounds".`,
-        nodeId: id,
-      },
-    ];
-  }
-
+  const id = node.id;
   const issues: RefinoIssue[] = [];
   // Insertion-ordered counts: one INVALID_GROUNDS per repeated id, and each
   // distinct id checked (and cycled) exactly once, in declared order.

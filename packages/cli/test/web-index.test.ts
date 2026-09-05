@@ -191,17 +191,17 @@ describe("GraphIndex incremental updates", () => {
     await index.ready();
     expect(index.issues()).toEqual([]);
 
-    // A premise declaring grounds: a parse-level issue invisible to the
-    // structural recheck, reported by readNode only.
+    // A premise with an empty "summary" frontmatter field: a parse-level
+    // issue invisible to the structural recheck, reported by readNode only.
     const shardDir = join(refinoDir, "nodes", "9A");
     await mkdir(shardDir, { recursive: true });
     await writeFile(
       join(shardDir, "ABCDEF1-premise.md"),
-      "---\ngrounds: [1A2B3C4D]\n---\n\n前提声明了 grounds。\n",
+      '---\nsummary: ""\n---\n\n摘要字段为空的前提。\n',
       "utf8",
     );
     await index.applyChange({ changed: ["9AABCDEF1"] });
-    expect(index.issues().some((i) => i.code === IssueCode.PremiseWithGrounds)).toBe(true);
+    expect(index.issues().some((i) => i.code === StorageIssueCode.InvalidFrontmatter)).toBe(true);
 
     // Repairing the file clears the issue through the same entry.
     await writeFile(join(shardDir, "ABCDEF1-premise.md"), "修复后的前提。\n", "utf8");
@@ -221,17 +221,17 @@ describe("GraphIndex incremental updates", () => {
     await mkdir(shardDir, { recursive: true });
     await writeFile(
       join(shardDir, "ABCDEF2-premise.md"),
-      "---\ngrounds: [1A2B3C4D]\n---\n\n带依据的前提。\n",
+      '---\nsummary: ""\n---\n\n带空摘要的前提。\n',
       "utf8",
     );
     const dependent = await createConstraint(refinoDir, { body: "下游。", grounds: ["9BABCDEF2"] });
     await index.applyChange({ changed: ["9BABCDEF2", dependent] });
-    expect(index.issues().some((i) => i.code === IssueCode.PremiseWithGrounds)).toBe(true);
+    expect(index.issues().some((i) => i.code === StorageIssueCode.InvalidFrontmatter)).toBe(true);
 
     // A change to the dependent rechecks the premise too; its parse issue survives.
     await updateConstraint(refinoDir, dependent, { body: "下游改。", grounds: ["9BABCDEF2"] });
     await index.applyChange({ changed: [dependent] });
-    expect(index.issues().some((i) => i.code === IssueCode.PremiseWithGrounds)).toBe(true);
+    expect(index.issues().some((i) => i.code === StorageIssueCode.InvalidFrontmatter)).toBe(true);
 
     await deleteNode(refinoDir, dependent);
     await index.applyChange({ changed: [dependent] });

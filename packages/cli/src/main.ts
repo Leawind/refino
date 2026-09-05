@@ -28,7 +28,14 @@ import {
   requireNode,
   validateGraph,
 } from "refino";
-import type { Graph, NodeWithDepth, QueryGroup, RefinoIssue, RefinoNode } from "refino";
+import type {
+  ConstraintNode,
+  Graph,
+  NodeWithDepth,
+  QueryGroup,
+  RefinoIssue,
+  RefinoNode,
+} from "refino";
 import { processIo, renderFullRecord, renderIssues, renderNodeTable } from "./format.js";
 import type { CliIo } from "./format.js";
 import { startWebServer } from "./web/server.js";
@@ -273,12 +280,8 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
             // engine's shared write-path primitive. Pre-existing parse issues
             // elsewhere in the graph must not block creation.
             const graph = await loadGraphForWrite(refinoDir(opts));
-            const probeId = id ?? freshProbeId(graph);
-            const groundIssues = checkGroundsChange(
-              withPhantomConstraint(graph, probeId, groundIds),
-              probeId,
-              groundIds,
-            );
+            const probe = withPhantomConstraint(graph, id ?? freshProbeId(graph), groundIds);
+            const groundIssues = checkGroundsChange(probe.graph, probe.node, groundIds);
             if (groundIssues.length > 0) {
               io.stderr.write(`${renderIssues(groundIssues)}\n`);
               return 1;
@@ -340,55 +343,16 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
         }
         const node = read.node;
 
-        if (node.type === "premise" && (o.rationale !== undefined || o.grounds !== undefined)) {
-          io.stderr.write("error: premises do not support --rationale or --grounds\n");
-          return 1;
-        }
-        if (node.type === "constraint" && (o.confirmed !== undefined || o.now === true)) {
-          io.stderr.write("error: constraints do not support --confirmed or --now\n");
-          return 1;
-        }
-        if (o.now === true && o.confirmed !== undefined) {
-          io.stderr.write("error: --now and --confirmed are mutually exclusive\n");
-          return 1;
-        }
         if (o.summary !== undefined && o.summary.trim() === "") {
           io.stderr.write("error: --summary must be a non-empty string\n");
           return 1;
         }
-        if (o.confirmed !== undefined && !isValidConfirmed(o.confirmed)) {
-          io.stderr.write(
-            `error: "confirmed" must be an RFC 3339 timestamp with an explicit UTC offset (Z or ±HH:MM), got "${o.confirmed}"\n`,
-          );
-          return 1;
-        }
-
-        let grounds: string[] | undefined;
-        if (o.grounds !== undefined) {
-          grounds = (o.grounds ?? "")
-            .split(",")
-            .map((s) => s.trim())
-            .filter((s) => s.length > 0);
-          const invalidGround = grounds.find((g) => !ID_RE.test(g));
-          if (invalidGround !== undefined) {
-            io.stderr.write(
-              `error: invalid ground id "${invalidGround}" (must be 3-16 characters of A-Z, 0-9 or _)\n`,
-            );
-            return 1;
-          }
-          // The node exists here, so the shared write-path primitive applies
-          // directly; pre-existing issues elsewhere must not block the update.
-          const graph = await loadGraphForWrite(dir);
-          const groundIssues = checkGroundsChange(graph, id, grounds);
-          if (groundIssues.length > 0) {
-            io.stderr.write(`${renderIssues(groundIssues)}\n`);
-            return 1;
-          }
-        }
 
         // Partial update: unspecified fields keep their current value. A
         // summary that was derived from the body stays derived (not passed),
-        // so updating the body keeps the fallback in sync.
+        // so updating the body keeps the fallback in sync. Options that do
+        // not apply to the node's type are misplaced attributes and silently
+        // ignored (docs/design.md, "存储格式容错").
         const summary =
           o.summary !== undefined
             ? o.summary
@@ -396,12 +360,44 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
               ? node.summary
               : undefined;
         if (node.type === "premise") {
+          if (o.now === true && o.confirmed !== undefined) {
+            io.stderr.write("error: --now and --confirmed are mutually exclusive\n");
+            return 1;
+          }
+          if (o.confirmed !== undefined && !isValidConfirmed(o.confirmed)) {
+            io.stderr.write(
+              `error: "confirmed" must be an RFC 3339 timestamp with an explicit UTC offset (Z or ±HH:MM), got "${o.confirmed}"\n`,
+            );
+            return 1;
+          }
           await updatePremise(dir, id, {
             body: o.body ?? node.body,
             summary,
             confirmed: o.now === true ? new Date().toISOString() : (o.confirmed ?? node.confirmed),
           });
         } else {
+          let grounds: string[] | undefined;
+          if (o.grounds !== undefined) {
+            grounds = o.grounds
+              .split(",")
+              .map((s) => s.trim())
+              .filter((s) => s.length > 0);
+            const invalidGround = grounds.find((g) => !ID_RE.test(g));
+            if (invalidGround !== undefined) {
+              io.stderr.write(
+                `error: invalid ground id "${invalidGround}" (must be 3-16 characters of A-Z, 0-9 or _)\n`,
+              );
+              return 1;
+            }
+            // The node exists here, so the shared write-path primitive applies
+            // directly; pre-existing issues elsewhere must not block the update.
+            const graph = await loadGraphForWrite(dir);
+            const groundIssues = checkGroundsChange(graph, node, grounds);
+            if (groundIssues.length > 0) {
+              io.stderr.write(`${renderIssues(groundIssues)}\n`);
+              return 1;
+            }
+          }
           await updateConstraint(dir, id, {
             body: o.body ?? node.body,
             summary,
@@ -675,20 +671,20 @@ function nodeJson(node: RefinoNode): Record<string, unknown> {
 
 /**
  * Grounds check for a not-yet-persisted constraint. The shared primitive
- * requires the target to exist, so a phantom node is inserted into a copy of
- * the graph; a brand-new node has no dependents and cannot close a cycle, so
- * the check reduces to unknown/duplicate reference reporting.
+ * targets a constraint node located in the graph, so a phantom node is
+ * inserted into a copy of the graph; a brand-new node has no dependents and
+ * cannot close a cycle, so the check reduces to unknown/duplicate reference
+ * reporting.
  */
-function withPhantomConstraint(graph: Graph, id: string, grounds: string[]): Graph {
+function withPhantomConstraint(
+  graph: Graph,
+  id: string,
+  grounds: string[],
+): { graph: Graph; node: ConstraintNode } {
+  const node: ConstraintNode = { id, type: "constraint", summary: "", body: "", grounds };
   const nodes = new Map(graph.nodes);
-  nodes.set(id, {
-    id,
-    type: "constraint",
-    summary: "",
-    body: "",
-    grounds,
-  });
-  return { ...graph, nodes };
+  nodes.set(id, node);
+  return { graph: { ...graph, nodes }, node };
 }
 
 /** Fresh id for the phantom node of `withPhantomConstraint`. */

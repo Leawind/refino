@@ -208,18 +208,14 @@ async function updatePremiseNode(
   node: RefinoNode & { type: "premise" },
   args: UpdateArgs,
 ): Promise<WriteResult> {
-  if (args.grounds !== undefined) {
-    return { ok: false, error: "前提不携带 grounds" };
-  }
-  if (args.rationale !== undefined) {
-    return { ok: false, error: "前提不携带 rationale" };
-  }
   if (args.body !== undefined && args.body === "") {
     return { ok: false, error: "body 不能为空" };
   }
   if (args.confirmed !== undefined && args.confirmed !== "" && !isValidConfirmed(args.confirmed)) {
     return invalidConfirmed(args.confirmed);
   }
+  // Rationale and grounds do not apply to premises; per the misplaced-field
+  // policy they are silently ignored instead of rejected.
   const summary = await mergedSummary(ws, node.id, args);
   if (typeof summary === "object") return summary;
   try {
@@ -245,14 +241,13 @@ async function updateConstraintNode(
   node: RefinoNode & { type: "constraint" },
   args: UpdateArgs,
 ): Promise<WriteResult> {
-  if (args.confirmed !== undefined) {
-    return { ok: false, error: "confirmed 仅适用于前提节点" };
-  }
   if (args.body !== undefined && args.body === "") {
     return { ok: false, error: "body 不能为空" };
   }
+  // `confirmed` does not apply to constraints; per the misplaced-field policy
+  // it is silently ignored instead of rejected.
   if (args.grounds !== undefined) {
-    const issues = checkGroundsChange(ws.graph, node.id, args.grounds);
+    const issues = checkGroundsChange(ws.graph, node, args.grounds);
     if (issues.length > 0) {
       return { ok: false, error: "grounds 校验未通过", issues: issues.map(issueLite) };
     }
@@ -336,7 +331,7 @@ function checkProspectiveGrounds(
     grounds,
   };
   const prospective = buildGraph([...graph.nodes.values(), synthetic]);
-  return checkGroundsChange(prospective, id, grounds);
+  return checkGroundsChange(prospective, synthetic, grounds);
 }
 
 function escalationResult(id: string, affected: NodeWithDepth[]): WriteResult {

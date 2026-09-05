@@ -124,7 +124,8 @@ async function create(
     const body = readRequiredString(payload, "body");
     const summary = readString(payload, "summary");
     // A brand-new id has no dependents, so only reference existence can be
-    // violated; cycles and premise grounds are impossible by construction.
+    // violated; cycles are impossible by construction. Grounds sent for a
+    // premise are a misplaced attribute and silently ignored.
     const grounds = resolveGrounds(payload);
     if (type === "constraint") {
       const missing = grounds.find((g) => !index.graph.nodes.has(g));
@@ -205,7 +206,7 @@ export async function putNode(c: Context, index: GraphIndex): Promise<Response> 
       });
     } else {
       const grounds = resolveGrounds(payload);
-      const issues = checkGroundsChange(index.graph, id, grounds);
+      const issues = checkGroundsChange(index.graph, entry.node, grounds);
       if (issues.length > 0) {
         return c.json({ error: "Invalid grounds change.", issues }, 400);
       }
@@ -276,12 +277,6 @@ async function createWithId(c: Context, index: GraphIndex, id: string): Promise<
     );
   }
   const grounds = resolveGrounds(payload);
-  if (type === "premise" && grounds.length > 0) {
-    throw new RefinoError(
-      IssueCode.PremiseWithGrounds,
-      `Premise "${id}" must not declare "grounds".`,
-    );
-  }
   if (type === "constraint") {
     const missing = grounds.find((g) => !index.graph.nodes.has(g));
     if (missing !== undefined) {

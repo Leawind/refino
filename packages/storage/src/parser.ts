@@ -85,7 +85,11 @@ export function parseNodeSource(
   return { node, issues, summaryExplicit };
 }
 
-/** Premise fields: `confirmed`; a declared `grounds` is reported as an issue. */
+/**
+ * Premise fields: `confirmed`. A declared `grounds` is a misplaced attribute
+ * (edges only come from constraint grounds) and is silently ignored, like any
+ * unknown frontmatter field — no issue is reported.
+ */
 function parsePremise(
   base: { id: string; summary: string; body: string },
   fields: Record<string, unknown>,
@@ -94,14 +98,6 @@ function parsePremise(
   issues: StorageIssue[],
 ): PremiseNode {
   const node: PremiseNode = { ...base, type: "premise" };
-  if (fields["grounds"] !== undefined && fields["grounds"] !== null) {
-    issues.push({
-      code: IssueCode.PremiseWithGrounds,
-      message: 'Premise nodes must not declare "grounds".',
-      file,
-      nodeId: id,
-    });
-  }
   const confirmed = fields["confirmed"];
   if (confirmed !== undefined && confirmed !== null) {
     if (typeof confirmed === "string" && confirmed.trim() === confirmed && confirmed !== "") {
