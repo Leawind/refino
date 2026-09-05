@@ -2,7 +2,8 @@ import { join } from "node:path";
 import { rm } from "node:fs/promises";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createWebApp } from "../src/web/server.js";
-import { GraphIndex } from "../src/web/graph-index.js";
+import { RefinoStore } from "@refino/storage";
+import { WebState } from "../src/web/web-state.js";
 import { constraint, createRefino, premise, removeRefino } from "@refino/testkit";
 
 /**
@@ -132,16 +133,22 @@ describe("GET /api/pending", () => {
 
 describe("pending derivation for externally deleted nodes", () => {
   it("adds the pre-mutation dependents of a deleted change target", async () => {
-    // A fresh index over the same directory starts with an empty window.
-    const index = new GraphIndex(refinoDir);
-    await index.ready();
-    expect(index.pending()).toHaveLength(0);
+    // A fresh web state over the same directory starts with an empty window.
+    const store = RefinoStore.open(refinoDir);
+    const web = new WebState(store);
+    try {
+      await store.ready();
+      expect(web.pending()).toHaveLength(0);
 
-    // Deleting P1 externally leaves C1 (its dependent, captured pre-mutation)
-    // reviewing the removal.
-    await rm(join(refinoDir, "nodes", "1A", "2B3C4D-premise.md"));
-    const event = await index.applyChange({ deleted: [P1], origin: "file" });
-    expect(event?.deleted).toEqual([P1]);
-    expect(index.pending().map((n) => n.id)).toEqual([C1]);
+      // Deleting P1 externally leaves C1 (its dependent, captured pre-mutation)
+      // reviewing the removal.
+      await rm(join(refinoDir, "nodes", "1A", "2B3C4D-premise.md"));
+      const event = await store.applyChange({ deleted: [P1], origin: "file" });
+      expect(event?.deleted).toEqual([P1]);
+      expect(web.pending().map((n) => n.id)).toEqual([C1]);
+    } finally {
+      web.close();
+      store.close();
+    }
   });
 });

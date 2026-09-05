@@ -1,16 +1,15 @@
 import { join } from "node:path";
-import { mkdir, rename, writeFile } from "node:fs/promises";
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
 import { createWebApp } from "../src/web/server.js";
-import { GraphIndex } from "../src/web/graph-index.js";
-import { createConstraint, deleteNode, StorageIssueCode, updateConstraint } from "@refino/storage";
+import { createConstraint, updateConstraint } from "@refino/storage";
 import { constraint, createRefino, premise, removeRefino } from "@refino/testkit";
 import { IssueCode } from "refino";
 
 /**
- * Resident-index behavior: optimistic concurrency on PUT, external-write
- * absorption via reload, incremental issue rechecks and no-op suppression
- * (docs/design.md, "服务端常驻索引架构" and "外部变更同步").
+ * Web-level resident behavior over the storage Store: optimistic concurrency
+ * on PUT, external-write absorption via reload and issue surfacing
+ * (docs/design.md, "服务端常驻索引架构" and "外部变更同步"). The store's own
+ * incremental-update semantics live in @refino/storage's tests.
  */
 
 let root: string;
@@ -137,151 +136,5 @@ describe("external writes", () => {
     const afterBody = (await after.json()) as { revision: number; nodes: Array<{ id: string }> };
     expect(afterBody.nodes.some((n) => n.id === newId)).toBe(true);
     expect(afterBody.revision).toBe(event.revision);
-  });
-});
-
-describe("GraphIndex incremental updates", () => {
-  it("suppresses no-op notifications and reports real changes and deletions", async () => {
-    const index = new GraphIndex(refinoDir);
-    await index.ready();
-    const start = index.revision;
-
-    // Re-announcing an unchanged file is a no-op: no revision bump, no event.
-    expect(await index.applyChange({ changed: [C1] })).toBeUndefined();
-    expect(index.revision).toBe(start);
-
-    // A real content change bumps the revision and reports the id.
-    await updateConstraint(refinoDir, C1, { body: "增量更新的内容。", grounds: [P1] });
-    const changed = await index.applyChange({ changed: [C1] });
-    expect(changed).toEqual({ revision: start + 1, changed: [C1], deleted: [] });
-    expect((await index.readContent(C1))?.body).toBe("增量更新的内容。");
-
-    // An externally deleted file read back as absent turns into a deletion.
-    await deleteNode(refinoDir, C1);
-    const deleted = await index.applyChange({ changed: [C1] });
-    expect(deleted).toEqual({ revision: start + 2, changed: [], deleted: [C1] });
-    expect(index.entry(C1)).toBeUndefined();
-  });
-
-  it("rechecks issues incrementally without a full reload", async () => {
-    const index = new GraphIndex(refinoDir);
-    await index.ready();
-    const newId = await createConstraint(refinoDir, { body: "悬空依据。", grounds: [P1] });
-    await index.applyChange({ changed: [newId] });
-    expect(index.issues().some((i) => i.code === IssueCode.UnknownGround)).toBe(false);
-
-    // Break the ground externally: the dependent's issue must appear through
-    // the same incremental entry, scoped to the affected nodes.
-    await updateConstraint(refinoDir, newId, { body: "悬空依据。", grounds: ["ZZZZZZZZ"] });
-    await index.applyChange({ changed: [newId] });
-    expect(
-      index.issues().some((i) => i.code === IssueCode.UnknownGround && i.nodeId === newId),
-    ).toBe(true);
-
-    // Repairing the file clears the issue again.
-    await updateConstraint(refinoDir, newId, { body: "悬空依据。", grounds: [P1] });
-    await index.applyChange({ changed: [newId] });
-    expect(index.issues()).toEqual([]);
-    await deleteNode(refinoDir, newId);
-    await index.applyChange({ changed: [newId] });
-  });
-
-  it("surfaces parse issues from external changes without a reload", async () => {
-    const index = new GraphIndex(refinoDir);
-    await index.ready();
-    expect(index.issues()).toEqual([]);
-
-    // A premise with an empty "summary" frontmatter field: a parse-level
-    // issue invisible to the structural recheck, reported by readNode only.
-    const shardDir = join(refinoDir, "nodes", "9A");
-    await mkdir(shardDir, { recursive: true });
-    await writeFile(
-      join(shardDir, "ABCDEF1-premise.md"),
-      '---\nsummary: ""\n---\n\n摘要字段为空的前提。\n',
-      "utf8",
-    );
-    await index.applyChange({ changed: ["9AABCDEF1"] });
-    expect(index.issues().some((i) => i.code === StorageIssueCode.InvalidFrontmatter)).toBe(true);
-
-    // Repairing the file clears the issue through the same entry.
-    await writeFile(join(shardDir, "ABCDEF1-premise.md"), "修复后的前提。\n", "utf8");
-    const event = await index.applyChange({ changed: ["9AABCDEF1"] });
-    expect(event?.changed).toEqual(["9AABCDEF1"]);
-    expect(index.issues()).toEqual([]);
-  });
-
-  it("keeps a node's parse issues when only its dependents are rechecked", async () => {
-    const index = new GraphIndex(refinoDir);
-    await index.ready();
-
-    // P with a parse issue, grounded on by C: rechecking C (or any change
-    // touching C) pulls P into the affected set and must not erase P's own
-    // parse issue.
-    const shardDir = join(refinoDir, "nodes", "9B");
-    await mkdir(shardDir, { recursive: true });
-    await writeFile(
-      join(shardDir, "ABCDEF2-premise.md"),
-      '---\nsummary: ""\n---\n\n带空摘要的前提。\n',
-      "utf8",
-    );
-    const dependent = await createConstraint(refinoDir, { body: "下游。", grounds: ["9BABCDEF2"] });
-    await index.applyChange({ changed: ["9BABCDEF2", dependent] });
-    expect(index.issues().some((i) => i.code === StorageIssueCode.InvalidFrontmatter)).toBe(true);
-
-    // A change to the dependent rechecks the premise too; its parse issue survives.
-    await updateConstraint(refinoDir, dependent, { body: "下游改。", grounds: ["9BABCDEF2"] });
-    await index.applyChange({ changed: [dependent] });
-    expect(index.issues().some((i) => i.code === StorageIssueCode.InvalidFrontmatter)).toBe(true);
-
-    await deleteNode(refinoDir, dependent);
-    await index.applyChange({ changed: [dependent] });
-  });
-
-  it("reports parse issues of files that yield no node at all", async () => {
-    const index = new GraphIndex(refinoDir);
-    await index.ready();
-
-    // Broken YAML: readNode returns no node but reports the parse issue,
-    // keyed by file; the issue must surface through the incremental entry.
-    const shardDir = join(refinoDir, "nodes", "9C");
-    await mkdir(shardDir, { recursive: true });
-    await writeFile(
-      join(shardDir, "ABCDEF3-premise.md"),
-      "---\n\t[broken yaml\n---\n\n正文。\n",
-      "utf8",
-    );
-    const first = await index.applyChange({ changed: ["9CABCDEF3"] });
-    expect(first).toBeDefined();
-    expect(index.issues().some((i) => i.code === StorageIssueCode.InvalidFrontmatter)).toBe(true);
-
-    // A no-op echo of the same broken file must not bump the revision.
-    const revision = index.revision;
-    expect(await index.applyChange({ changed: ["9CABCDEF3"] })).toBeUndefined();
-    expect(index.revision).toBe(revision);
-  });
-
-  it("drops parse issues keyed by files that vanish within a touched shard", async () => {
-    const index = new GraphIndex(refinoDir);
-    await index.ready();
-
-    // A lowercase id segment cannot form a valid id; the parse issue is keyed by file.
-    const shardDir = join(refinoDir, "nodes", "AA");
-    const badFile = join(shardDir, "zz-premise.md");
-    await mkdir(shardDir, { recursive: true });
-    await writeFile(badFile, "---\ntype: constraint\nsummary: 形状非法\n---\n正文。\n", "utf8");
-    await index.reload();
-    const invalidIssue = () => index.issues().find((i) => i.code === IssueCode.InvalidId);
-    expect(invalidIssue()?.file).toBe("nodes/AA/zz-premise.md");
-
-    // Renaming it into shape reports the new id; the touched shard lets the
-    // index drop the stale file-keyed issue without a full reload.
-    await rename(badFile, join(shardDir, "7P8Q9R-premise.md"));
-    const event = await index.applyChange({ changed: ["AA7P8Q9R"], shards: ["AA"] });
-    expect(event).toBeDefined();
-    expect(index.entry("AA7P8Q9R")).toBeDefined();
-    expect(invalidIssue()).toBeUndefined();
-
-    // A shard-only batch without anything stale is a no-op.
-    expect(await index.applyChange({ shards: ["AA"] })).toBeUndefined();
   });
 });

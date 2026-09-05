@@ -1,6 +1,14 @@
 export { StorageIssueCode, type StorageIssue } from "./codes.js";
 export { loadGraph, readNode } from "./loader.js";
 export type { LoadResult, ReadNodeResult } from "./loader.js";
+export { RefinoStore, WriteRejected } from "./store.js";
+export type {
+  RefinoStoreOptions,
+  StoreChange,
+  StoreEntry,
+  StoreIssue,
+  WriteOutcome,
+} from "./store.js";
 export {
   confirmedToMs,
   confirmedToRfc3339,

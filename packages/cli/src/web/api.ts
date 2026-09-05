@@ -1,29 +1,25 @@
+import { getDependents, ID_RE, IssueCode, RefinoError } from "refino";
 import {
-  confirmedToMs,
-  createConstraint,
-  createPremise,
-  deleteNode,
-  isValidConfirmed,
-  updateConstraint,
-  updatePremise,
   StorageIssueCode,
+  WriteRejected,
+  confirmedToMs,
+  isValidConfirmed,
   type NodeContent,
+  type StoreIssue,
 } from "@refino/storage";
-import { checkGroundsChange, getDependents, ID_RE, IssueCode, RefinoError } from "refino";
 import type { Context } from "hono";
-import type { GraphIndex } from "./graph-index.js";
+import type { WebState } from "./web-state.js";
 
 /**
- * Read/write JSON API over the resident graph index. All endpoints return
- * JSON; errors are `{ error: string, issues?: RefinoIssue[] }` with a mapped
- * status code. Handlers assume the index is ready (the server awaits
- * `index.ready()` before dispatching).
+ * Read/write JSON API over the storage Store (docs/design.md, "存储层
+ * Store"). All endpoints return JSON; errors are
+ * `{ error: string, issues?: StoreIssue[] }` with a mapped status code.
+ * Handlers assume the store is ready (the server awaits `store.ready()`
+ * before dispatching).
  *
- * Grounds reference validity and cycles are checked before writing so the
- * stored files never become invalid through the API. Updates validate
- * through the engine's `checkGroundsChange` primitive (docs/design.md,
- * "引擎提供的共享原语"); creation of a brand-new node has no dependents, so
- * only reference existence can be violated and is checked against the index.
+ * Grounds reference validity and cycles are checked inside the store's write
+ * methods before persisting, so the stored files never become invalid
+ * through the API; the handlers only shape requests and responses.
  */
 
 /** The node record as exposed over the API. */
@@ -50,14 +46,15 @@ export function nodeJson(
 export const INVALID_REQUEST = "INVALID_REQUEST";
 
 /** GET /api/graph — all nodes, validation issues and per-node dependents (compatibility endpoint; the canvas uses /api/query/*). */
-export async function getGraph(c: Context, index: GraphIndex): Promise<Response> {
+export async function getGraph(c: Context, web: WebState): Promise<Response> {
   try {
-    const graph = index.graph;
+    const { store } = web;
+    const graph = store.graph;
     const nodes = [...graph.nodes.values()].sort(byId);
-    const contents = await Promise.all(nodes.map((node) => index.readContent(node.id)));
+    const contents = await Promise.all(nodes.map((node) => store.content(node.id)));
     return c.json({
-      revision: index.revision,
-      issues: index.issues(),
+      revision: store.revision,
+      issues: store.issues(),
       nodes: nodes.map((node, i) => ({
         ...nodeJson({ ...node, ...contents[i] }),
         dependents: node.children,
@@ -69,28 +66,28 @@ export async function getGraph(c: Context, index: GraphIndex): Promise<Response>
 }
 
 /** GET /api/validate — issues only, with a derived ok flag. */
-export async function getValidate(c: Context, index: GraphIndex): Promise<Response> {
+export async function getValidate(c: Context, web: WebState): Promise<Response> {
   try {
-    const issues = index.issues();
-    return c.json({ ok: issues.length === 0, issues, revision: index.revision });
+    const issues = web.store.issues();
+    return c.json({ ok: issues.length === 0, issues, revision: web.store.revision });
   } catch (error) {
     return errorResponse(c, error);
   }
 }
 
 /** GET /api/nodes/:id — one full node (content on demand) with its issues and the revision for If-Match-style saves. */
-export async function getNode(c: Context, index: GraphIndex): Promise<Response> {
+export async function getNode(c: Context, web: WebState): Promise<Response> {
   try {
     const id = requireParam(c);
-    const entry = index.entry(id);
+    const entry = web.store.entry(id);
     if (entry === undefined) {
       throw new RefinoError(IssueCode.NodeNotFound, `Node "${id}" does not exist.`);
     }
-    const content: NodeContent = (await index.readContent(id)) ?? { body: "" };
+    const content: NodeContent = (await web.store.content(id)) ?? { body: "" };
     return c.json({
       revision: entry.revision,
       node: nodeJson({ ...entry.node, ...content }),
-      issues: index.issuesFor(id),
+      issues: web.store.issuesFor(id),
     });
   } catch (error) {
     return errorResponse(c, error);
@@ -101,49 +98,41 @@ export async function getNode(c: Context, index: GraphIndex): Promise<Response> 
 export type Payload = Record<string, unknown>;
 
 /** POST /api/nodes/premise — create a premise from a JSON payload. */
-export async function postPremise(c: Context, index: GraphIndex): Promise<Response> {
-  return create(c, index, "premise");
+export async function postPremise(c: Context, web: WebState): Promise<Response> {
+  return create(c, web, "premise");
 }
 
 /** POST /api/nodes/constraint — create a constraint from a JSON payload. */
-export async function postConstraint(c: Context, index: GraphIndex): Promise<Response> {
-  return create(c, index, "constraint");
+export async function postConstraint(c: Context, web: WebState): Promise<Response> {
+  return create(c, web, "constraint");
 }
 
 async function create(
   c: Context,
-  index: GraphIndex,
+  web: WebState,
   type: "premise" | "constraint",
 ): Promise<Response> {
   try {
     const payload = await readPayload(c);
     const body = readRequiredString(payload, "body");
     const summary = readString(payload, "summary");
-    // A brand-new id has no dependents, so only reference existence can be
-    // violated; cycles are impossible by construction. Grounds sent for a
-    // premise are a misplaced attribute and silently ignored.
+    // Grounds sent for a premise are a misplaced attribute and silently
+    // ignored; constraint grounds are validated inside the store.
     const grounds = resolveGrounds(payload);
-    if (type === "constraint") {
-      const missing = grounds.find((g) => !index.graph.nodes.has(g));
-      if (missing !== undefined) {
-        throw new RefinoError(IssueCode.UnknownGround, `Ground "${missing}" does not exist.`);
-      }
-    }
-    const id =
+    const outcome =
       type === "premise"
-        ? await createPremise(index.refinoDir, {
+        ? await web.store.createPremise({
             body,
             summary,
             confirmed: readConfirmed(payload),
           })
-        : await createConstraint(index.refinoDir, {
+        : await web.store.createConstraint({
             body,
             summary,
             rationale: readString(payload, "rationale"),
             grounds,
           });
-    await index.applyChange({ changed: [id], origin: "api" });
-    return c.json({ id, revision: index.entry(id)?.revision }, 201);
+    return c.json({ id: outcome.id, revision: web.store.entry(outcome.id)?.revision }, 201);
   } catch (error) {
     return errorResponse(c, error);
   }
@@ -165,13 +154,13 @@ async function create(
  * detail editor recreates a node that external tools deleted while it held
  * unsaved edits.
  */
-export async function putNode(c: Context, index: GraphIndex): Promise<Response> {
+export async function putNode(c: Context, web: WebState): Promise<Response> {
   try {
     const id = requireParam(c);
-    const entry = index.entry(id);
+    const entry = web.store.entry(id);
     if (entry === undefined) {
       // await: without it a rejection escapes the try/catch below.
-      return await createWithId(c, index, id);
+      return await createWithId(c, web, id);
     }
     const payload = await readPayload(c);
     const body = readRequiredString(payload, "body");
@@ -195,39 +184,33 @@ export async function putNode(c: Context, index: GraphIndex): Promise<Response> 
     }
 
     if (entry.node.type === "premise") {
-      await updatePremise(index.refinoDir, id, {
+      await web.store.updatePremise(id, {
         body,
         summary,
         confirmed: readConfirmed(payload),
       });
     } else {
-      const grounds = resolveGrounds(payload);
-      const issues = checkGroundsChange(index.graph, entry.node, grounds);
-      if (issues.length > 0) {
-        return c.json({ error: "Invalid grounds change.", issues }, 400);
-      }
-      await updateConstraint(index.refinoDir, id, {
+      await web.store.updateConstraint(id, {
         body,
         summary,
         rationale: readString(payload, "rationale"),
-        grounds,
+        grounds: resolveGrounds(payload),
       });
     }
-    await index.applyChange({ changed: [id], origin: "api" });
-    return c.json({ id, revision: index.entry(id)?.revision });
+    return c.json({ id, revision: web.store.entry(id)?.revision });
   } catch (error) {
     return errorResponse(c, error);
   }
 }
 
 /** DELETE /api/nodes/:id — refuse while transitive dependents reference the node. */
-export async function removeNode(c: Context, index: GraphIndex): Promise<Response> {
+export async function removeNode(c: Context, web: WebState): Promise<Response> {
   try {
     const id = requireParam(c);
-    if (index.entry(id) === undefined) {
+    if (web.store.entry(id) === undefined) {
       throw new RefinoError(IssueCode.NodeNotFound, `Node "${id}" does not exist.`);
     }
-    const affected = getDependents(index.graph, id);
+    const affected = getDependents(web.store.graph, id);
     if (affected.length > 0) {
       return c.json(
         {
@@ -237,18 +220,17 @@ export async function removeNode(c: Context, index: GraphIndex): Promise<Respons
         409,
       );
     }
-    await deleteNode(index.refinoDir, id);
-    await index.applyChange({ deleted: [id], origin: "api" });
+    await web.store.deleteNode(id);
     return c.json({ id });
   } catch (error) {
     return errorResponse(c, error);
   }
 }
 
-/** POST /api/reload — full rescan and index rebuild; the authoritative recovery channel. */
-export async function postReload(c: Context, index: GraphIndex): Promise<Response> {
+/** POST /api/reload — full rescan and projection rebuild; the authoritative recovery channel. */
+export async function postReload(c: Context, web: WebState): Promise<Response> {
   try {
-    return c.json(await index.reload());
+    return c.json(await web.store.reload());
   } catch (error) {
     return errorResponse(c, error);
   }
@@ -256,9 +238,10 @@ export async function postReload(c: Context, index: GraphIndex): Promise<Respons
 
 /**
  * Create a node under the given (still free) id from a PUT payload. The
- * type must be stated explicitly; grounds rules match the create endpoint.
+ * type must be stated explicitly; grounds rules are enforced by the store's
+ * write validation.
  */
-async function createWithId(c: Context, index: GraphIndex, id: string): Promise<Response> {
+async function createWithId(c: Context, web: WebState, id: string): Promise<Response> {
   if (!ID_RE.test(id)) {
     throw new RefinoError(IssueCode.InvalidId, `Node "${id}" is not a valid node id.`);
   }
@@ -273,21 +256,15 @@ async function createWithId(c: Context, index: GraphIndex, id: string): Promise<
     );
   }
   const grounds = resolveGrounds(payload);
-  if (type === "constraint") {
-    const missing = grounds.find((g) => !index.graph.nodes.has(g));
-    if (missing !== undefined) {
-      throw new RefinoError(IssueCode.UnknownGround, `Ground "${missing}" does not exist.`);
-    }
-  }
   if (type === "premise") {
-    await createPremise(index.refinoDir, {
+    await web.store.createPremise({
       id,
       body,
       summary,
       confirmed: readConfirmed(payload),
     });
   } else {
-    await createConstraint(index.refinoDir, {
+    await web.store.createConstraint({
       id,
       body,
       summary,
@@ -295,8 +272,7 @@ async function createWithId(c: Context, index: GraphIndex, id: string): Promise<
       grounds,
     });
   }
-  await index.applyChange({ changed: [id], origin: "api" });
-  return c.json({ id, revision: index.entry(id)?.revision }, 201);
+  return c.json({ id, revision: web.store.entry(id)?.revision }, 201);
 }
 
 /** Parse `grounds` from a payload: shape-checked, deduplicated; omitted means full replacement with none. */
@@ -378,10 +354,13 @@ export function byId(a: { id: string }, b: { id: string }): number {
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
-/** Map errors to HTTP responses; RefinoIssue-bearing errors carry their issues. */
+/** Map errors to HTTP responses; issue-bearing rejections carry their issues. */
 export function errorResponse(c: Context, error: unknown): Response {
   if (error instanceof RefinoError) {
     return c.json({ error: error.message }, errorStatus(error.code));
+  }
+  if (error instanceof WriteRejected) {
+    return c.json({ error: error.message, issues: error.issues satisfies StoreIssue[] }, 400);
   }
   throw error;
 }

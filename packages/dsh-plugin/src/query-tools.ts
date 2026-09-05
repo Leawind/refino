@@ -1,4 +1,5 @@
 import { defineTool, type ToolDefinition } from "@deepseek-ai/dsh-tools";
+import { pendingReview } from "@refino/harness";
 import {
   getAncestors,
   getDependents,
@@ -336,10 +337,11 @@ function pendingReviewTool(get: () => RefinoWorkspace | undefined): ToolDefiniti
     isConcurrencySafe: () => true,
     async execute(args) {
       const ws = requireWorkspace(get);
-      const outcome = await ws.sync(args.changed_ids);
       const known = ws.graph.nodes;
+      const changedKnown = args.changed_ids.filter((id) => known.has(id));
+      const pending = changedKnown.length > 0 ? pendingReview(ws.graph, changedKnown) : [];
       return {
-        pending: outcome.pending.map(lite),
+        pending: pending.map(lite),
         unknown_ids: args.changed_ids.filter((id) => !known.has(id)),
       };
     },

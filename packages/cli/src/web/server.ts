@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import type { Context } from "hono";
+import { RefinoStore, type StoreChange } from "@refino/storage";
 import {
   getGraph,
   getNode,
@@ -26,9 +27,7 @@ import {
   postQueryRange,
   postQuerySiblings,
 } from "./query-api.js";
-import { GraphIndex } from "./graph-index.js";
-import type { ChangeEvent } from "./graph-index.js";
-import { startNodeWatcher, type NodeWatcher } from "@refino/storage";
+import { WebState } from "./web-state.js";
 
 export interface WebServerOptions {
   host: string;
@@ -90,119 +89,132 @@ export function resolveUiStaticRoot(from: string): string | undefined {
 
 interface WebParts {
   app: Hono;
-  index?: GraphIndex;
-  /** Begin watching `.refino/nodes/` for external writes; silently degrades. */
-  startWatching(): NodeWatcher | undefined;
+  web?: WebState;
 }
 
 function createWeb(options: WebAppOptions): WebParts {
   const app = new Hono();
-  const index = options.refinoDir !== undefined ? new GraphIndex(options.refinoDir) : undefined;
+  const web =
+    options.refinoDir !== undefined
+      ? new WebState(
+          RefinoStore.open(options.refinoDir, {
+            watch: { debounceMs: options.watchDebounceMs ?? 500 },
+          }),
+        )
+      : undefined;
 
   const unavailable = (c: Context): Response =>
     c.json({ error: "API is unavailable without a .refino directory." }, 500);
 
-  /** Loads the index once, then dispatches; load failures surface as API errors. */
+  /** Loads the store once, then dispatches; load failures surface as API errors. */
   const api =
     (
-      handler: (c: Context, index: GraphIndex) => Promise<Response>,
+      handler: (c: Context, web: WebState) => Promise<Response>,
     ): ((c: Context) => Promise<Response>) =>
     async (c) => {
-      if (index === undefined) return unavailable(c);
+      if (web === undefined) return unavailable(c);
       try {
-        await index.ready();
+        await web.store.ready();
       } catch (error) {
         return errorResponse(c, error);
       }
-      return handler(c, index);
+      return handler(c, web);
     };
 
   app.get("/api/health", (c) => c.json({ ok: true }));
   app.get(
     "/api/graph",
-    api((c, index) => getGraph(c, index)),
+    api((c, web) => getGraph(c, web)),
   );
   app.get(
     "/api/validate",
-    api((c, index) => getValidate(c, index)),
+    api((c, web) => getValidate(c, web)),
   );
   app.get(
     "/api/nodes/:id",
-    api((c, index) => getNode(c, index)),
+    api((c, web) => getNode(c, web)),
   );
   app.post(
     "/api/nodes/premise",
-    api((c, index) => postPremise(c, index)),
+    api((c, web) => postPremise(c, web)),
   );
   app.post(
     "/api/nodes/constraint",
-    api((c, index) => postConstraint(c, index)),
+    api((c, web) => postConstraint(c, web)),
   );
   app.put(
     "/api/nodes/:id",
-    api((c, index) => putNode(c, index)),
+    api((c, web) => putNode(c, web)),
   );
   app.delete(
     "/api/nodes/:id",
-    api((c, index) => removeNode(c, index)),
+    api((c, web) => removeNode(c, web)),
   );
   app.post(
     "/api/reload",
-    api((c, index) => postReload(c, index)),
+    api((c, web) => postReload(c, web)),
   );
   app.post(
     "/api/query/neighbors",
-    api((c, index) => postQueryNeighbors(c, index)),
+    api((c, web) => postQueryNeighbors(c, web)),
   );
   app.post(
     "/api/query/grounds",
-    api((c, index) => postQueryGrounds(c, index)),
+    api((c, web) => postQueryGrounds(c, web)),
   );
   app.post(
     "/api/query/range",
-    api((c, index) => postQueryRange(c, index)),
+    api((c, web) => postQueryRange(c, web)),
   );
   app.post(
     "/api/query/siblings",
-    api((c, index) => postQuerySiblings(c, index)),
+    api((c, web) => postQuerySiblings(c, web)),
   );
   app.get(
     "/api/search",
-    api((c, index) => getSearch(c, index)),
+    api((c, web) => getSearch(c, web)),
   );
   app.get(
     "/api/stats",
-    api((c, index) => getStats(c, index)),
+    api((c, web) => getStats(c, web)),
   );
   app.get(
     "/api/pending",
-    api((c, index) => getPending(c, index)),
+    api((c, web) => getPending(c, web)),
   );
 
   // SSE change feed: an initial snapshot event, then one event per applied
   // change batch. Reconnecting clients compare revisions and refresh
-  // wholesale (docs/design.md, "外部变更同步").
+  // wholesale (docs/design.md, "外部变更同步"). The wire event keeps the
+  // documented shape: affected stays store-internal (it feeds /api/pending).
   app.get("/api/events", (c) => {
-    if (index === undefined) return unavailable(c);
+    if (web === undefined) return unavailable(c);
     return streamSSE(c, async (stream) => {
       let open = true;
-      const send = (event: ChangeEvent): void => {
+      const send = (change: StoreChange): void => {
         if (!open) return;
+        const event = toWireEvent(change);
         void stream.writeSSE({ data: JSON.stringify(event) }).catch(() => {
           open = false;
         });
       };
       try {
-        await index.ready();
+        await web.store.ready();
       } catch {
         return; // a broken store ends the stream instead of hanging it
       }
-      const unsubscribe = index.subscribe(send);
+      const unsubscribe = web.store.onChange(send);
       stream.onAbort(() => {
         open = false;
         unsubscribe();
       });
-      send({ revision: index.revision, changed: [], deleted: [], reload: true });
+      send({
+        revision: web.store.revision,
+        changed: [],
+        deleted: [],
+        affected: [],
+        reload: true,
+      });
       while (!stream.aborted) await stream.sleep(200);
     });
   });
@@ -220,18 +232,21 @@ function createWeb(options: WebAppOptions): WebParts {
     app.get("*", (c) => c.html(readIndexHtml(staticRoot)));
   }
 
+  return { app, web };
+}
+
+/**
+ * The SSE wire event: the documented shape (docs/design.md, "外部变更同步").
+ * The change's `affected` stays store-internal — it feeds /api/pending, not
+ * the client feed.
+ */
+function toWireEvent(change: StoreChange): Omit<StoreChange, "affected"> {
   return {
-    app,
-    index,
-    startWatching(): NodeWatcher | undefined {
-      if (index === undefined || options.refinoDir === undefined) return undefined;
-      void index.ready().catch(() => {}); // watcher events may arrive before the first request
-      return startNodeWatcher(
-        join(options.refinoDir, "nodes"),
-        (ids, shards) => void index.applyChange({ changed: ids, shards, origin: "file" }),
-        { debounceMs: options.watchDebounceMs },
-      );
-    },
+    revision: change.revision,
+    changed: change.changed,
+    deleted: change.deleted,
+    ...(change.origin !== undefined && { origin: change.origin }),
+    ...(change.reload !== undefined && { reload: change.reload }),
   };
 }
 
@@ -246,15 +261,17 @@ function readIndexHtml(staticRoot: string): string {
   return placeholderPage();
 }
 
-/** Start the HTTP server (with external-change watching); resolve only when the socket is accepting. */
+/** Start the HTTP server (with external-change watching inside the store); resolve only when the socket is accepting. */
 export function startWebServer(options: WebServerOptions): Promise<RunningWebServer> {
-  const { host, port, refinoDir } = options;
-  const parts = createWeb({ refinoDir, watchDebounceMs: options.watchDebounceMs });
-  const watcher = parts.startWatching();
+  const { host, port } = options;
+  const parts = createWeb({
+    refinoDir: options.refinoDir,
+    watchDebounceMs: options.watchDebounceMs,
+  });
   return new Promise((resolve, reject) => {
     const server = serve({ fetch: parts.app.fetch, hostname: host, port }, (info) => {
-      // The watchers keep the event loop alive; release them with the server.
-      server.on("close", () => watcher?.close());
+      // The store's watcher keeps the event loop alive; release it with the server.
+      server.on("close", () => parts.web?.close());
       resolve({ server, url: `http://${host}:${info.port}` });
     });
     server.on("error", reject);

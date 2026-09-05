@@ -1,39 +1,31 @@
-import { join } from "node:path";
 import {
   byId,
   defaultAuthorizationContext,
   frozenZone,
-  pendingReview,
   validateContext,
   HarnessSession,
   type AuthorizationContext,
   type DeltaEvent,
 } from "@refino/harness";
-import {
-  startNodeWatcher,
-  loadGraph,
-  readNode,
-  type NodeContent,
-  type NodeWatcher,
-} from "@refino/storage";
-import {
-  getDependents,
-  validateGraph,
-  type Graph,
-  type RefinoIssue,
-  type RefinoNode,
-} from "refino";
+import { RefinoStore, type StoreChange, type StoreIssue } from "@refino/storage";
+import type { Graph, RefinoNode } from "refino";
 
 /**
- * One agent's CRG state over a `.refino` directory: the loaded graph under
- * the current authorization context, plus external-change syncing. The
- * context starts at the defaults (docs/design.md, dsh 插件落地形态); once a
- * host signs an explicit one (`signContext` — authorization console,
- * user commands, model-initiated confirmation), it is session state:
- * external syncs converge it instead of resetting — ids removed by the
- * reload drop out, surviving declarations are untouched. Write tools call
- * `sync` themselves and consume the outcome without injection.
+ * One agent's CRG state over a `.refino/` directory: the storage Store's
+ * resident projection under the current authorization context, plus
+ * external-change syncing. The context starts at the defaults
+ * (docs/design.md, dsh 插件落地形态); once a host signs an explicit one
+ * (`signContext` — authorization console, user commands, model-initiated
+ * confirmation), it is session state: store changes converge it instead of
+ * resetting — ids removed by a change drop out, surviving declarations are
+ * untouched. The projection and its consistency with the disk live in the
+ * store; every applied change (own writes and external file events alike)
+ * rebuilds the session here, so reads never see a stale graph.
  */
+
+/** Callback for external (watcher-detected) syncs; must not throw. */
+export type ExternalSyncListener = (outcome: SyncOutcome) => void;
+
 export interface SyncOutcome {
   /** Authorization-context change events (empty for context-preserving changes). */
   delta: DeltaEvent[];
@@ -41,13 +33,8 @@ export interface SyncOutcome {
   pending: RefinoNode[];
 }
 
-/** Callback for external (watcher-detected) syncs; must not throw. */
-export type ExternalSyncListener = (outcome: SyncOutcome) => void;
-
 export class RefinoWorkspace {
-  #refinoDir: string;
-  #graph: Graph;
-  #issues: RefinoIssue[];
+  #store: RefinoStore;
   #session: HarnessSession;
   /** False until a host signs an explicit context; defaults apply until then. */
   #signed: boolean;
@@ -55,59 +42,57 @@ export class RefinoWorkspace {
   #complete: boolean;
   /** Constraint ids of the frozen zone under the current context — the delta basis. */
   #zoneIds: Set<string>;
-  #watcher: NodeWatcher | undefined;
+  #unsubscribe: () => void = () => {};
 
-  private constructor(refinoDir: string, graph: Graph, issues: RefinoIssue[]) {
-    this.#refinoDir = refinoDir;
-    this.#graph = graph;
-    this.#issues = issues;
-    const context = defaultAuthorizationContext(graph);
+  private constructor(store: RefinoStore) {
+    this.#store = store;
     this.#signed = false;
-    this.#complete = context.complete;
-    this.#session = new HarnessSession(graph, context.context);
-    this.#zoneIds = constraintZoneIds(graph, context.context);
+    this.#complete = false;
+    this.#session = new HarnessSession(
+      store.graph,
+      defaultAuthorizationContext(store.graph).context,
+    );
+    this.#zoneIds = constraintZoneIds(store.graph, this.#session.authorizationContext);
   }
 
-  /** Load the graph and start watching `nodes/` for external changes. */
+  /** Open the store (watching `nodes/`) and build the initial session. */
   static async open(
     refinoDir: string,
     onExternalSync?: ExternalSyncListener,
   ): Promise<RefinoWorkspace> {
-    const loaded = await loadGraph(refinoDir);
-    // loadGraph reports parse-level issues only; structural validation
-    // (dangling grounds, cycles, confirmed timestamps) runs here so tools see
-    // the same issue set the CLI does.
-    const issues = [...loaded.issues, ...validateGraph(loaded.graph)];
-    const workspace = new RefinoWorkspace(refinoDir, loaded.graph, issues);
-    workspace.#watcher = startNodeWatcher(join(refinoDir, "nodes"), (ids) => {
-      void workspace.sync(ids).then(
-        (outcome) => {
-          if (outcome.delta.length > 0 || outcome.pending.length > 0) {
-            onExternalSync?.(outcome);
-          }
-        },
-        () => {}, // a failed reload keeps the previous state; the next batch retries
-      );
+    const store = RefinoStore.open(refinoDir, { watch: { debounceMs: 500 } });
+    await store.ready();
+    const workspace = new RefinoWorkspace(store);
+    workspace.#rebuildSession();
+    workspace.#unsubscribe = store.onChange((change) => {
+      let outcome;
+      try {
+        outcome = workspace.#absorb(change);
+      } catch (error) {
+        console.log("ABSORB FAILED:", error);
+        throw error;
+      }
+      if (change.origin !== "file") return; // own writes report through the write result
+      if (outcome.delta.length > 0 || outcome.pending.length > 0) onExternalSync?.(outcome);
     });
     return workspace;
   }
 
   get refinoDir(): string {
-    return this.#refinoDir;
+    return this.#store.refinoDir;
+  }
+
+  get store(): RefinoStore {
+    return this.#store;
   }
 
   get graph(): Graph {
-    return this.#graph;
+    return this.#store.graph;
   }
 
-  /** Paged node content on demand (body, rationale); the resident graph never holds it. */
-  async content(id: string): Promise<NodeContent | undefined> {
-    return (await readNode(this.#refinoDir, id)).content;
-  }
-
-  /** Issues from the most recent load (parse-level and structural). */
-  get issues(): RefinoIssue[] {
-    return this.#issues;
+  /** Issues from the store (parse-level and structural). */
+  get issues(): StoreIssue[] {
+    return this.#store.issues();
   }
 
   get authorizationContext(): AuthorizationContext {
@@ -132,6 +117,22 @@ export class RefinoWorkspace {
     return this.#session;
   }
 
+  /** Paged node content on demand (body, rationale); the resident graph never holds it. */
+  content(id: string) {
+    return this.#store.content(id);
+  }
+
+  /** The pending-review set of an applied change, for tool results. */
+  pendingOf(change: StoreChange | undefined): RefinoNode[] {
+    if (change === undefined) return [];
+    const pending = new Map<string, RefinoNode>();
+    for (const id of change.affected) {
+      const node = this.#store.graph.nodes.get(id);
+      if (node !== undefined) pending.set(id, node);
+    }
+    return byId(pending.values());
+  }
+
   /**
    * Sign an explicit authorization context: the frozen-zone selection of the
    * authorization console, a user command or a model-initiated confirmation.
@@ -139,32 +140,38 @@ export class RefinoWorkspace {
    * the delta events the host injects to keep the prompt-cache prefix stable.
    */
   signContext(context: AuthorizationContext): DeltaEvent[] {
-    validateContext(this.#graph, context);
+    validateContext(this.#store.graph, context);
     const prevAnchors = new Set(this.#session.authorizationContext.anchors);
     const prevZone = this.#zoneIds;
     this.#signed = true;
-    this.#session = new HarnessSession(this.#graph, context);
-    this.#zoneIds = constraintZoneIds(this.#graph, context);
+    this.#session = new HarnessSession(this.#store.graph, context);
+    this.#zoneIds = constraintZoneIds(this.#store.graph, context);
     return contextDelta(prevAnchors, prevZone, context, this.#zoneIds);
   }
 
+  /** Stop watching; the workspace stays readable but no longer syncs. */
+  dispose(): void {
+    this.#unsubscribe();
+    this.#store.close();
+  }
+
   /**
-   * Reload the graph, derive the next authorization context (defaults while
-   * unsigned; the signed context converged otherwise — ids removed by the
-   * reload drop out, so a foreign re-creation under the same id cannot smuggle
-   * a different type into the frozen list), and report the context delta plus
-   * the pending-review set for the changed nodes. Ids that disappeared
-   * reload-side contribute their (old-graph) dependents to the pending set —
-   * a deleted node's children review its removal.
+   * Rebuild the session over the store's current graph and derive the
+   * context delta plus pending set of a change. The signed context converges
+   * (ids removed by the change drop out, so a foreign re-creation under the
+   * same id cannot smuggle a different type into the frozen list); unsigned,
+   * the defaults re-derive.
    */
-  async sync(changedIds: readonly string[]): Promise<SyncOutcome> {
+  #absorb(change: StoreChange): SyncOutcome {
     const prevAnchors = new Set(this.#session.authorizationContext.anchors);
     const prevZone = this.#zoneIds;
-    const prevGraph = this.#graph;
-    const { graph, issues } = await loadGraph(this.#refinoDir);
-    this.#graph = graph;
-    this.#issues = [...issues, ...validateGraph(graph)];
+    this.#rebuildSession();
+    const delta = contextDelta(prevAnchors, prevZone, this.#context, this.#zoneIds);
+    return { delta, pending: this.pendingOf(change) };
+  }
 
+  #rebuildSession(): void {
+    const graph = this.#store.graph;
     let next: AuthorizationContext;
     if (!this.#signed) {
       const context = defaultAuthorizationContext(graph);
@@ -178,37 +185,6 @@ export class RefinoWorkspace {
     }
     this.#session = new HarnessSession(graph, next);
     this.#zoneIds = constraintZoneIds(graph, next);
-    const delta = contextDelta(prevAnchors, prevZone, next, this.#zoneIds);
-
-    // Changed nodes that survive the reload map to their direct dependents
-    // (docs/crg.md 1.6); nodes deleted in the reload contribute their
-    // old-graph dependents directly — those are the pending set themselves.
-    const changedKnown: string[] = [];
-    const pendingIds = new Set<string>();
-    for (const id of changedIds) {
-      if (graph.nodes.has(id)) {
-        changedKnown.push(id);
-      } else if (prevGraph.nodes.has(id)) {
-        for (const dependent of getDependents(prevGraph, id)) {
-          pendingIds.add(dependent.node.id);
-        }
-      }
-    }
-    const pending = new Map<string, RefinoNode>();
-    for (const node of changedKnown.length > 0 ? pendingReview(graph, changedKnown) : []) {
-      pending.set(node.id, node);
-    }
-    for (const id of pendingIds) {
-      const node = graph.nodes.get(id);
-      if (node !== undefined) pending.set(id, node);
-    }
-    return { delta, pending: byId(pending.values()) };
-  }
-
-  /** Stop watching; the workspace stays readable but no longer syncs. */
-  dispose(): void {
-    this.#watcher?.close();
-    this.#watcher = undefined;
   }
 
   /** The current context, for convergence reads (kept private to the class). */

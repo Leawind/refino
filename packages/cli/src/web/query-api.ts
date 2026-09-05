@@ -1,6 +1,6 @@
 import { IssueCode, RefinoError } from "refino";
 import type { Context } from "hono";
-import type { GraphIndex } from "./graph-index.js";
+import type { WebState } from "./web-state.js";
 import * as query from "./query.js";
 import { errorResponse, INVALID_REQUEST, readPayload } from "./api.js";
 
@@ -17,14 +17,14 @@ function batchStatus(groups: ReadonlyArray<unknown>): 200 | 207 {
 }
 
 /** POST /api/query/neighbors — per-id bounded neighborhoods, nearest-first. */
-export async function postQueryNeighbors(c: Context, index: GraphIndex): Promise<Response> {
+export async function postQueryNeighbors(c: Context, web: WebState): Promise<Response> {
   try {
     const payload = await readPayload(c);
     const ids = readIds(payload);
     const ancestorDepth = readNonNegativeInt(payload, "ancestorDepth");
     const descendantDepth = readNonNegativeInt(payload, "descendantDepth");
     const limit = readOptionalLimit(payload);
-    const groups = query.neighbors(index.graph, ids, { ancestorDepth, descendantDepth, limit });
+    const groups = query.neighbors(web.store.graph, ids, { ancestorDepth, descendantDepth, limit });
     return c.json(groups, batchStatus(groups));
   } catch (error) {
     return errorResponse(c, error);
@@ -32,10 +32,10 @@ export async function postQueryNeighbors(c: Context, index: GraphIndex): Promise
 }
 
 /** POST /api/query/grounds — per-id direct grounds, single hop. */
-export async function postQueryGrounds(c: Context, index: GraphIndex): Promise<Response> {
+export async function postQueryGrounds(c: Context, web: WebState): Promise<Response> {
   try {
     const payload = await readPayload(c);
-    const groups = query.grounds(index.graph, readIds(payload));
+    const groups = query.grounds(web.store.graph, readIds(payload));
     return c.json(groups, batchStatus(groups));
   } catch (error) {
     return errorResponse(c, error);
@@ -43,13 +43,13 @@ export async function postQueryGrounds(c: Context, index: GraphIndex): Promise<R
 }
 
 /** POST /api/query/range — relationship and path nodes between two endpoints. */
-export async function postQueryRange(c: Context, index: GraphIndex): Promise<Response> {
+export async function postQueryRange(c: Context, web: WebState): Promise<Response> {
   try {
     const payload = await readPayload(c);
     const focusId = readIdField(payload, "focusId");
     const clickedId = readIdField(payload, "clickedId");
     for (const id of [focusId, clickedId]) {
-      if (index.entry(id) === undefined) {
+      if (web.store.entry(id) === undefined) {
         throw new RefinoError(IssueCode.NodeNotFound, `Node "${id}" does not exist.`);
       }
     }
@@ -57,17 +57,17 @@ export async function postQueryRange(c: Context, index: GraphIndex): Promise<Res
       payload.budget === undefined
         ? query.DEFAULT_RANGE_BUDGET
         : readNonNegativeInt(payload, "budget");
-    return c.json(query.range(index.graph, focusId, clickedId, budget));
+    return c.json(query.range(web.store.graph, focusId, clickedId, budget));
   } catch (error) {
     return errorResponse(c, error);
   }
 }
 
 /** POST /api/query/siblings — per-id strong siblings by shared direct grounds. */
-export async function postQuerySiblings(c: Context, index: GraphIndex): Promise<Response> {
+export async function postQuerySiblings(c: Context, web: WebState): Promise<Response> {
   try {
     const payload = await readPayload(c);
-    const groups = query.siblings(index.graph, readIds(payload), readOptionalLimit(payload));
+    const groups = query.siblings(web.store.graph, readIds(payload), readOptionalLimit(payload));
     return c.json(groups, batchStatus(groups));
   } catch (error) {
     return errorResponse(c, error);
@@ -84,7 +84,7 @@ const SEARCH_MAX_LIMIT = 500;
  * restricts to root constraints (grounds-less), the cold-start overview's
  * entry points.
  */
-export async function getSearch(c: Context, index: GraphIndex): Promise<Response> {
+export async function getSearch(c: Context, web: WebState): Promise<Response> {
   try {
     const q = (c.req.query("q") ?? "").trim();
     const type = c.req.query("type");
@@ -101,13 +101,13 @@ export async function getSearch(c: Context, index: GraphIndex): Promise<Response
       : SEARCH_DEFAULT_LIMIT;
     const cursor = c.req.query("cursor") || undefined;
 
-    const all = index.sortedIds();
+    const all = web.store.sortedIds();
     const qUpper = q.toUpperCase();
     const qLower = q.toLowerCase();
     const matched: string[] = [];
     for (let i = startIndex(all, cursor); i < all.length && matched.length <= limit; i++) {
       const id = all[i]!;
-      const entry = index.entry(id)!;
+      const entry = web.store.entry(id)!;
       if (type !== undefined && entry.node.type !== type) continue;
       if (rootsOnly && (entry.node.type !== "constraint" || entry.node.grounds.length > 0)) {
         continue;
@@ -129,7 +129,7 @@ export async function getSearch(c: Context, index: GraphIndex): Promise<Response
     const page = matched.length > limit ? matched.slice(0, limit) : matched;
     return c.json({
       nodes: page.map((id) => {
-        const node = index.entry(id)!.node;
+        const node = web.store.entry(id)!.node;
         return { id, type: node.type, summary: node.summary };
       }),
       nextCursor: matched.length > limit ? page[page.length - 1] : undefined,
@@ -140,15 +140,15 @@ export async function getSearch(c: Context, index: GraphIndex): Promise<Response
 }
 
 /** GET /api/stats — counts for the project-overview cold start. */
-export async function getStats(c: Context, index: GraphIndex): Promise<Response> {
-  return c.json({ revision: index.revision, ...index.stats() });
+export async function getStats(c: Context, web: WebState): Promise<Response> {
+  return c.json({ revision: web.store.revision, ...web.store.stats() });
 }
 
 /** GET /api/pending — constraints pending review since the last reload / service start. */
-export async function getPending(c: Context, index: GraphIndex): Promise<Response> {
+export async function getPending(c: Context, web: WebState): Promise<Response> {
   return c.json({
-    revision: index.revision,
-    nodes: index.pending().map((node) => ({ id: node.id, type: node.type, summary: node.summary })),
+    revision: web.store.revision,
+    nodes: web.pending().map((node) => ({ id: node.id, type: node.type, summary: node.summary })),
   });
 }
 

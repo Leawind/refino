@@ -1,27 +1,7 @@
 import { defineTool, type ToolDefinition } from "@deepseek-ai/dsh-tools";
-import {
-  buildGraph,
-  checkGroundsChange,
-  generateId,
-  getDependents,
-  ID_RE,
-  RefinoError,
-  type ConstraintNode,
-  type NodeWithDepth,
-  type RefinoNode,
-} from "refino";
+import { getDependents, ID_RE, RefinoError, type NodeWithDepth, type RefinoNode } from "refino";
 import { checkModification, HarnessError } from "@refino/harness";
-import {
-  confirmedToMs,
-  createConstraint,
-  createPremise,
-  deleteNode,
-  isValidConfirmed,
-  readNode,
-  updateConstraint,
-  updatePremise,
-  type NodeContent,
-} from "@refino/storage";
+import { confirmedToMs, isValidConfirmed, WriteRejected, type NodeContent } from "@refino/storage";
 import { depthLite, issueLite, lite, type WriteResult } from "./shapes.js";
 import { renderWrite } from "./render.js";
 import { requireWorkspace, writeResultSchema } from "./internal.js";
@@ -69,12 +49,11 @@ function createPremiseTool(get: () => RefinoWorkspace | undefined): ToolDefiniti
         return invalidConfirmed(args.confirmed);
       }
       try {
-        const id = await createPremise(ws.refinoDir, {
+        const outcome = await ws.store.createPremise({
           ...args,
           confirmed: args.confirmed === undefined ? undefined : confirmedToMs(args.confirmed),
         });
-        const outcome = await ws.sync([id]);
-        return { ok: true, id, pending: outcome.pending.map(lite) };
+        return { ok: true, id: outcome.id, pending: ws.pendingOf(outcome.change).map(lite) };
       } catch (error) {
         return writeFailure(error);
       }
@@ -104,22 +83,17 @@ function createConstraintTool(get: () => RefinoWorkspace | undefined): ToolDefin
     output: { schema: writeResultSchema(), render: renderWriteValue },
     async execute(args) {
       const ws = requireWorkspace(get);
-      const grounds = args.grounds ?? [];
       if (args.id !== undefined && !ID_RE.test(args.id)) {
         return { ok: false, error: `节点 ID 必须是 3-16 位 A-Z、0-9 或 _，收到 "${args.id}"` };
       }
       if (args.id !== undefined && ws.graph.nodes.has(args.id)) {
         return { ok: false, error: `节点 ID "${args.id}" 已被占用` };
       }
-      const id = args.id ?? generateId();
-      const issues = checkProspectiveGrounds(ws.graph, id, grounds);
-      if (issues.length > 0) {
-        return { ok: false, error: "grounds 校验未通过", issues: issues.map(issueLite) };
-      }
       try {
-        const stored = await createConstraint(ws.refinoDir, { ...args, id, grounds });
-        const outcome = await ws.sync([stored]);
-        return { ok: true, id: stored, pending: outcome.pending.map(lite) };
+        // Grounds validation runs inside the store's write method; a
+        // rejected change never touches the disk.
+        const outcome = await ws.store.createConstraint(args);
+        return { ok: true, id: outcome.id, pending: ws.pendingOf(outcome.change).map(lite) };
       } catch (error) {
         return writeFailure(error);
       }
@@ -191,10 +165,10 @@ type UpdateArgs = {
 };
 
 /**
- * Read what a partial update needs from the file: the paged content (body,
- * rationale live there, not on the resident node) plus the summary per the
- * partial semantics (docs/design.md) — an omitted summary keeps an explicit
- * one and stays body-derived otherwise, so updating the body alone keeps the
+ * Read what a partial update needs: the paged content (body, rationale live
+ * there, not on the resident node) plus the summary per the partial
+ * semantics (docs/design.md) — an omitted summary keeps an explicit one and
+ * stays body-derived otherwise, so updating the body alone keeps the
  * fallback in sync; an empty string clears the explicit summary.
  */
 async function readForUpdate(
@@ -202,17 +176,17 @@ async function readForUpdate(
   id: string,
   args: UpdateArgs,
 ): Promise<{ summary: string | undefined; content: NodeContent } | WriteResult> {
-  const read = await readNode(ws.refinoDir, id);
-  if (read.node === null) return { ok: false, error: `节点 "${id}" 不存在` };
+  const entry = ws.store.entry(id);
+  if (entry === undefined) return { ok: false, error: `节点 "${id}" 不存在` };
   const summary =
     args.summary === undefined
-      ? read.summaryExplicit === true
-        ? read.node.summary
+      ? entry.summaryExplicit
+        ? entry.node.summary
         : undefined
       : args.summary === ""
         ? undefined
         : args.summary;
-  return { summary, content: read.content ?? { body: "" } };
+  return { summary, content: (await ws.content(id)) ?? { body: "" } };
 }
 
 async function updatePremiseNode(
@@ -231,7 +205,7 @@ async function updatePremiseNode(
   const read = await readForUpdate(ws, node.id, args);
   if ("ok" in read) return read;
   try {
-    await updatePremise(ws.refinoDir, node.id, {
+    const outcome = await ws.store.updatePremise(node.id, {
       body: args.body ?? read.content.body,
       summary: read.summary,
       confirmed:
@@ -241,11 +215,10 @@ async function updatePremiseNode(
             ? undefined
             : confirmedToMs(args.confirmed),
     });
+    return { ok: true, id: node.id, pending: ws.pendingOf(outcome.change).map(lite) };
   } catch (error) {
     return writeFailure(error);
   }
-  const outcome = await ws.sync([node.id]);
-  return { ok: true, id: node.id, pending: outcome.pending.map(lite) };
 }
 
 async function updateConstraintNode(
@@ -257,17 +230,12 @@ async function updateConstraintNode(
     return { ok: false, error: "body 不能为空" };
   }
   // `confirmed` does not apply to constraints; per the misplaced-field policy
-  // it is silently ignored instead of rejected.
-  if (args.grounds !== undefined) {
-    const issues = checkGroundsChange(ws.graph, node, args.grounds);
-    if (issues.length > 0) {
-      return { ok: false, error: "grounds 校验未通过", issues: issues.map(issueLite) };
-    }
-  }
+  // it is silently ignored instead of rejected. Grounds validation runs
+  // inside the store's write method; a rejected change never touches the disk.
   const read = await readForUpdate(ws, node.id, args);
   if ("ok" in read) return read;
   try {
-    await updateConstraint(ws.refinoDir, node.id, {
+    const outcome = await ws.store.updateConstraint(node.id, {
       body: args.body ?? read.content.body,
       summary: read.summary,
       rationale:
@@ -278,11 +246,10 @@ async function updateConstraintNode(
             : args.rationale,
       grounds: args.grounds ?? node.grounds,
     });
+    return { ok: true, id: node.id, pending: ws.pendingOf(outcome.change).map(lite) };
   } catch (error) {
     return writeFailure(error);
   }
-  const outcome = await ws.sync([node.id]);
-  return { ok: true, id: node.id, pending: outcome.pending.map(lite) };
 }
 
 function deleteNodeTool(get: () => RefinoWorkspace | undefined): ToolDefinition {
@@ -313,11 +280,10 @@ function deleteNodeTool(get: () => RefinoWorkspace | undefined): ToolDefinition 
         };
       }
       try {
-        await deleteNode(ws.refinoDir, node.id);
+        await ws.store.deleteNode(node.id);
       } catch (error) {
         return writeFailure(error);
       }
-      await ws.sync([node.id]);
       return { ok: true, id: node.id, pending: [] };
     },
   });
@@ -327,17 +293,6 @@ function deleteNodeTool(get: () => RefinoWorkspace | undefined): ToolDefinition 
 
 function renderWriteValue(_args: unknown, value: unknown) {
   return [{ type: "text" as const, text: renderWrite(value as WriteResult) }];
-}
-
-/** Validate a prospective creation: insert the new node into a graph copy, then use the engine primitive. */
-function checkProspectiveGrounds(
-  graph: RefinoWorkspace["graph"],
-  id: string,
-  grounds: string[],
-): ReturnType<typeof checkGroundsChange> {
-  const synthetic: ConstraintNode = { id, type: "constraint", summary: "", grounds };
-  const prospective = buildGraph([...graph.nodes.values(), synthetic]);
-  return checkGroundsChange(prospective, synthetic, grounds);
 }
 
 function escalationResult(id: string, affected: NodeWithDepth[]): WriteResult {
@@ -356,6 +311,9 @@ function invalidConfirmed(value: string): WriteResult {
 }
 
 function writeFailure(error: unknown): WriteResult {
+  if (error instanceof WriteRejected) {
+    return { ok: false, error: "grounds 校验未通过", issues: error.issues.map(issueLite) };
+  }
   if (error instanceof RefinoError) {
     return { ok: false, error: `${error.code}: ${error.message}` };
   }

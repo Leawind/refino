@@ -3,6 +3,7 @@ import { beforeAll, afterAll, describe, expect, it } from "vitest";
 import { createWebApp } from "../src/web/server.js";
 import { loadGraph, readNode } from "@refino/storage";
 import { constraint, createRefino, premise, removeRefino } from "@refino/testkit";
+import { IssueCode } from "refino";
 
 let root: string;
 let refinoDir: string;
@@ -82,7 +83,8 @@ describe("refino web api", () => {
       body: JSON.stringify({ body: "新约束。", grounds: ["ZZZZZZZZ"] }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { error: string }).error).toContain("ZZZZZZZZ");
+    const body = (await res.json()) as { error: string; issues: Array<{ code: string }> };
+    expect(body.issues.some((i) => i.code === IssueCode.UnknownGround)).toBe(true);
   });
 
   it("rejects cycles with 400", async () => {

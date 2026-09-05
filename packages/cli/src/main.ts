@@ -2,25 +2,18 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  confirmedToMs,
-  createConstraint,
-  createPremise,
-  deleteNode,
-  isValidConfirmed,
-  loadGraph,
-  nodeRelativeFile,
-  readNode,
+  RefinoStore,
   StorageIssueCode,
-  updateConstraint,
-  updatePremise,
+  WriteRejected,
+  confirmedToMs,
+  isValidConfirmed,
+  nodeRelativeFile,
   type NodeContent,
   type StorageIssue,
 } from "@refino/storage";
 import { CommanderError, Command, Option } from "commander";
 import {
   assignLayers,
-  checkGroundsChange,
-  generateId,
   getAncestors,
   getDependents,
   getGrounds,
@@ -28,16 +21,8 @@ import {
   queryGroups,
   RefinoError,
   requireNode,
-  validateGraph,
 } from "refino";
-import type {
-  ConstraintNode,
-  Graph,
-  NodeWithDepth,
-  QueryGroup,
-  RefinoIssue,
-  RefinoNode,
-} from "refino";
+import type { Graph, NodeWithDepth, QueryGroup, RefinoIssue, RefinoNode } from "refino";
 import { processIo, renderFullRecord, renderIssues, renderNodeTable } from "./format.js";
 import type { CliIo } from "./format.js";
 import { startWebServer } from "./web/server.js";
@@ -84,21 +69,22 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
     .command("validate")
     .description("build the graph and report all validation issues")
     .action((_opts, cmd) =>
-      run(cmd, async (opts) => {
-        const { graph, issues: parseIssues } = await loadGraph(refinoDir(opts));
-        const issues: (RefinoIssue | StorageIssue)[] = [...parseIssues, ...validateGraph(graph)];
-        const counts = countNodes(graph);
-        if (opts.json) {
-          emit(io, { ok: issues.length === 0, refinoDir: refinoDir(opts), counts, issues });
-        } else if (issues.length > 0) {
-          io.stdout.write(`${renderIssues(issues)}\n`);
-        } else {
-          io.stdout.write(
-            `valid: ${counts.constraints} constraints, ${counts.premises} premises (${refinoDir(opts)})\n`,
-          );
-        }
-        return issues.length > 0 ? 1 : 0;
-      }),
+      run(cmd, async (opts) =>
+        withStore(io, opts, async (store) => {
+          const issues = store.issues();
+          const counts = countNodes(store.graph);
+          if (opts.json) {
+            emit(io, { ok: issues.length === 0, refinoDir: refinoDir(opts), counts, issues });
+          } else if (issues.length > 0) {
+            io.stdout.write(`${renderIssues(issues)}\n`);
+          } else {
+            io.stdout.write(
+              `valid: ${counts.constraints} constraints, ${counts.premises} premises (${refinoDir(opts)})\n`,
+            );
+          }
+          return issues.length > 0 ? 1 : 0;
+        }),
+      ),
     );
 
   program
@@ -112,36 +98,37 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
     )
     .addOption(new Option("--unreferenced", "list only premises that no constraint grounds on"))
     .action((_opts, cmd) =>
-      run(cmd, async (opts) => {
-        const { type: typeFilter, unreferenced } = cmd.opts() as {
-          type?: "premise" | "constraint";
-          unreferenced?: boolean;
-        };
-        if (unreferenced && typeFilter === "constraint") {
-          io.stderr.write("error: --unreferenced only applies to premises\n");
-          return 1;
-        }
-        const { graph, issues } = await loadGraph(refinoDir(opts));
-        if (issues.length > 0) return reportBlockingIssues(io, opts, issues);
-        let nodes = sortNodes(graph);
-        if (typeFilter) nodes = nodes.filter((n) => n.type === typeFilter);
-        if (unreferenced) {
-          const referenced = new Set<string>();
-          for (const node of graph.nodes.values()) {
-            if (node.type !== "constraint") continue;
-            for (const ground of node.grounds) referenced.add(ground);
+      run(cmd, async (opts) =>
+        withStore(io, opts, async (store) => {
+          const { type: typeFilter, unreferenced } = cmd.opts() as {
+            type?: "premise" | "constraint";
+            unreferenced?: boolean;
+          };
+          if (unreferenced && typeFilter === "constraint") {
+            io.stderr.write("error: --unreferenced only applies to premises\n");
+            return 1;
           }
-          nodes = nodes.filter((n) => n.type === "premise" && !referenced.has(n.id));
-        }
-        if (opts.json) {
-          emit(io, nodes.map(nodeJson));
-        } else if (nodes.length === 0) {
-          io.stdout.write("(no nodes)\n");
-        } else {
-          io.stdout.write(`${renderNodeTable(nodes)}\n`);
-        }
-        return 0;
-      }),
+          const graph = store.graph;
+          let nodes = sortNodes(graph);
+          if (typeFilter) nodes = nodes.filter((n) => n.type === typeFilter);
+          if (unreferenced) {
+            const referenced = new Set<string>();
+            for (const node of graph.nodes.values()) {
+              if (node.type !== "constraint") continue;
+              for (const ground of node.grounds) referenced.add(ground);
+            }
+            nodes = nodes.filter((n) => n.type === "premise" && !referenced.has(n.id));
+          }
+          if (opts.json) {
+            emit(io, nodes.map(nodeJson));
+          } else if (nodes.length === 0) {
+            io.stdout.write("(no nodes)\n");
+          } else {
+            io.stdout.write(`${renderNodeTable(nodes)}\n`);
+          }
+          return 0;
+        }),
+      ),
     );
 
   program
@@ -150,7 +137,8 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
     .argument("<ids...>", "node ids")
     .action((ids: string[], _opts, cmd) =>
       run(cmd, async (opts) =>
-        withGraph(io, opts, async (graph) => {
+        withStore(io, opts, async (store) => {
+          const graph = store.graph;
           const groups = queryGroups(graph, ids, (graph, id) => [requireNode(graph, id)]);
           const missing = groups.some((group) => "error" in group);
           // Body and rationale are paged content: fetch them per id, since
@@ -158,8 +146,8 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
           const contents = new Map<string, NodeContent>();
           for (const group of groups) {
             if ("error" in group) continue;
-            const read = await readNode(refinoDir(opts), group.id);
-            if (read.content !== undefined) contents.set(group.id, read.content);
+            const content = await store.content(group.id);
+            if (content !== undefined) contents.set(group.id, content);
           }
           if (opts.json) {
             emit(
@@ -197,8 +185,8 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
     .argument("<ids...>", "node ids")
     .action((ids: string[], _opts, cmd) =>
       run(cmd, async (opts) =>
-        withGraph(io, opts, (graph) => {
-          const { missing } = emitGroupedNodes(io, opts, queryGroups(graph, ids, getGrounds));
+        withStore(io, opts, (store) => {
+          const { missing } = emitGroupedNodes(io, opts, queryGroups(store.graph, ids, getGrounds));
           return missing ? 1 : 0;
         }),
       ),
@@ -210,8 +198,12 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
     .argument("<ids...>", "node ids")
     .action((ids: string[], _opts, cmd) =>
       run(cmd, async (opts) =>
-        withGraph(io, opts, (graph) => {
-          const { missing } = emitGroupedDepths(io, opts, queryGroups(graph, ids, getAncestors));
+        withStore(io, opts, (store) => {
+          const { missing } = emitGroupedDepths(
+            io,
+            opts,
+            queryGroups(store.graph, ids, getAncestors),
+          );
           return missing ? 1 : 0;
         }),
       ),
@@ -223,8 +215,12 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
     .argument("<ids...>", "node ids")
     .action((ids: string[], _opts, cmd) =>
       run(cmd, async (opts) =>
-        withGraph(io, opts, (graph) => {
-          const { missing } = emitGroupedDepths(io, opts, queryGroups(graph, ids, getDependents));
+        withStore(io, opts, (store) => {
+          const { missing } = emitGroupedDepths(
+            io,
+            opts,
+            queryGroups(store.graph, ids, getDependents),
+          );
           return missing ? 1 : 0;
         }),
       ),
@@ -260,19 +256,21 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
               );
               return 1;
             }
-            const newId = await createPremise(refinoDir(opts), {
-              id,
-              body,
-              summary,
-              confirmed:
-                now === true
-                  ? Date.now()
-                  : confirmed !== undefined
-                    ? confirmedToMs(confirmed)
-                    : undefined,
+            return withStoreForWrite(io, opts, async (store) => {
+              const outcome = await store.createPremise({
+                id,
+                body,
+                summary,
+                confirmed:
+                  now === true
+                    ? Date.now()
+                    : confirmed !== undefined
+                      ? confirmedToMs(confirmed)
+                      : undefined,
+              });
+              emitWritten(io, opts, outcome.id, "premise", "created");
+              return 0;
             });
-            emitWritten(io, opts, newId, "premise", "created");
-            return 0;
           }),
         ),
     )
@@ -304,25 +302,19 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
               );
               return 1;
             }
-            // Graph-level grounds check before anything is written, via the
-            // engine's shared write-path primitive. Pre-existing parse issues
-            // elsewhere in the graph must not block creation.
-            const graph = await loadGraphForWrite(refinoDir(opts));
-            const probe = withPhantomConstraint(graph, id ?? freshProbeId(graph), groundIds);
-            const groundIssues = checkGroundsChange(probe.graph, probe.node, groundIds);
-            if (groundIssues.length > 0) {
-              io.stderr.write(`${renderIssues(groundIssues)}\n`);
-              return 1;
-            }
-            const newId = await createConstraint(refinoDir(opts), {
-              id,
-              body,
-              grounds: groundIds.length > 0 ? groundIds : undefined,
-              rationale,
-              summary,
+            return withStoreForWrite(io, opts, async (store) => {
+              // Grounds validation runs inside the store's write method;
+              // pre-existing parse issues elsewhere do not block creation.
+              const outcome = await store.createConstraint({
+                id,
+                body,
+                grounds: groundIds.length > 0 ? groundIds : undefined,
+                rationale,
+                summary,
+              });
+              emitWritten(io, opts, outcome.id, "constraint", "created");
+              return 0;
             });
-            emitWritten(io, opts, newId, "constraint", "created");
-            return 0;
           }),
         ),
     );
@@ -353,7 +345,6 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
           confirmed?: string;
           now?: boolean;
         };
-        const dir = refinoDir(opts);
 
         const typeOptions = [o.rationale, o.grounds, o.confirmed, o.now];
         const touched = [o.body, o.summary, ...typeOptions].filter(
@@ -363,84 +354,74 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
           io.stderr.write("error: specify at least one field to update\n");
           return 1;
         }
-
-        const read = await readNode(dir, id);
-        if (read.node === null) {
-          io.stderr.write(`error: node "${id}" not found\n`);
-          return 1;
-        }
-        const node = read.node;
-        const content = read.content ?? { body: "" };
-
         if (o.summary !== undefined && o.summary.trim() === "") {
           io.stderr.write("error: --summary must be a non-empty string\n");
           return 1;
         }
-
-        // Partial update: unspecified fields keep their current value. A
-        // summary that was derived from the body stays derived (not passed),
-        // so updating the body keeps the fallback in sync. Options that do
-        // not apply to the node's type are misplaced attributes and silently
-        // ignored (docs/design.md, "存储格式容错").
-        const summary =
-          o.summary !== undefined
-            ? o.summary
-            : read.summaryExplicit === true
-              ? node.summary
-              : undefined;
-        if (node.type === "premise") {
-          if (o.now === true && o.confirmed !== undefined) {
-            io.stderr.write("error: --now and --confirmed are mutually exclusive\n");
-            return 1;
-          }
-          if (o.confirmed !== undefined && !isValidConfirmed(o.confirmed)) {
-            io.stderr.write(
-              `error: "confirmed" must be an RFC 3339 timestamp with an explicit UTC offset (Z or ±HH:MM), got "${o.confirmed}"\n`,
-            );
-            return 1;
-          }
-          await updatePremise(dir, id, {
-            body: o.body ?? content.body,
-            summary,
-            confirmed:
-              o.now === true
-                ? Date.now()
-                : o.confirmed !== undefined
-                  ? confirmedToMs(o.confirmed)
-                  : node.confirmed,
-          });
-        } else {
-          let grounds: string[] | undefined;
-          if (o.grounds !== undefined) {
-            grounds = o.grounds
-              .split(",")
-              .map((s) => s.trim())
-              .filter((s) => s.length > 0);
-            const invalidGround = grounds.find((g) => !ID_RE.test(g));
-            if (invalidGround !== undefined) {
-              io.stderr.write(
-                `error: invalid ground id "${invalidGround}" (must be 3-16 characters of A-Z, 0-9 or _)\n`,
-              );
-              return 1;
-            }
-            // The node exists here, so the shared write-path primitive applies
-            // directly; pre-existing issues elsewhere must not block the update.
-            const graph = await loadGraphForWrite(dir);
-            const groundIssues = checkGroundsChange(graph, node, grounds);
-            if (groundIssues.length > 0) {
-              io.stderr.write(`${renderIssues(groundIssues)}\n`);
-              return 1;
-            }
-          }
-          await updateConstraint(dir, id, {
-            body: o.body ?? content.body,
-            summary,
-            rationale: o.rationale ?? content.rationale,
-            grounds: grounds ?? node.grounds,
-          });
+        if (o.confirmed !== undefined && !isValidConfirmed(o.confirmed)) {
+          io.stderr.write(
+            `error: "confirmed" must be an RFC 3339 timestamp with an explicit UTC offset (Z or ±HH:MM), got "${o.confirmed}"\n`,
+          );
+          return 1;
         }
-        emitWritten(io, opts, id, node.type, "updated");
-        return 0;
+
+        return withStoreForWrite(io, opts, async (store) => {
+          const entry = store.entry(id);
+          if (entry === undefined) {
+            io.stderr.write(`error: node "${id}" not found\n`);
+            return 1;
+          }
+          const node = entry.node;
+          const content = (await store.content(id)) ?? { body: "" };
+
+          // Partial update: unspecified fields keep their current value. A
+          // summary that was derived from the body stays derived (not
+          // passed), so updating the body keeps the fallback in sync.
+          // Options that do not apply to the node's type are misplaced
+          // attributes and silently ignored (docs/design.md, "存储格式容错").
+          const summary =
+            o.summary !== undefined ? o.summary : entry.summaryExplicit ? node.summary : undefined;
+          if (node.type === "premise") {
+            if (o.now === true && o.confirmed !== undefined) {
+              io.stderr.write("error: --now and --confirmed are mutually exclusive\n");
+              return 1;
+            }
+            await store.updatePremise(id, {
+              body: o.body ?? content.body,
+              summary,
+              confirmed:
+                o.now === true
+                  ? Date.now()
+                  : o.confirmed !== undefined
+                    ? confirmedToMs(o.confirmed)
+                    : node.confirmed,
+            });
+          } else {
+            let grounds: string[] | undefined;
+            if (o.grounds !== undefined) {
+              grounds = o.grounds
+                .split(",")
+                .map((s) => s.trim())
+                .filter((s) => s.length > 0);
+              const invalidGround = grounds.find((g) => !ID_RE.test(g));
+              if (invalidGround !== undefined) {
+                io.stderr.write(
+                  `error: invalid ground id "${invalidGround}" (must be 3-16 characters of A-Z, 0-9 or _)\n`,
+                );
+                return 1;
+              }
+            }
+            // Grounds validation runs inside the store's write method.
+            await store.updateConstraint(id, {
+              body: o.body ?? content.body,
+              summary,
+              rationale: o.rationale ?? content.rationale,
+              grounds: grounds ?? node.grounds,
+            });
+          }
+          emitWritten(io, opts, id, node.type, "updated");
+          return 0;
+        });
       }),
     );
 
@@ -452,50 +433,49 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
     .action((ids: string[], _opts, cmd) =>
       run(cmd, async (opts) => {
         const { force } = cmd.opts() as { force?: boolean };
-        const dir = refinoDir(opts);
-        // A write command: pre-existing issues elsewhere must not block it.
-        const graph = await loadGraphForWrite(dir);
-        const results: Array<{ id: string; error?: string }> = [];
-        let failure = false;
-        for (const id of ids) {
-          const node = graph.nodes.get(id);
-          if (node === undefined) {
-            results.push({ id, error: `node "${id}" not found` });
-            failure = true;
-            continue;
-          }
-          // Direct dependents only: deleting is refused exactly when it would
-          // leave dangling grounds behind (mirrors the web API's 409).
-          const dependents = node.children;
-          if (dependents.length > 0) {
-            const detail = `grounded on by ${dependents.join(", ")}`;
-            if (force !== true) {
-              results.push({ id, error: `${detail} (use --force to delete anyway)` });
+        return withStoreForWrite(io, opts, async (store) => {
+          const results: Array<{ id: string; error?: string }> = [];
+          let failure = false;
+          for (const id of ids) {
+            const node = store.graph.nodes.get(id);
+            if (node === undefined) {
+              results.push({ id, error: `node "${id}" not found` });
               failure = true;
               continue;
             }
-            io.stderr.write(`warning: deleted "${id}" is still ${detail}\n`);
+            // Direct dependents only: deleting is refused exactly when it would
+            // leave dangling grounds behind (mirrors the web API's 409).
+            const dependents = node.children;
+            if (dependents.length > 0) {
+              const detail = `grounded on by ${dependents.join(", ")}`;
+              if (force !== true) {
+                results.push({ id, error: `${detail} (use --force to delete anyway)` });
+                failure = true;
+                continue;
+              }
+              io.stderr.write(`warning: deleted "${id}" is still ${detail}\n`);
+            }
+            try {
+              await store.deleteNode(id);
+              results.push({ id });
+            } catch (error) {
+              results.push({
+                id,
+                error: error instanceof Error ? error.message : String(error),
+              });
+              failure = true;
+            }
           }
-          try {
-            await deleteNode(dir, id);
-            results.push({ id });
-          } catch (error) {
-            results.push({
-              id,
-              error: error instanceof Error ? error.message : String(error),
-            });
-            failure = true;
+          if (opts.json) emit(io, results);
+          else {
+            io.stdout.write(
+              `${results
+                .map((r) => (r.error === undefined ? `deleted ${r.id}` : `error: ${r.error}`))
+                .join("\n")}\n`,
+            );
           }
-        }
-        if (opts.json) emit(io, results);
-        else {
-          io.stdout.write(
-            `${results
-              .map((r) => (r.error === undefined ? `deleted ${r.id}` : `error: ${r.error}`))
-              .join("\n")}\n`,
-          );
-        }
-        return failure ? 1 : 0;
+          return failure ? 1 : 0;
+        });
       }),
     );
 
@@ -541,19 +521,58 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
   return exitCode;
 }
 
-/** Load and structurally validate the graph, then run a query against it. */
-async function withGraph(
+/**
+ * Open the store and run a query against it. Graph issues make query results
+ * ambiguous, so queries refuse to run while any exist.
+ */
+async function withStore(
   io: CliIo,
   opts: GlobalOptions,
-  query: (graph: Graph) => number | Promise<number>,
+  query: (store: RefinoStore) => number | Promise<number>,
 ): Promise<number> {
+  const store = RefinoStore.open(refinoDir(opts));
   try {
-    const { graph, issues: parseIssues } = await loadGraph(refinoDir(opts));
-    const issues: (RefinoIssue | StorageIssue)[] = [...parseIssues, ...validateGraph(graph)];
+    await store.ready();
+    const issues = store.issues();
     if (issues.length > 0) return reportBlockingIssues(io, opts, issues);
-    return await query(graph);
+    return await query(store);
   } catch (error) {
     return fail(io, error);
+  } finally {
+    store.close();
+  }
+}
+
+/**
+ * Open the store for a write command. Pre-existing issues elsewhere must not
+ * block the write; the store's write methods validate the change itself and
+ * reject it with the offending issues before anything is written.
+ */
+async function withStoreForWrite(
+  io: CliIo,
+  opts: GlobalOptions,
+  action: (store: RefinoStore) => Promise<number>,
+): Promise<number> {
+  const store = RefinoStore.open(refinoDir(opts));
+  try {
+    try {
+      await store.ready();
+    } catch (error) {
+      // A missing `.refino` directory is the empty store, not an error:
+      // creating the first node must work.
+      if (!(error instanceof RefinoError) || error.code !== StorageIssueCode.RefinoDirNotFound) {
+        throw error;
+      }
+    }
+    return await action(store);
+  } catch (error) {
+    if (error instanceof WriteRejected) {
+      io.stderr.write(`${renderIssues(error.issues)}\n`);
+      return 1;
+    }
+    return fail(io, error);
+  } finally {
+    store.close();
   }
 }
 
@@ -567,7 +586,6 @@ function reportBlockingIssues(
   else io.stdout.write(`${renderIssues(issues)}\n`);
   return 1;
 }
-
 function emitWritten(
   io: CliIo,
   opts: GlobalOptions,
@@ -701,46 +719,6 @@ function fullNodeJson(node: RefinoNode, content?: NodeContent): Record<string, u
 function nodeJson(node: RefinoNode): Record<string, unknown> {
   const base = { id: node.id, type: node.type, summary: node.summary };
   return node.type === "constraint" ? { ...base, grounds: node.grounds } : base;
-}
-
-/**
- * Grounds check for a not-yet-persisted constraint. The shared primitive
- * targets a constraint node located in the graph, so a phantom node is
- * inserted into a copy of the graph; a brand-new node has no dependents and
- * cannot close a cycle, so the check reduces to unknown/duplicate reference
- * reporting.
- */
-function withPhantomConstraint(
-  graph: Graph,
-  id: string,
-  grounds: string[],
-): { graph: Graph; node: ConstraintNode } {
-  const node: ConstraintNode = { id, type: "constraint", summary: "", grounds };
-  const nodes = new Map(graph.nodes);
-  nodes.set(id, { ...node, children: [] });
-  return { graph: { ...graph, nodes }, node };
-}
-
-/** Fresh id for the phantom node of `withPhantomConstraint`. */
-function freshProbeId(graph: Graph): string {
-  let id = generateId();
-  while (graph.nodes.has(id)) id = generateId();
-  return id;
-}
-
-/**
- * Load the graph for a write command. A missing `.refino` directory is the
- * empty store, not an error: creating the first node must work.
- */
-async function loadGraphForWrite(refinoDir: string): Promise<Graph> {
-  try {
-    return (await loadGraph(refinoDir)).graph;
-  } catch (error) {
-    if (error instanceof RefinoError && error.code === StorageIssueCode.RefinoDirNotFound) {
-      return { nodes: new Map() };
-    }
-    throw error;
-  }
 }
 
 function emit(io: CliIo, payload: unknown): void {

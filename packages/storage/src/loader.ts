@@ -20,6 +20,8 @@ export interface LoadResult {
   issues: StorageIssue[];
   /** Node id -> file mtime (ms) at read time; the baseline for change detection. */
   mtimes: Map<string, number>;
+  /** Node id -> whether the summary came from an explicit frontmatter field. */
+  summaryExplicit: Map<string, boolean>;
 }
 
 export interface ReadNodeResult {
@@ -153,13 +155,14 @@ export async function loadGraph(refinoDir: string): Promise<LoadResult> {
   const issues: StorageIssue[] = [];
   const seenIds = new Map<string, string>();
   const mtimes = new Map<string, number>();
+  const summaryExplicit = new Map<string, boolean>();
 
   let shards;
   try {
     shards = await readdir(join(refinoDir, NODES_DIR), { withFileTypes: true });
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return { graph: buildGraph([]), issues, mtimes }; // empty store
+      return { graph: buildGraph([]), issues, mtimes, summaryExplicit }; // empty store
     }
     throw error;
   }
@@ -207,7 +210,11 @@ export async function loadGraph(refinoDir: string): Promise<LoadResult> {
         });
         continue;
       }
-      const { node, issues: parseIssues } = parseNodeSource(id, file, type, read.source);
+      const {
+        node,
+        issues: parseIssues,
+        summaryExplicit: explicit,
+      } = parseNodeSource(id, file, type, read.source);
       issues.push(...parseIssues);
       if (!node) continue;
       const existingFile = seenIds.get(node.id);
@@ -222,11 +229,12 @@ export async function loadGraph(refinoDir: string): Promise<LoadResult> {
       }
       seenIds.set(node.id, nodeRelativeFile(node.type, node.id));
       mtimes.set(node.id, read.mtimeMs);
+      summaryExplicit.set(node.id, explicit);
       nodes.push(node);
     }
   }
 
-  return { graph: buildGraph(nodes), issues, mtimes };
+  return { graph: buildGraph(nodes), issues, mtimes, summaryExplicit };
 }
 
 /**
