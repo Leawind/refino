@@ -139,7 +139,7 @@ async function create(
             rationale: readString(payload, "rationale"),
             grounds,
           });
-    await index.applyChange({ changed: [id] });
+    await index.applyChange({ changed: [id], origin: "api" });
     return c.json({ id, revision: index.entry(id)?.revision }, 201);
   } catch (error) {
     return errorResponse(c, error);
@@ -210,7 +210,7 @@ export async function putNode(c: Context, index: GraphIndex): Promise<Response> 
         grounds,
       });
     }
-    await index.applyChange({ changed: [id] });
+    await index.applyChange({ changed: [id], origin: "api" });
     return c.json({ id, revision: index.entry(id)?.revision });
   } catch (error) {
     return errorResponse(c, error);
@@ -235,7 +235,7 @@ export async function removeNode(c: Context, index: GraphIndex): Promise<Respons
       );
     }
     await deleteNode(index.refinoDir, id);
-    await index.applyChange({ deleted: [id] });
+    await index.applyChange({ deleted: [id], origin: "api" });
     return c.json({ id });
   } catch (error) {
     return errorResponse(c, error);
@@ -298,7 +298,7 @@ async function createWithId(c: Context, index: GraphIndex, id: string): Promise<
       grounds,
     });
   }
-  await index.applyChange({ changed: [id] });
+  await index.applyChange({ changed: [id], origin: "api" });
   return c.json({ id, revision: index.entry(id)?.revision }, 201);
 }
 

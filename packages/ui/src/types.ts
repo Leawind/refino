@@ -78,6 +78,8 @@ export interface ChangeEvent {
   revision: number;
   changed: string[];
   deleted: string[];
+  /** Write entry that produced this batch; absent on snapshot/reload frames. */
+  origin?: "api" | "file";
   /** True on connect and after POST /api/reload: refresh wholesale. */
   reload?: true;
 }

@@ -80,7 +80,9 @@ const SEARCH_MAX_LIMIT = 500;
 /**
  * GET /api/search — keyset pagination over the ascending id view; `cursor`
  * is the id after which to continue. `q` matches id prefixes (case
- *-insensitive; ids are Crockford base32) and summary substrings.
+ *-insensitive; ids are Crockford base32) and summary substrings. `roots`
+ * restricts to root constraints (grounds-less), the cold-start overview's
+ * entry points.
  */
 export async function getSearch(c: Context, index: GraphIndex): Promise<Response> {
   try {
@@ -92,6 +94,8 @@ export async function getSearch(c: Context, index: GraphIndex): Promise<Response
         `"type" must be "premise" or "constraint".`,
       );
     }
+    const roots = c.req.query("roots");
+    const rootsOnly = roots === "1" || roots === "true";
     const rawLimit = Number(c.req.query("limit"));
     const limit = Number.isInteger(rawLimit)
       ? Math.min(Math.max(rawLimit, 1), SEARCH_MAX_LIMIT)
@@ -106,6 +110,9 @@ export async function getSearch(c: Context, index: GraphIndex): Promise<Response
       const id = all[i]!;
       const entry = index.entry(id)!;
       if (type !== undefined && entry.node.type !== type) continue;
+      if (rootsOnly && (entry.node.type !== "constraint" || entry.node.grounds.length > 0)) {
+        continue;
+      }
       if (
         qUpper !== "" &&
         !id.toUpperCase().startsWith(qUpper) &&
@@ -126,6 +133,19 @@ export async function getSearch(c: Context, index: GraphIndex): Promise<Response
   } catch (error) {
     return errorResponse(c, error);
   }
+}
+
+/** GET /api/stats — counts for the project-overview cold start. */
+export async function getStats(c: Context, index: GraphIndex): Promise<Response> {
+  return c.json({ revision: index.revision, ...index.stats() });
+}
+
+/** GET /api/pending — constraints pending review since the last reload / service start. */
+export async function getPending(c: Context, index: GraphIndex): Promise<Response> {
+  return c.json({
+    revision: index.revision,
+    nodes: index.pending().map((node) => ({ id: node.id, type: node.type, summary: node.summary })),
+  });
 }
 
 /** First index position at or after the cursor; keyset pages resume strictly after it. */

@@ -31,6 +31,8 @@ export interface ChangeEvent {
   revision: number;
   changed: string[];
   deleted: string[];
+  /** Write entry that produced an incremental event; absent on snapshots and reloads. */
+  origin?: "api" | "file";
   /** Present on full rebuilds: clients refresh wholesale instead of patching. */
   reload?: true;
 }
@@ -68,6 +70,13 @@ export class GraphIndex {
   #bodies = new Map<string, string>();
   #sortedIds: string[] | undefined;
   #subscribers = new Set<(event: ChangeEvent) => void>();
+  /**
+   * Constraints pending review (docs/crg.md 1.6): every id that directly
+   * depended on a changed node since the last reload / service start.
+   * Deleted change targets contribute their pre-mutation dependents. A
+   * derived, in-memory state — client acknowledgements live client-side.
+   */
+  #pendingIds = new Set<string>();
 
   /** Serialized mutation chain: concurrent API writes, watcher batches and reloads apply atomically. */
   #queue: Promise<unknown> = Promise.resolve();
@@ -140,6 +149,30 @@ export class GraphIndex {
     return node.body;
   }
 
+  /** Constraints pending review since the last reload / service start, sorted by id. */
+  pending(): RefinoNode[] {
+    return [...this.#pendingIds]
+      .sort()
+      .map((id) => this.#graph.nodes.get(id))
+      .filter((node): node is RefinoNode => node !== undefined);
+  }
+
+  /** Counts for the project-overview cold start; derived from the light index. */
+  stats(): { nodes: number; constraints: number; premises: number; roots: number } {
+    let constraints = 0;
+    let premises = 0;
+    let roots = 0;
+    for (const node of this.#graph.nodes.values()) {
+      if (node.type === "premise") {
+        premises++;
+      } else {
+        constraints++;
+        if (node.grounds.length === 0) roots++;
+      }
+    }
+    return { nodes: constraints + premises, constraints, premises, roots };
+  }
+
   /** Ids in ascending order; the sorted view is cached and invalidated on writes. */
   sortedIds(): string[] {
     this.#sortedIds ??= [...this.#entries.keys()].sort();
@@ -162,6 +195,7 @@ export class GraphIndex {
       await this.load();
       this.#revision = previous + 1;
       for (const entry of this.#entries.values()) entry.revision = this.#revision;
+      this.#pendingIds.clear();
       const event: ChangeEvent = {
         revision: this.#revision,
         changed: [],
@@ -188,11 +222,15 @@ export class GraphIndex {
    * each touched shard, file-keyed issues whose file has vanished are
    * dropped; surviving files keep their issues (their content is re-read
    * through the ids anyway).
+   *
+   * `origin` states the write entry ("api" for HTTP writes, "file" for
+   * external watcher events) and rides the broadcast event for review UIs.
    */
   applyChange(change: {
     changed?: readonly string[];
     deleted?: readonly string[];
     shards?: readonly string[];
+    origin?: "api" | "file";
   }): Promise<ChangeEvent | undefined> {
     return this.enqueue(async () => {
       const ids = [...new Set([...(change.changed ?? []), ...(change.deleted ?? [])])];
@@ -211,6 +249,8 @@ export class GraphIndex {
       // From here on the batch applies synchronously: readers never observe a half-applied batch.
       const applied: Array<{ node: RefinoNode; mtimeMs: number; issues: RefinoIssue[] }> = [];
       const removed: string[] = [];
+      /** Pre-mutation direct dependents of removed ids — they review the removal. */
+      const removedDependents = new Map<string, string[]>();
       /** Parse issues of files that produced no node (e.g. broken YAML). */
       const orphanIssues: RefinoIssue[] = [];
       for (let i = 0; i < ids.length; i++) {
@@ -218,7 +258,10 @@ export class GraphIndex {
         const read = reads[i]!;
         const existing = this.#entries.get(id);
         if (read.node === null) {
-          if (existing !== undefined) removed.push(id);
+          if (existing !== undefined) {
+            removed.push(id);
+            removedDependents.set(id, [...(this.#graph.dependents.get(id) ?? [])]);
+          }
           // A file that yields no node can still carry parse issues; store
           // them unless an identical batch is already cached (no-op echoes
           // must not bump the revision).
@@ -250,10 +293,22 @@ export class GraphIndex {
       this.storeParseIssues(orphanIssues);
       this.recheckGraphIssues(affected);
 
+      // Pending review: changed nodes contribute their direct dependents in
+      // the new graph; removed nodes their pre-mutation dependents.
+      for (const read of applied) {
+        for (const dependent of this.#graph.dependents.get(read.node.id) ?? []) {
+          this.#pendingIds.add(dependent);
+        }
+      }
+      for (const dependents of removedDependents.values()) {
+        for (const dependent of dependents) this.#pendingIds.add(dependent);
+      }
+
       const event: ChangeEvent = {
         revision: this.#revision,
         changed: applied.map((read) => read.node.id),
         deleted: removed,
+        ...(change.origin !== undefined && { origin: change.origin }),
       };
       this.broadcast(event);
       return event;

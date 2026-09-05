@@ -18,6 +18,7 @@ interface ChangeEvent {
   revision: number;
   changed: string[];
   deleted: string[];
+  origin?: "api" | "file";
   reload?: boolean;
 }
 
@@ -98,13 +99,18 @@ describe("external change sync", () => {
     expect(created.status).toBe(201);
     const { id } = (await created.json()) as { id: string };
     const apiEvent = await readEvent(reader, buffer);
-    expect(apiEvent).toEqual({ revision: 2, changed: [id], deleted: [] });
+    expect(apiEvent).toEqual({ revision: 2, changed: [id], deleted: [], origin: "api" });
 
     // External write straight to `.refino/` (as tool plugins do): the
     // watcher detects it, the index applies it, SSE carries it.
     const externalId = await createConstraint(refinoDir, { body: "外部写入。", grounds: [P1] });
     const externalEvent = await readEvent(reader, buffer);
-    expect(externalEvent).toEqual({ revision: 3, changed: [externalId], deleted: [] });
+    expect(externalEvent).toEqual({
+      revision: 3,
+      changed: [externalId],
+      deleted: [],
+      origin: "file",
+    });
 
     // A body-only edit keeps every light field (summary derives from the
     // unchanged first paragraph) and is still detected, via the file mtime.
@@ -113,7 +119,7 @@ describe("external change sync", () => {
       grounds: [P1],
     });
     const editEvent = await readEvent(reader, buffer);
-    expect(editEvent).toEqual({ revision: 4, changed: [externalId], deleted: [] });
+    expect(editEvent).toEqual({ revision: 4, changed: [externalId], deleted: [], origin: "file" });
 
     // The on-demand API reflects the external write without any reload.
     const queried = await fetch(`${running.url}/api/query/grounds`, {

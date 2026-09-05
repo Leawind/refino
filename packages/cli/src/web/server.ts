@@ -19,6 +19,8 @@ import {
 } from "./api.js";
 import {
   getSearch,
+  getStats,
+  getPending,
   postQueryGrounds,
   postQueryNeighbors,
   postQueryRange,
@@ -168,6 +170,14 @@ function createWeb(options: WebAppOptions): WebParts {
     "/api/search",
     api((c, index) => getSearch(c, index)),
   );
+  app.get(
+    "/api/stats",
+    api((c, index) => getStats(c, index)),
+  );
+  app.get(
+    "/api/pending",
+    api((c, index) => getPending(c, index)),
+  );
 
   // SSE change feed: an initial snapshot event, then one event per applied
   // change batch. Reconnecting clients compare revisions and refresh
@@ -218,7 +228,7 @@ function createWeb(options: WebAppOptions): WebParts {
       void index.ready().catch(() => {}); // watcher events may arrive before the first request
       return startNodeWatcher(
         join(options.refinoDir, "nodes"),
-        (ids, shards) => void index.applyChange({ changed: ids, shards }),
+        (ids, shards) => void index.applyChange({ changed: ids, shards, origin: "file" }),
         { debounceMs: options.watchDebounceMs },
       );
     },
