@@ -72,6 +72,34 @@ export function getDependents(
   return breadthFirst(graph, id, (node) => graph.dependents.get(node.id) ?? [], options.maxDepth);
 }
 
+export interface NodeWithOverlap {
+  node: RefinoNode;
+  /** Number of direct grounds shared with the queried node. */
+  overlap: number;
+}
+
+/**
+ * Strong siblings of a node: constraints sharing at least one direct ground
+ * with it — never the node itself, never premises (dependents are always
+ * constraints). Overlap-descending, id-ascending; unbounded, so callers
+ * truncate to their own budget. Premises have no grounds and thus no
+ * siblings.
+ */
+export function getSiblings(graph: Graph, id: string): NodeWithOverlap[] {
+  const node = requireNode(graph, id);
+  const overlap = new Map<string, number>();
+  const grounds = node.type === "constraint" ? node.grounds : [];
+  for (const ground of grounds) {
+    for (const dependent of graph.dependents.get(ground) ?? []) {
+      if (dependent === id) continue;
+      overlap.set(dependent, (overlap.get(dependent) ?? 0) + 1);
+    }
+  }
+  return [...overlap.entries()]
+    .sort((a, b) => (a[1] !== b[1] ? b[1] - a[1] : a[0] < b[0] ? -1 : 1))
+    .map(([siblingId, count]) => ({ node: graph.nodes.get(siblingId)!, overlap: count }));
+}
+
 /**
  * Run a query for each id with batch, partial-success semantics: ids that do
  * not resolve yield a per-id error group while the remaining ids keep their

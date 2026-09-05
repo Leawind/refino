@@ -64,6 +64,30 @@ export function renderContext(graph: Graph, context: AuthorizationContext): stri
 }
 
 /**
+ * Injection size estimate for the signing preview: the block count and the
+ * total character count the rendered context will occupy (blocks plus
+ * section headings and the complement statement). O(1) over the context;
+ * lets the authorization console show what signing costs before it does.
+ */
+export function estimateContext(
+  graph: Graph,
+  context: AuthorizationContext,
+): { blocks: number; chars: number } {
+  const blocks = contextBlocks(graph, context);
+  const kindHeadings: Record<ContextBlock["kind"], string> = {
+    anchor: "## 作用域锚点",
+    premise: "## 项目前提（客观事实）",
+    frozen: "## 冻结区（只读，不可修改）",
+  };
+  const usedKinds = new Set(blocks.map((b) => b.kind));
+  let chars = blocks.reduce((sum, block) => sum + block.text.length + 1, 0);
+  for (const kind of usedKinds) chars += kindHeadings[kind].length + 1;
+  if (blocks.length > 0)
+    chars += "冻结区以外的全部约束均属于修改空间，可以修改或继续细化。".length + 2;
+  return { blocks: blocks.length, chars };
+}
+
+/**
  * Incremental delta between two contexts: anchor membership changes plus the
  * per-node diff of the derived frozen zones — freezing one node emits events
  * for its ancestors too. Premise zone membership is not evented: premise

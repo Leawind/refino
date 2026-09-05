@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildGraph } from "refino";
 import type { Graph, NodeType, RefinoNode } from "refino";
-import { contextBlocks, diffContext, renderContext } from "../src/context.js";
+import { contextBlocks, diffContext, estimateContext, renderContext } from "../src/context.js";
 import type { AuthorizationContext } from "../src/types.js";
 
 function node(id: string, type: NodeType, grounds?: string[]): RefinoNode {
@@ -69,6 +69,26 @@ describe("renderContext", () => {
   it("states the complement rule: everything outside the frozen zone is modifiable", () => {
     const text = renderContext(graphOf(), { anchors: [], frozen: [E5] });
     expect(text).toContain("冻结区以外的全部约束均属于修改空间");
+  });
+});
+
+describe("estimateContext", () => {
+  it("counts blocks and approximates the rendered character total", () => {
+    const context: AuthorizationContext = { anchors: [A1], frozen: [E5] };
+    const estimate = estimateContext(graphOf(), context);
+    const blocks = contextBlocks(graphOf(), context);
+    expect(estimate.blocks).toBe(blocks.length);
+    // The rendered text is bounded around the estimate: never shorter than
+    // the block lines, never much longer than blocks + fixed overhead.
+    const rendered = renderContext(graphOf(), context);
+    expect(rendered.length).toBeGreaterThanOrEqual(estimate.chars - 60);
+    expect(rendered.length).toBeLessThanOrEqual(estimate.chars + 60);
+  });
+
+  it("counts the premise-only baseline for an empty context", () => {
+    // Premises are injected even without anchors or a frozen zone (crg.md 2.2).
+    const empty = estimateContext(graphOf(), { anchors: [], frozen: [] });
+    expect(empty.blocks).toBe(1);
   });
 });
 

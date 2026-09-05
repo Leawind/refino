@@ -3,13 +3,27 @@ import {
   getAncestors,
   getDependents,
   getGrounds,
+  getSiblings,
   queryGroups,
   requireNode,
   type NodeWithDepth,
   type RefinoNode,
 } from "refino";
-import type { QueryEntryDepths, QueryEntryFull, QueryEntryNodes } from "./shapes.js";
-import { depthLite, fullLite, lite, type ListResult, type PendingResult } from "./shapes.js";
+import type {
+  QueryEntryDepths,
+  QueryEntryFull,
+  QueryEntryNodes,
+  QueryEntrySiblings,
+} from "./shapes.js";
+import {
+  depthLite,
+  fullLite,
+  lite,
+  type ListResult,
+  type PendingResult,
+  type SearchResult,
+  type SiblingsResult,
+} from "./shapes.js";
 import {
   depthLine,
   nodeLine,
@@ -17,6 +31,8 @@ import {
   renderFullNode,
   renderList,
   renderPending,
+  renderSearch,
+  renderSiblings,
 } from "./render.js";
 import { requireWorkspace, traversalOptions, traversalParams } from "./internal.js";
 import type { RefinoWorkspace } from "./workspace.js";
@@ -25,12 +41,99 @@ import type { RefinoWorkspace } from "./workspace.js";
 export function createQueryTools(get: () => RefinoWorkspace | undefined): ToolDefinition[] {
   return [
     listTool(get),
+    searchTool(get),
     showTool(get),
     groundsTool(get),
     ancestorsTool(get),
     dependentsTool(get),
+    siblingsTool(get),
     pendingReviewTool(get),
   ];
+}
+
+function searchTool(get: () => RefinoWorkspace | undefined): ToolDefinition {
+  return defineTool({
+    name: "refino_search",
+    description:
+      "按关键字分页搜索 CRG 节点（匹配 ID 前缀与摘要子串）。大规模图中定位节点的首选方式；图很小或已给出确切 ID 时可直接用 refino_show。",
+    parameters: {
+      q: { type: "string", description: "关键字；匹配 ID 前缀或摘要子串，省略匹配全部" },
+      node_type: {
+        type: "string",
+        enum: ["premise", "constraint"],
+        description: "只搜索该类型的节点；省略则全部",
+      },
+      limit: { type: "integer", description: "每页条数（1-500，默认 50）" },
+      cursor: {
+        type: "string",
+        description: "上一页结果返回的 next_cursor；从该 ID 之后继续",
+      },
+    },
+    output: {
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          query: { type: "string", required: true },
+          nodes: { type: "array", items: nodeLiteSchema(), required: true },
+          next_cursor: { type: "string" },
+        },
+      },
+      render: (_args, value) => [{ type: "text", text: renderSearch(value as SearchResult) }],
+    },
+    isConcurrencySafe: () => true,
+    async execute(args) {
+      const ws = requireWorkspace(get);
+      return ws.session.search({
+        q: args.q,
+        type: args.node_type,
+        limit: args.limit,
+        cursor: args.cursor,
+      });
+    },
+  });
+}
+
+function siblingsTool(get: () => RefinoWorkspace | undefined): ToolDefinition {
+  return defineTool({
+    name: "refino_siblings",
+    description:
+      "按 ID 批量读取节点的强兄弟（共享至少一个直接依据的约束，含共享数，按重叠数降序）。细化决策前用它参考同一问题下的同级决策，保持方案一致。部分成功。",
+    parameters: {
+      ...idListParams("要查询强兄弟的节点 ID 列表"),
+      limit: { type: "integer", description: "每个 ID 最多返回的兄弟数；省略则全部" },
+    },
+    output: {
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          results: { type: "array", items: siblingsEntrySchema(), required: true },
+        },
+      },
+      render: (_args, value) => [
+        {
+          type: "text",
+          text: renderSiblings(value as SiblingsResult),
+        },
+      ],
+    },
+    isConcurrencySafe: () => true,
+    async execute(args) {
+      const ws = requireWorkspace(get);
+      const groups = queryGroups(ws.graph, args.ids, (graph, id) => {
+        const all = getSiblings(graph, id);
+        const kept = args.limit === undefined ? all : all.slice(0, args.limit);
+        return kept.map(({ node, overlap }) => ({ ...lite(node), overlap }));
+      });
+      const results: QueryEntrySiblings[] = groups.map((group) =>
+        "error" in group
+          ? { id: group.id, error: group.error }
+          : { id: group.id, nodes: group.results },
+      );
+      return { results } satisfies SiblingsResult;
+    },
+  });
 }
 
 function listTool(get: () => RefinoWorkspace | undefined): ToolDefinition {
@@ -312,6 +415,30 @@ function depthsResultSchema() {
     additionalProperties: false,
     properties: {
       results: { type: "array", items: depthsEntrySchema(), required: true },
+    },
+  } as const;
+}
+
+function siblingsEntrySchema() {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      id: { type: "string", required: true },
+      nodes: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            id: { type: "string", required: true },
+            type: { type: "string", required: true },
+            summary: { type: "string", required: true },
+            overlap: { type: "integer", required: true },
+          },
+        },
+      },
+      error: { type: "string" },
     },
   } as const;
 }

@@ -12,6 +12,7 @@ import {
 import { checkModification, validateContext } from "./boundary.js";
 import { contextBlocks, diffContext } from "./context.js";
 import { pendingReview } from "./pending.js";
+import { searchNodes, type SearchPage, type SearchParams } from "./search.js";
 import type { AuthorizationContext, ContextBlock, DeltaEvent, ModificationCheck } from "./types.js";
 
 /**
@@ -91,5 +92,10 @@ export class HarnessSession {
 
   dependents(ids: readonly string[]): QueryGroup<NodeWithDepth>[] {
     return queryGroups(this.graph, ids, getDependents);
+  }
+
+  /** Keyset-paginated id/summary search over the graph (docs/design.md, `search`). */
+  search(params: SearchParams = {}): SearchPage {
+    return searchNodes(this.graph, params);
   }
 }

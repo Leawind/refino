@@ -35,6 +35,35 @@ export function initialContextText(graph: Graph, context: AuthorizationContext):
   );
 }
 
+const ORIENTATION_ROOTS = 8;
+
+/**
+ * Minimal orientation for graphs above the auto-anchor budget (docs/design.md,
+ * dsh 插件落地形态: 超预算时不静默) — enough for the model to help the user
+ * pick anchors instead of working without any project context.
+ */
+export function orientationText(graph: Graph): string {
+  const roots = [...graph.nodes.values()]
+    .filter((node) => node.type === "constraint" && node.grounds.length === 0)
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    .slice(0, ORIENTATION_ROOTS);
+  const lines = [
+    `已连接 CRG（约束细化图，共 ${graph.nodes.size} 个节点）。图超过自动锚点预算，本次未注入初始决策上下文。`,
+  ];
+  if (roots.length > 0) {
+    lines.push(
+      roots.length === ORIENTATION_ROOTS
+        ? `根约束（决策空间顶层）摘要，前 ${ORIENTATION_ROOTS} 个：`
+        : "根约束（决策空间顶层）摘要：",
+    );
+    lines.push(...roots.map((node) => `- ${node.id} ${node.summary}`));
+  }
+  lines.push(
+    "用 refino_search 按摘要或 ID 定位节点、refino_show / refino_grounds 按需查询；请与用户确认任务相关的作用域锚点后再展开工作。",
+  );
+  return frame(lines.join("\n"));
+}
+
 /** One injected update: authorization-context delta events plus pending-review constraints. */
 export function updateText(delta: DeltaEvent[], pending: RefinoNode[]): string | undefined {
   const lines: string[] = [];

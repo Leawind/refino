@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { ToolDefinition } from "@deepseek-ai/dsh-tools";
+import { readNode } from "@refino/storage";
 import { constraint, createRefino, premise, removeRefino } from "@refino/testkit";
 import { createTools } from "../src/tools.js";
 import { RefinoWorkspace } from "../src/workspace.js";
@@ -116,6 +117,56 @@ describe("query tools", () => {
     expect(result.pending.map((node) => node.id)).toEqual(["C2GRAND"]);
     expect(result.unknown_ids).toEqual(["NOSUCH1"]);
   });
+
+  it("refino_search matches id prefixes and summary substrings with keyset pages", async () => {
+    const ws = await fixtureWorkspace();
+    const tools = toolset(ws);
+    const bySummary = await run<{ nodes: { id: string }[]; next_cursor?: string }>(
+      tools.refino_search,
+      { q: "约束" },
+    );
+    expect(bySummary.nodes.map((node) => node.id).sort()).toEqual(["C1CHILD", "C2GRAND", "R1ROOT"]);
+    const paged = await run<{ nodes: { id: string }[]; next_cursor?: string }>(
+      tools.refino_search,
+      { q: "约束", limit: 2 },
+    );
+    expect(paged.nodes).toHaveLength(2);
+    expect(paged.next_cursor).toBeDefined();
+    const rest = await run<{ nodes: { id: string }[] }>(tools.refino_search, {
+      q: "约束",
+      limit: 2,
+      cursor: paged.next_cursor,
+    });
+    expect(rest.nodes.map((node) => node.id)).toEqual(
+      bySummary.nodes.map((node) => node.id).filter((id) => !paged.nodes.some((n) => n.id === id)),
+    );
+    const byPrefix = await run<{ nodes: { id: string }[] }>(tools.refino_search, { q: "C1" });
+    expect(byPrefix.nodes.map((node) => node.id)).toEqual(["C1CHILD"]);
+    const typed = await run<{ nodes: { id: string }[] }>(tools.refino_search, {
+      node_type: "premise",
+    });
+    expect(typed.nodes.map((node) => node.id)).toEqual(["P1PREMISE"]);
+  });
+
+  it("refino_siblings ranks by shared direct grounds and honors the limit", async () => {
+    const ws = await fixtureWorkspace();
+    const tools = toolset(ws);
+    // The fixture has no sibling pairs (C2GRAND is C1CHILD's child); add a
+    // constraint sharing both of C1CHILD's grounds.
+    const created = await run<{ ok: boolean }>(tools.refino_create_constraint, {
+      id: "S1SIBLING",
+      body: "兄弟约束",
+      grounds: ["R1ROOT", "P1PREMISE"],
+    });
+    expect(created.ok).toBe(true);
+    const result = await run<{
+      results: { id: string; nodes?: { id: string; overlap: number }[]; error?: string }[];
+    }>(tools.refino_siblings, { ids: ["C1CHILD", "P1PREMISE", "NOSUCH1"], limit: 1 });
+    expect(result.results[0]!.nodes!.map((n) => [n.id, n.overlap])).toEqual([["S1SIBLING", 2]]);
+    // Premises have no grounds, hence no siblings.
+    expect(result.results[1]!.nodes).toEqual([]);
+    expect(result.results[2]!.error).toContain("NOSUCH1");
+  });
 });
 
 describe("write tools", () => {
@@ -167,23 +218,75 @@ describe("write tools", () => {
     expect(frozen.ok).toBe(false);
     expect(frozen.escalation!.reason).toBe("node_frozen");
     expect(frozen.escalation!.affected.map((a) => a.id).sort()).toEqual(["C1CHILD", "C2GRAND"]);
-    const missingGrounds = await run<{ ok: boolean }>(tools.refino_update_node, {
-      id: "C1CHILD",
-      summary: "新摘要",
-      body: "新正文",
-    });
-    expect(missingGrounds.ok).toBe(false);
-    const ok = await run<{ ok: boolean; pending: { id: string }[] }>(tools.refino_update_node, {
-      id: "C1CHILD",
-      summary: "新摘要",
-      body: "新正文",
-      grounds: ["R1ROOT", "P1PREMISE"],
-      rationale: "理由更新",
-    });
-    expect(ok.ok).toBe(true);
-    expect(ok.pending.map((node) => node.id)).toEqual(["C2GRAND"]);
+    // Partial semantics: grounds omitted keep the current ones.
+    const bodyOnly = await run<{ ok: boolean; pending: { id: string }[] }>(
+      tools.refino_update_node,
+      { id: "C1CHILD", summary: "新摘要", body: "新正文" },
+    );
+    expect(bodyOnly.ok).toBe(true);
+    expect(bodyOnly.pending.map((node) => node.id)).toEqual(["C2GRAND"]);
     const node = ws.graph.nodes.get("C1CHILD")!;
     expect(node.type === "constraint" && node.summary).toBe("新摘要");
+    expect(node.type === "constraint" && node.grounds).toEqual(["R1ROOT", "P1PREMISE"]);
+  });
+
+  it("refino_update_node keeps a derived summary derived and clears via empty strings", async () => {
+    const ws = await fixtureWorkspace();
+    const tools = toolset(ws);
+    // C2GRAND has no explicit summary (testkit premise/constraint leave it
+    // derived): a body-only update must not pin one.
+    const bodyOnly = await run<{ ok: boolean }>(tools.refino_update_node, {
+      id: "C2GRAND",
+      body: "孙约束新正文",
+    });
+    expect(bodyOnly.ok).toBe(true);
+    const reloaded = await readNode(ws.refinoDir, "C2GRAND");
+    expect(reloaded.summaryExplicit).toBe(false);
+    expect(reloaded.node?.summary).toBe("孙约束新正文");
+    // An explicit summary survives a body-only update…
+    const explicit = await run<{ ok: boolean }>(tools.refino_update_node, {
+      id: "C1CHILD",
+      summary: "显式摘要",
+      body: "子约束",
+    });
+    expect(explicit.ok).toBe(true);
+    const kept = await run<{ ok: boolean }>(tools.refino_update_node, {
+      id: "C1CHILD",
+      body: "子约束二",
+    });
+    expect(kept.ok).toBe(true);
+    const keptRead = await readNode(ws.refinoDir, "C1CHILD");
+    expect(keptRead.summaryExplicit).toBe(true);
+    expect(keptRead.node?.summary).toBe("显式摘要");
+    // …and an empty string clears it back to body-derived.
+    const cleared = await run<{ ok: boolean }>(tools.refino_update_node, {
+      id: "C1CHILD",
+      summary: "",
+    });
+    expect(cleared.ok).toBe(true);
+    const clearedRead = await readNode(ws.refinoDir, "C1CHILD");
+    expect(clearedRead.summaryExplicit).toBe(false);
+    // rationale clears via an empty string; grounds validate on replacement.
+    const rationale = await run<{ ok: boolean }>(tools.refino_update_node, {
+      id: "C1CHILD",
+      rationale: "",
+    });
+    expect(rationale.ok).toBe(true);
+    const noRationale = await readNode(ws.refinoDir, "C1CHILD");
+    expect(noRationale.node?.type === "constraint" && noRationale.node.rationale).toBeUndefined();
+    const badGrounds = await run<{ ok: boolean; issues: unknown[] }>(tools.refino_update_node, {
+      id: "C1CHILD",
+      grounds: ["NOSUCH1"],
+    });
+    expect(badGrounds.ok).toBe(false);
+    // Nothing to do is an error; so is an empty body.
+    const nothing = await run<{ ok: boolean }>(tools.refino_update_node, { id: "C1CHILD" });
+    expect(nothing.ok).toBe(false);
+    const emptyBody = await run<{ ok: boolean }>(tools.refino_update_node, {
+      id: "C1CHILD",
+      body: "",
+    });
+    expect(emptyBody.ok).toBe(false);
   });
 
   it("refino_delete_node refuses frozen targets and nodes with dependents", async () => {

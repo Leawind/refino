@@ -5,6 +5,8 @@ import type {
   NodeDepthLite,
   NodeLite,
   PendingResult,
+  SearchResult,
+  SiblingsResult,
   WriteResult,
 } from "./shapes.js";
 
@@ -61,6 +63,29 @@ export function renderPending(result: PendingResult): string {
     lines.push(...result.pending.map(nodeLine));
   }
   return lines.join("\n");
+}
+
+export function renderSearch(result: SearchResult): string {
+  const lines: string[] = [];
+  if (result.nodes.length === 0) {
+    lines.push(`没有匹配"${result.query}"的节点。`);
+  } else {
+    lines.push(`匹配"${result.query}"的节点（本页 ${result.nodes.length} 个）：`);
+    lines.push(...result.nodes.map(nodeLine));
+    if (result.next_cursor !== undefined) {
+      lines.push(`结果未完，以 next_cursor=${result.next_cursor} 继续查询。`);
+    }
+  }
+  return lines.join("\n");
+}
+
+export function renderSiblings(result: SiblingsResult): string {
+  return renderEntries(result.results, (entry) =>
+    (entry.nodes ?? []).map(
+      (sibling) =>
+        `- ${sibling.id} [${sibling.type}] 共享 ${sibling.overlap} 个直接依据 — ${sibling.summary}`,
+    ),
+  );
 }
 
 export function renderWrite(result: WriteResult): string {

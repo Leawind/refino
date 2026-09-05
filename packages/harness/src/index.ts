@@ -10,7 +10,9 @@ export {
 } from "./boundary.js";
 export { defaultAuthorizationContext } from "./default.js";
 export { pendingReview } from "./pending.js";
-export { contextBlocks, diffContext, renderContext } from "./context.js";
+export { contextBlocks, diffContext, estimateContext, renderContext } from "./context.js";
+export { searchNodes } from "./search.js";
+export type { SearchPage, SearchParams } from "./search.js";
 export { HarnessSession } from "./session.js";
 export type { HarnessHost } from "./session.js";
 export { byId, unknownNodes } from "./types.js";

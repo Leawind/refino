@@ -15,6 +15,7 @@ import {
   createConstraint,
   createPremise,
   deleteNode,
+  readNode,
   updateConstraint,
   updatePremise,
 } from "@refino/storage";
@@ -124,18 +125,27 @@ function updateNodeTool(get: () => RefinoWorkspace | undefined): ToolDefinition 
   return defineTool({
     name: "refino_update_node",
     description:
-      "整体替换节点的可编辑字段：summary 与 body 必填。约束还须提供完整 grounds 列表（无依据传空数组），rationale 省略即清除；前提可带 confirmed，省略即清除。目标在冻结区（只读）时返回结构化升级报告（正常结果，非报错）。",
+      "部分更新节点的可编辑字段：省略的字段保持不变，传空串清除该可选属性（summary 清除后回退为正文首段派生）。约束的 grounds 提供时整体替换并经校验，省略则保持不变。至少提供一个字段。目标在冻结区（只读）时返回结构化升级报告（正常结果，非报错）。",
     parameters: {
       id: { type: "string", required: true, description: "要修改的节点 ID" },
-      summary: { type: "string", required: true, description: "新的独立摘要" },
-      body: { type: "string", required: true, description: "新的正文（Markdown）" },
+      summary: {
+        type: "string",
+        description: "新的独立摘要；省略保持不变；空串清除（回退为正文派生）",
+      },
+      body: { type: "string", description: "新的正文（Markdown）；省略保持不变" },
       grounds: {
         type: "array",
         items: { type: "string" },
-        description: "约束的新依据 ID 列表（整体替换）；仅约束可用",
+        description: "约束的新依据 ID 列表（整体替换并校验）；省略保持不变；仅约束可用",
       },
-      rationale: { type: "string", description: "约束的新理由；省略即清除；仅约束可用" },
-      confirmed: { type: "string", description: "前提的新确认时间（RFC 3339 带偏移）；仅前提可用" },
+      rationale: {
+        type: "string",
+        description: "约束的新理由；省略保持不变；空串清除；仅约束可用",
+      },
+      confirmed: {
+        type: "string",
+        description: "前提的新确认时间（RFC 3339 带偏移）；省略保持不变；空串清除；仅前提可用",
+      },
     },
     output: { schema: writeResultSchema(), render: renderWriteValue },
     async execute(args) {
@@ -143,6 +153,15 @@ function updateNodeTool(get: () => RefinoWorkspace | undefined): ToolDefinition 
       const node = ws.graph.nodes.get(args.id);
       if (node === undefined) {
         return { ok: false, error: `节点 "${args.id}" 不存在` };
+      }
+      const touched =
+        args.summary !== undefined ||
+        args.body !== undefined ||
+        args.grounds !== undefined ||
+        args.rationale !== undefined ||
+        args.confirmed !== undefined;
+      if (!touched) {
+        return { ok: false, error: "未指定任何要更新的字段；省略的字段保持不变" };
       }
       const blocked = checkModification(ws.graph, ws.authorizationContext, node.id);
       if (!blocked.allowed) {
@@ -158,12 +177,31 @@ function updateNodeTool(get: () => RefinoWorkspace | undefined): ToolDefinition 
 
 type UpdateArgs = {
   id: string;
-  summary: string;
-  body: string;
+  summary?: string;
+  body?: string;
   grounds?: string[];
   rationale?: string;
   confirmed?: string;
 };
+
+/**
+ * The updated summary per the partial semantics (docs/design.md): an omitted
+ * summary keeps an explicit one and stays body-derived otherwise, so updating
+ * the body alone keeps the fallback in sync; an empty string clears the
+ * explicit summary. Reads the file for the explicit-summary flag, which the
+ * in-memory graph does not carry.
+ */
+async function mergedSummary(
+  ws: RefinoWorkspace,
+  id: string,
+  args: UpdateArgs,
+): Promise<string | undefined | WriteResult> {
+  const read = await readNode(ws.refinoDir, id);
+  if (read.node === null) return { ok: false, error: `节点 "${id}" 不存在` };
+  if (args.summary === undefined)
+    return read.summaryExplicit === true ? read.node.summary : undefined;
+  return args.summary === "" ? undefined : args.summary;
+}
 
 async function updatePremiseNode(
   ws: RefinoWorkspace,
@@ -176,14 +214,24 @@ async function updatePremiseNode(
   if (args.rationale !== undefined) {
     return { ok: false, error: "前提不携带 rationale" };
   }
-  if (args.confirmed !== undefined && !isValidConfirmed(args.confirmed)) {
+  if (args.body !== undefined && args.body === "") {
+    return { ok: false, error: "body 不能为空" };
+  }
+  if (args.confirmed !== undefined && args.confirmed !== "" && !isValidConfirmed(args.confirmed)) {
     return invalidConfirmed(args.confirmed);
   }
+  const summary = await mergedSummary(ws, node.id, args);
+  if (typeof summary === "object") return summary;
   try {
     await updatePremise(ws.refinoDir, node.id, {
-      body: args.body,
-      summary: args.summary,
-      confirmed: args.confirmed,
+      body: args.body ?? node.body,
+      summary,
+      confirmed:
+        args.confirmed === undefined
+          ? node.confirmed
+          : args.confirmed === ""
+            ? undefined
+            : args.confirmed,
     });
   } catch (error) {
     return writeFailure(error);
@@ -200,22 +248,28 @@ async function updateConstraintNode(
   if (args.confirmed !== undefined) {
     return { ok: false, error: "confirmed 仅适用于前提节点" };
   }
-  if (args.grounds === undefined) {
-    return {
-      ok: false,
-      error: "约束更新必须提供完整的 grounds 列表（保持不变也要原样传入；无依据时传空数组）",
-    };
+  if (args.body !== undefined && args.body === "") {
+    return { ok: false, error: "body 不能为空" };
   }
-  const issues = checkGroundsChange(ws.graph, node.id, args.grounds);
-  if (issues.length > 0) {
-    return { ok: false, error: "grounds 校验未通过", issues: issues.map(issueLite) };
+  if (args.grounds !== undefined) {
+    const issues = checkGroundsChange(ws.graph, node.id, args.grounds);
+    if (issues.length > 0) {
+      return { ok: false, error: "grounds 校验未通过", issues: issues.map(issueLite) };
+    }
   }
+  const summary = await mergedSummary(ws, node.id, args);
+  if (typeof summary === "object") return summary;
   try {
     await updateConstraint(ws.refinoDir, node.id, {
-      body: args.body,
-      summary: args.summary,
-      rationale: args.rationale,
-      grounds: args.grounds,
+      body: args.body ?? node.body,
+      summary,
+      rationale:
+        args.rationale === undefined
+          ? node.rationale
+          : args.rationale === ""
+            ? undefined
+            : args.rationale,
+      grounds: args.grounds ?? node.grounds,
     });
   } catch (error) {
     return writeFailure(error);

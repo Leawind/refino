@@ -92,6 +92,29 @@ export interface PendingResult {
   unknown_ids: string[];
 }
 
+/** Canonical value of `refino_search`: one keyset page over the graph. */
+export interface SearchResult {
+  query: string;
+  nodes: NodeLite[];
+  /** Id after which to continue; absent on the last page. */
+  next_cursor?: string;
+}
+
+/** Strong sibling of the queried node: shares `overlap` direct grounds. */
+export interface SiblingLite extends NodeLite {
+  overlap: number;
+}
+
+export interface QueryEntrySiblings {
+  id: string;
+  nodes?: SiblingLite[];
+  error?: string;
+}
+
+export interface SiblingsResult {
+  results: QueryEntrySiblings[];
+}
+
 export function lite(node: RefinoNode): NodeLite {
   return { id: node.id, type: node.type, summary: node.summary };
 }

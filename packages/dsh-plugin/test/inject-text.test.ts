@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildGraph } from "refino";
 import type { Graph, RefinoNode } from "refino";
-import { initialContextText, updateText } from "../src/inject-text.js";
+import { initialContextText, orientationText, updateText } from "../src/inject-text.js";
 import { defaultAuthorizationContext } from "@refino/harness";
 
 function node(id: string, type: "premise" | "constraint", grounds?: string[]): RefinoNode {
@@ -52,6 +52,27 @@ describe("initialContextText", () => {
     const text = initialContextText(graph, defaultAuthorizationContext(graph).context);
     expect(text).toContain("</system-reminder\\>");
     expect(text.lastIndexOf("</system-reminder>")).toBe(text.length - "</system-reminder>".length);
+  });
+});
+
+describe("orientationText", () => {
+  it("orients the model when the graph exceeds the auto-anchor budget", () => {
+    const text = orientationText(fixtureGraph());
+    expect(text).toContain("共 3 个节点");
+    expect(text).toContain("根约束");
+    expect(text).toContain("- R1ROOT summary of R1ROOT");
+    expect(text).toContain("refino_search");
+    // Premises and derived constraints are not listed as roots.
+    expect(text).not.toContain("P1PREMISE");
+    expect(text).not.toContain("C1CHILD");
+  });
+
+  it("caps the root list at eight entries", () => {
+    const roots = Array.from({ length: 10 }, (_, i) => node(`R${i}ROOT${i}`, "constraint"));
+    const graph = buildGraph("/tmp/.refino", roots);
+    const text = orientationText(graph);
+    expect(text).toContain("前 8 个");
+    expect(text).not.toContain("R8ROOT8");
   });
 });
 

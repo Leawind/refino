@@ -1,4 +1,4 @@
-import { getAncestors, getDependents, getGrounds, queryGroups } from "refino";
+import { getAncestors, getDependents, getGrounds, getSiblings, queryGroups } from "refino";
 import type { Graph, NodeLite, QueryGroup, RefinoNode } from "refino";
 
 /**
@@ -107,24 +107,13 @@ export function siblings(
   limit?: number,
 ): QueryGroup<Siblings>[] {
   return queryGroups(graph, ids, (g, id): Siblings[] => {
-    const overlap = new Map<string, number>();
-    const anchor = g.nodes.get(id);
-    const grounds = anchor?.type === "constraint" ? anchor.grounds : [];
-    for (const ground of grounds) {
-      for (const dependent of g.dependents.get(ground) ?? []) {
-        if (dependent === id) continue;
-        overlap.set(dependent, (overlap.get(dependent) ?? 0) + 1);
-      }
-    }
-    const sorted = [...overlap].sort((a, b) =>
-      a[1] !== b[1] ? b[1] - a[1] : a[0] < b[0] ? -1 : 1,
-    );
-    const truncated = limit !== undefined && sorted.length > limit;
-    const kept = truncated ? sorted.slice(0, limit) : sorted;
+    const all = getSiblings(g, id);
+    const truncated = limit !== undefined && all.length > limit;
+    const kept = truncated ? all.slice(0, limit) : all;
     return [
       {
         truncated,
-        nodes: kept.map(([sid, count]) => ({ ...toLite(g.nodes.get(sid)!), overlap: count })),
+        nodes: kept.map(({ node, overlap }) => ({ ...toLite(node), overlap })),
       },
     ];
   });
