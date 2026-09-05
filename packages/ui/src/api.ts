@@ -4,6 +4,7 @@ import type {
   IssueRecord,
   Neighborhood,
   NodeDetail,
+  NodeLite,
   NodePayload,
   QueryGroup,
   RangeResult,
@@ -28,6 +29,9 @@ export interface RefinoClient {
 
   /** POST /api/query/range — relationship and path nodes between two endpoints. */
   queryRange(focusId: string, clickedId: string, budget?: number): Promise<RangeResult>;
+
+  /** POST /api/query/grounds — per-id direct grounds, single hop. */
+  queryGrounds(ids: readonly string[]): Promise<QueryGroup<NodeLite>[]>;
 
   /** POST /api/query/siblings — per-id strong siblings by shared direct grounds. */
   querySiblings(ids: readonly string[], limit?: number): Promise<QueryGroup<SiblingSet>[]>;
@@ -116,6 +120,7 @@ export function createHttpClient(): RefinoClient {
     queryNeighbors: (ids, params) => post("/api/query/neighbors", { ids: [...ids], ...params }),
     queryRange: (focusId, clickedId, budget) =>
       post("/api/query/range", { focusId, clickedId, budget }),
+    queryGrounds: (ids) => post("/api/query/grounds", { ids: [...ids] }),
     querySiblings: (ids, limit) => post("/api/query/siblings", { ids: [...ids], limit }),
     search: (params) => {
       const query = new URLSearchParams();

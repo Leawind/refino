@@ -4,15 +4,15 @@
 // session with the modal editor (base snapshot, revision, field merges);
 // the row is row-scoped and does not follow the canvas focus. Conflict
 // decisions and deletion stay in the modal — the row escalates there.
-import { computed, ref, watch } from "vue";
+import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { NButton, NInput, NSelect, useMessage } from "naive-ui";
-import { injectRequired } from "../context";
-import { clientKey } from "../api";
+import { NButton, NInput, NSwitch, useMessage } from "naive-ui";
 import { storeKey } from "../store";
+import { renderMarkdown } from "../markdown";
+import GroundsField from "./GroundsField.vue";
+import { injectRequired } from "../context";
 import type { NodePayload } from "../types";
 
-const client = injectRequired(clientKey, "client");
 const store = injectRequired(storeKey, "store");
 const { t } = useI18n();
 const message = useMessage();
@@ -55,30 +55,9 @@ function openEditor(): void {
   store.openDetail(props.nodeId);
 }
 
-// Grounds options via the paginated search endpoint; the fetched page
-// replaces the list while already-selected ids stay labelled.
-const groundOptions = ref<Array<{ label: string; value: string }>>([]);
-let groundSearchToken = 0;
-
-async function searchGrounds(q: string): Promise<void> {
-  const token = ++groundSearchToken;
-  try {
-    const page = await client.search({ q: q.trim(), limit: 50 });
-    if (token !== groundSearchToken) return;
-    groundOptions.value = page.nodes
-      .filter((entry) => entry.id !== props.nodeId)
-      .map((entry) => ({
-        label: `${entry.id} ${entry.summary === "" ? t("node.untitled") : entry.summary}`,
-        value: entry.id,
-      }));
-  } catch {
-    // Keep the previous options on failure.
-  }
-}
-
-watch(active, (shown) => {
-  if (shown) void searchGrounds("");
-});
+/** Toggles the content field between markdown source and rendered output. */
+const previewBody = ref(false);
+const renderedBody = computed(() => renderMarkdown(form.body));
 </script>
 
 <template>
@@ -101,9 +80,18 @@ watch(active, (shown) => {
       />
     </label>
 
-    <label class="field">
-      <span class="label">{{ t("node.body") }}</span>
+    <div class="field">
+      <span class="label-row">
+        <span class="label">{{ t("node.body") }}</span>
+        <span class="preview-toggle" @click.stop="previewBody = !previewBody">
+          <NSwitch v-model:value="previewBody" size="small" />
+          {{ t("node.preview") }}
+        </span>
+      </span>
+      <!-- Rendered locally from the user-authored markdown source. -->
+      <div v-if="previewBody" class="markdown" v-html="renderedBody" />
       <NInput
+        v-else
         v-model:value="form.body"
         type="textarea"
         size="small"
@@ -111,7 +99,7 @@ watch(active, (shown) => {
         :max-rows="bodyRows"
         :placeholder="t('node.bodyPlaceholder')"
       />
-    </label>
+    </div>
 
     <label v-if="type === 'constraint'" class="field">
       <span class="label">{{ t("node.rationale") }}</span>
@@ -127,19 +115,7 @@ watch(active, (shown) => {
 
     <div v-if="type === 'constraint'" class="field">
       <span class="label">{{ t("node.grounds") }}</span>
-      <NSelect
-        :value="form.grounds"
-        multiple
-        filterable
-        remote
-        clearable
-        size="small"
-        :max-tag-count="3"
-        :options="groundOptions"
-        :placeholder="t('node.groundsPlaceholder')"
-        @search="searchGrounds"
-        @update:value="(value: string[]) => (form.grounds = value)"
-      />
+      <GroundsField v-model:grounds="form.grounds" :owner-id="props.nodeId" />
     </div>
 
     <label v-if="type === 'premise'" class="field">
@@ -197,5 +173,29 @@ watch(active, (shown) => {
   display: flex;
   justify-content: flex-end;
   gap: 6px;
+}
+
+.label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.preview-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.markdown {
+  font-size: 12px;
+  border: 1px solid var(--refino-border);
+  border-radius: var(--refino-radius);
+  padding: 4px 8px;
+  max-height: 16rem;
+  overflow-y: auto;
+  word-break: break-word;
 }
 </style>

@@ -1,9 +1,10 @@
 <script setup lang="ts">
 // Full editor modal (README, "细节三层模型"): the ground for creation,
-// long-form editing, grounds multi-select and conflict/deletion decisions.
-// Opens on double click; closing keeps the selection. External changes
-// merge field-by-field per docs/design.md, "编辑冲突处理". The inline row
-// editor of the explorer shares this component's store session.
+// long-form editing, grounds list editing (one row per ground, Alt+hover
+// peeking) and conflict/deletion decisions. Opens on double click; closing
+// keeps the selection. External changes merge field-by-field per
+// docs/design.md, "编辑冲突处理". The inline row editor of the explorer
+// shares this component's store session.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import {
@@ -12,7 +13,6 @@ import {
   NIcon,
   NInput,
   NPopconfirm,
-  NSelect,
   NSpin,
   NSwitch,
   NTag,
@@ -22,14 +22,13 @@ import {
 import { renderMarkdown, renderMermaidDiagrams } from "../markdown";
 import { CloseOutline } from "@vicons/ionicons5";
 import FormField from "./FormField.vue";
-import { clientKey, type RefinoClient } from "../api";
+import GroundsField from "./GroundsField.vue";
 import { injectRequired } from "../context";
 import { changedFields, toEditorFields } from "../conflict";
 import { storeKey } from "../store";
 import { workspaceKey } from "../workspace";
 import type { NodePayload } from "../types";
 
-const client = injectRequired(clientKey, "client");
 const store = injectRequired(storeKey, "store");
 const workspace = injectRequired(workspaceKey, "workspace");
 
@@ -71,48 +70,6 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
 // The form lives in the store: external merges update it while the user's
 // edits are preserved, and the conflict flow needs it for field comparisons.
 const form = store.form;
-
-/**
- * Grounds options come from the paginated search endpoint (README, "编辑功
- * 能": 多选节点，支持搜索); the fetched page replaces the option list while
- * already-selected ids stay labelled.
- */
-const groundOptions = ref<Array<{ label: string; value: string }>>([]);
-const groundSearching = ref(false);
-let groundSearchToken = 0;
-
-function optionLabel(id: string, summary: string): string {
-  return `${id} ${summary === "" ? t("node.untitled") : summary}`;
-}
-
-async function searchGrounds(q: string): Promise<void> {
-  const token = ++groundSearchToken;
-  groundSearching.value = true;
-  try {
-    const page = await client.search({ q: q.trim(), limit: 50 });
-    if (token !== groundSearchToken) return;
-    groundOptions.value = page.nodes
-      .filter((node) => node.id !== selected.value?.id)
-      .map((node) => ({ label: optionLabel(node.id, node.summary), value: node.id }));
-  } catch {
-    // Keep the previous options on failure.
-  } finally {
-    if (token === groundSearchToken) groundSearching.value = false;
-  }
-}
-
-const mergedGroundOptions = computed(() => {
-  const options = new Map(groundOptions.value.map((option) => [option.value, option]));
-  for (const id of form.grounds) {
-    if (!options.has(id)) options.set(id, { label: id, value: id });
-  }
-  return [...options.values()];
-});
-
-// Seed the options when the bar appears.
-watch(visible, (shown) => {
-  if (shown) void searchGrounds("");
-});
 
 const dependentCount = computed(() => store.state.detail.dependents.length);
 
@@ -209,8 +166,10 @@ async function remove(): Promise<void> {
 }
 
 function nodeLabel(id: string): string {
+  // Lists show summaries, not ids; the id stays visible in the head.
   const node = store.state.detail.dependents.find((dependent) => dependent.id === id);
-  return node === undefined ? id : optionLabel(id, node.summary);
+  if (node === undefined) return id;
+  return node.summary === "" ? t("node.untitled") : node.summary;
 }
 </script>
 
@@ -311,16 +270,11 @@ function nodeLabel(id: string): string {
             class="f-grounds"
             :label="t('node.grounds')"
           >
-            <NSelect
-              v-model:value="form.grounds"
-              multiple
-              filterable
-              clearable
-              remote
-              :loading="groundSearching"
-              :options="mergedGroundOptions"
-              :placeholder="t('node.groundsPlaceholder')"
-              @search="searchGrounds"
+            <!-- One ground per row, shown by summary; rows peek on Alt+hover
+                 (GroundsField). -->
+            <GroundsField
+              v-model:grounds="form.grounds"
+              :owner-id="creating ? null : (selected?.id ?? null)"
             />
           </FormField>
 

@@ -1,12 +1,14 @@
 <script setup lang="ts">
 // Alt-peek preview card (README, "交互"): a read-only floating summary of
 // the hovered node, anchored to the cursor. The cached lite shape renders
-// immediately; the full record (body, rationale, grounds) fills in
-// asynchronously with a latest-wins guard. Non-interactive by design —
-// pointer-events stay off so the card can never trap the cursor.
+// immediately; the full record (body, rationale) fills in asynchronously
+// with a latest-wins guard, and grounds render as a plain unordered list of
+// summaries. Non-interactive by design — pointer-events stay off so the
+// card can never trap the cursor.
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { injectRequired } from "../context";
+import { fetchGroundLites } from "../grounds";
 import { peekState } from "../peek";
 import { clientKey } from "../api";
 import type { NodeRecord } from "../types";
@@ -16,20 +18,31 @@ const { t } = useI18n();
 
 const MAX_BODY_CHARS = 600;
 const MAX_RATIONALE_CHARS = 280;
+const MAX_GROUND_SUMMARY_CHARS = 120;
 
 const record = ref<NodeRecord | null>(null);
+/** Ground summaries in declared order; raw ids stay out of the card. */
+const groundSummaries = ref<string[]>([]);
 let loadToken = 0;
 
 watch(
   () => peekState.id,
   (id) => {
     record.value = null;
+    groundSummaries.value = [];
     if (id === null) return;
     const token = ++loadToken;
     void client
       .fetchNode(id)
-      .then((detail) => {
-        if (token === loadToken && peekState.id === id) record.value = detail.node;
+      .then(async (detail) => {
+        if (token !== loadToken || peekState.id !== id) return;
+        record.value = detail.node;
+        // Ground summaries ride the batched single-hop grounds query.
+        const lites = await fetchGroundLites(client, id);
+        if (token !== loadToken || peekState.id !== id) return;
+        groundSummaries.value = lites.map((lite) =>
+          lite.summary === "" ? t("node.untitled") : clip(lite.summary, MAX_GROUND_SUMMARY_CHARS),
+        );
       })
       .catch(() => {
         // The peek is best-effort; the lite shape stays visible.
@@ -49,7 +62,6 @@ const rationale = computed(() => {
   const value = record.value?.rationale ?? "";
   return value === "" ? "" : clip(value, MAX_RATIONALE_CHARS);
 });
-const grounds = computed(() => record.value?.grounds ?? []);
 const summary = computed(() => {
   const value = record.value?.summary ?? "";
   return value === "" ? t("node.untitled") : value;
@@ -90,9 +102,12 @@ const style = computed(() => {
         <p class="summary">{{ summary }}</p>
         <p v-if="rationale !== ''" class="rationale">{{ rationale }}</p>
         <p v-if="body !== ''" class="body">{{ body }}</p>
-        <p v-if="grounds.length > 0" class="grounds">
-          {{ t("node.grounds") }}: {{ grounds.join(", ") }}
-        </p>
+        <template v-if="groundSummaries.length > 0">
+          <p class="grounds-label">{{ t("node.grounds") }}</p>
+          <ul class="grounds">
+            <li v-for="(ground, index) in groundSummaries" :key="index">{{ ground }}</li>
+          </ul>
+        </template>
       </aside>
     </Transition>
   </Teleport>
@@ -146,8 +161,7 @@ const style = computed(() => {
 }
 
 .rationale,
-.body,
-.grounds {
+.body {
   margin: 4px 0 0;
   font-size: 12px;
   line-height: 1.5;
@@ -156,10 +170,23 @@ const style = computed(() => {
   opacity: 0.85;
 }
 
-.grounds {
-  font-family: monospace;
+.grounds-label {
+  margin: 6px 0 0;
   font-size: 11px;
-  opacity: 0.65;
+  opacity: 0.55;
+}
+
+/* Grounds render as a plain unordered list of summaries (README, "交互"). */
+.grounds {
+  margin: 2px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.5;
+  opacity: 0.85;
+}
+
+.grounds li {
+  word-break: break-word;
 }
 
 .peek-enter-active,

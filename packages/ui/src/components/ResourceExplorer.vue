@@ -3,7 +3,8 @@
 // and premises with a type filter and the unreferenced-premises quick view.
 // Listings come from the paginated /api/search endpoint — the full graph is
 // never loaded. Rows expand into the inline editor (single accordion);
-// expansion never touches the panel width. Alt+hover peeks a node. Width is
+// expansion never touches the panel width. Alt+hover peeks a row's node
+// unless the row is expanded (an editing surface never peeks). Width is
 // a percentage of the whole interface; dragging below the minimum collapses
 // it to a floating round button, and the panel can dock or float.
 import { computed, onBeforeUnmount, ref, watch } from "vue";
@@ -198,11 +199,15 @@ function toggleExpand(node: SearchNode): void {
   if (store.state.inlineId === node.id) store.collapseInline();
   else {
     select(node);
+    // The expanded row is an editing surface; it never peeks.
+    peekHide(node.id);
     store.expandInline(node.id);
   }
 }
 
 function onRowMove(event: MouseEvent, node: SearchNode): void {
+  // An expanded row shows the node's content already — no peek over it.
+  if (store.state.inlineId === node.id) return;
   peekMove(node.id, event.clientX, event.clientY);
 }
 
@@ -322,7 +327,6 @@ function isDirty(node: SearchNode): boolean {
                 {{ nodeItem.summary === "" ? t("node.untitled") : nodeItem.summary }}
                 <span v-if="isDirty(nodeItem)" class="dirty" :title="t('inline.dirty')">◐</span>
               </div>
-              <div class="id">{{ nodeItem.id }}</div>
             </div>
           </div>
           <InlineNodeForm :node-id="nodeItem.id" />
@@ -492,15 +496,6 @@ function isDirty(node: SearchNode): boolean {
 .dirty {
   color: #f0a020;
   margin-left: 4px;
-}
-
-/* Ids are rarely used directly; keep them small, below the summary. */
-.id {
-  font-family: monospace;
-  font-size: 10px;
-  opacity: 0.55;
-  margin-top: 2px;
-  text-align: right;
 }
 
 .more {

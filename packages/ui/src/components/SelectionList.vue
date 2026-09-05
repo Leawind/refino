@@ -34,7 +34,6 @@ const selectedNodes = workspace.selectedNodes;
         <span class="summary">
           {{ node.summary === "" ? t("node.untitled") : node.summary }}
         </span>
-        <span class="id">{{ node.id }}</span>
         <button
           class="btn"
           :title="t('selection.remove')"
@@ -118,12 +117,6 @@ li.focus .marker {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.id {
-  font-family: monospace;
-  font-size: 10px;
-  opacity: 0.55;
 }
 
 .btn {
