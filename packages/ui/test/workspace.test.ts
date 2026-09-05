@@ -283,30 +283,31 @@ describe("select expands the working set", () => {
       ancestorDepth: 2,
       descendantDepth: 2,
     });
-    // Constraints of the working set, in coverage order.
-    expect(displayedIds()).toEqual([C3, C2, C1]);
+    // Constraints of the working set, in coverage order; the premises of
+    // the neighborhood join as the facts layer is on by default.
+    expect(new Set(displayedIds())).toEqual(new Set([C3, C2, C1, P2]));
     expect(workspace.state.focusId).toBe(C3);
   });
 
   it("evicts nodes that leave all coverage when the selection moves", async () => {
     await select(C3);
     await select(C5);
-    // Premises are not displayed at all; only the constraint remains.
-    expect(displayedIds()).toEqual([C5]);
+    // The facts layer keeps the premise of the neighborhood visible.
+    expect(displayedIds()).toEqual([C5, P3]);
   });
 
   it("includes strong siblings and their vertical neighborhoods", async () => {
     await select(C2);
     expect(lastCall("/api/query/neighbors").body).toMatchObject({ ids: [C2, C4, C6] });
-    // Premise grounds never join the display, even under the selection.
-    expect(new Set(displayedIds())).toEqual(new Set([C2, C1, C3, C4, C6]));
+    // Premise grounds of the coverage stay visible through the facts layer.
+    expect(new Set(displayedIds())).toEqual(new Set([C2, C1, C3, C4, C6, P1, P2]));
   });
 
   it("skips siblings when disabled in the config", async () => {
     workspace.setConfig({ showSiblings: false });
     await select(C2);
     expect(lastCall("/api/query/neighbors").body).toMatchObject({ ids: [C2] });
-    expect(displayedIds()).toEqual([C2, C1, C3, C4]);
+    expect(new Set(displayedIds())).toEqual(new Set([C2, C1, P2, C3, C4, P1]));
   });
 
   it("surfaces the neighborhood truncation flag", async () => {
@@ -362,10 +363,10 @@ describe("selection model", () => {
 describe("hover", () => {
   it("highlights the node without changing the display", async () => {
     await select(C1);
-    expect(displayedIds()).toEqual([C1, C6, C2, C4, C3]);
+    expect(new Set(displayedIds())).toEqual(new Set([C1, P1, C6, P2, C2, C4, C3]));
     workspace.hover(C2);
     expect(workspace.state.hoveredId).toBe(C2);
-    expect(displayedIds()).toEqual([C1, C6, C2, C4, C3]);
+    expect(new Set(displayedIds())).toEqual(new Set([C1, P1, C6, P2, C2, C4, C3]));
     workspace.unhover();
     expect(workspace.state.hoveredId).toBeNull();
   });
@@ -398,17 +399,17 @@ describe("external change feed", () => {
 
   it("prunes deleted nodes from selection and cache", async () => {
     await select(C3);
-    expect(displayedIds()).toEqual([C3, C2, C1]);
+    expect(new Set(displayedIds())).toEqual(new Set([C3, C2, C1, P2]));
     // The server has dropped C1; the client learns via the change feed.
     gone.add(C1);
     workspace.pruneDeleted([C1]);
-    await vi.waitFor(() => expect(displayedIds()).toEqual([C3, C2]));
+    await vi.waitFor(() => expect(new Set(displayedIds())).toEqual(new Set([C3, C2, P2])));
     // Re-expanding from scratch does not revive the deleted node.
     workspace.clearSelection();
     await vi.waitFor(() => expect(displayedIds()).toEqual([]));
     workspace.select({ ...lite[C3]! });
     await vi.waitFor(() => expect(workspace.state.loading).toBe(false));
-    expect(displayedIds()).toEqual([C3, C2]);
+    expect(new Set(displayedIds())).toEqual(new Set([C3, C2, P2]));
   });
 
   it("stops the subscription on stop()", () => {
@@ -418,5 +419,17 @@ describe("external change feed", () => {
     workspace.stop();
     expect(source.closed).toBe(true);
     expect(workspace.isLive()).toBe(false);
+  });
+});
+
+describe("premise facts layer", () => {
+  it("excludes premises when the layer is switched off", async () => {
+    workspace.setConfig({ showPremises: false });
+    await select(C3);
+    expect(new Set(displayedIds())).toEqual(new Set([C3, C2, C1]));
+    // Turning the layer back on brings the neighborhood's premises in
+    // without a refetch: they already live in the working set.
+    workspace.setConfig({ showPremises: true });
+    expect(new Set(displayedIds())).toEqual(new Set([C3, C2, C1, P2]));
   });
 });

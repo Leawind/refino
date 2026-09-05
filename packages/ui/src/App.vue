@@ -31,6 +31,7 @@ import DecisionGraph from "./components/DecisionGraph.vue";
 import NodeDetailWindow from "./components/NodeDetailWindow.vue";
 import NodePeek from "./components/NodePeek.vue";
 import GraphFloat from "./components/GraphFloat.vue";
+import CommandPalette from "./components/CommandPalette.vue";
 import ReviewDrawer from "./components/ReviewDrawer.vue";
 import SelectionList from "./components/SelectionList.vue";
 import WorkspaceToasts from "./components/WorkspaceToasts.vue";
@@ -54,11 +55,17 @@ const naiveTheme = computed(() => (store.state.theme === "dark" ? darkTheme : nu
 const naiveLocale = computed(() => (locale.value === "zh" ? zhCN : enUS));
 const naiveDateLocale = computed(() => (locale.value === "zh" ? dateZhCN : dateEnUS));
 
-// The display direction is a canvas config value, persisted like the rest
-// of the config; the writable computed keeps the v-model wiring local.
+// The display direction and the facts layer are canvas config values,
+// persisted like the rest of the config; writable computeds keep the
+// v-model wiring local.
 const direction = computed<LayoutDirection>({
   get: () => workspace.state.config.direction,
   set: (value) => workspace.setConfig({ direction: value }),
+});
+
+const showPremises = computed<boolean>({
+  get: () => workspace.state.config.showPremises,
+  set: (value) => workspace.setConfig({ showPremises: value }),
 });
 
 const directionOptions = [
@@ -176,6 +183,15 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
                         {{ direction }}
                       </NButton>
                     </NPopselect>
+                    <NButton
+                      circle
+                      :type="showPremises ? 'primary' : 'default'"
+                      :secondary="showPremises"
+                      :title="t('canvas.premises')"
+                      @click="showPremises = !showPremises"
+                    >
+                      ⌇
+                    </NButton>
                   </div>
                 </GraphFloat>
                 <GraphFloat placement="bottom-left">
@@ -202,6 +218,7 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
             </div>
           </div>
         </div>
+        <CommandPalette />
       </div>
     </NMessageProvider>
   </NConfigProvider>

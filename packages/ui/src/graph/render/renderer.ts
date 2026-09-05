@@ -45,6 +45,8 @@ export interface ThemeColors {
   edge: RGBA;
   primary: RGBA;
   text: RGBA;
+  /** The canvas surface color, for premixing weakened premise variants. */
+  canvasBg: RGBA;
 }
 
 /** A node as submitted by the component, in virtual layout coordinates. */
@@ -58,6 +60,8 @@ export interface RenderNodeInput {
   selected: boolean;
   focus: boolean;
   hovered: boolean;
+  /** Premise nodes draw as weakened capsules (README, "显示规则与样式"). */
+  premise: boolean;
   /** Render priority class (CULL_*), decided by the component. */
   cls: number;
   /** Distance to the nearest selected node, ordering within a class. */
@@ -68,6 +72,8 @@ export interface RenderEdgeInput {
   fromId: string;
   toId: string;
   emphasized: boolean;
+  /** Premise-ground edges draw thinner and weaker. */
+  weak: boolean;
 }
 
 export interface SceneInput {
@@ -143,7 +149,18 @@ export function readThemeColors(): ThemeColors {
     edge: token("--refino-edge", "rgba(15, 23, 42, 0.35)"),
     primary: token("--refino-primary", "#18a058"),
     text: token("--refino-node-text", "rgba(0, 0, 0, 0.9)"),
+    canvasBg: token("--refino-canvas-bg", "#f7f8fa"),
   };
+}
+
+/** Straight-alpha mix of a color towards the canvas surface by `t`. */
+function premix(color: RGBA, canvasBg: RGBA, t: number): RGBA {
+  return [
+    color[0] + (canvasBg[0] - color[0]) * t,
+    color[1] + (canvasBg[1] - color[1]) * t,
+    color[2] + (canvasBg[2] - color[2]) * t,
+    color[3] * (1 - t * 0.55),
+  ];
 }
 
 interface Entry {
@@ -199,6 +216,7 @@ export class GraphRenderer {
     edge: [0.06, 0.09, 0.16, 0.35],
     primary: [0.09, 0.63, 0.35, 1],
     text: [0.1, 0.1, 0.1, 0.9],
+    canvasBg: [0.97, 0.97, 0.98, 1],
   };
   #camera: Camera = { scale: 1, tx: 0, ty: 0 };
   #target: Camera = { scale: 1, tx: 0, ty: 0 };
@@ -760,8 +778,11 @@ export class GraphRenderer {
       if (from === undefined || to === undefined) continue;
       if (from.alpha < 0.02 || to.alpha < 0.02) continue;
       if ((count + 1) * 9 > this.#edgeData.length) this.#edgeData = grow(this.#edgeData);
-      const width = edge.emphasized ? EDGE_WIDTH_EMPHASIZED : lowLod ? EDGE_WIDTH_LOD : EDGE_WIDTH;
-      const color = edge.emphasized ? this.#theme.primary : this.#theme.edge;
+      const width =
+        (edge.emphasized ? EDGE_WIDTH_EMPHASIZED : lowLod ? EDGE_WIDTH_LOD : EDGE_WIDTH) *
+        (edge.weak ? 0.75 : 1);
+      const baseColor = edge.emphasized ? this.#theme.primary : this.#theme.edge;
+      const color = edge.weak ? premix(baseColor, this.#theme.canvasBg, 0.4) : baseColor;
       const base = count * 9;
       // Trim both ends to the node borders: the shaft must not run under the
       // opaque cards, and the arrow tip lands on the downstream border.
@@ -817,6 +838,7 @@ export class GraphRenderer {
       if (entry.alpha < 0.01 || !this.#admitted.has(id)) continue;
       if ((count + 1) * 16 > this.#nodeData.length) this.#nodeData = grow(this.#nodeData);
       const node = entry.node;
+      const emphasized = node.selected || node.focus || node.hovered;
       const borderWidth = node.focus
         ? BORDER_WIDTH_FOCUS
         : node.selected
@@ -824,18 +846,28 @@ export class GraphRenderer {
           : node.hovered
             ? BORDER_WIDTH_HOVERED
             : BORDER_WIDTH;
-      const borderColor =
-        node.selected || node.focus || node.hovered ? this.#theme.primary : this.#theme.nodeBorder;
+      const borderColor = emphasized
+        ? this.#theme.primary
+        : node.premise
+          ? premix(this.#theme.nodeBorder, this.#theme.canvasBg, 0.4)
+          : this.#theme.nodeBorder;
       const base = count * 16;
       this.#nodeData[base] = (node.x + node.width / 2) * scale + tx;
       this.#nodeData[base + 1] = (node.y + node.height / 2) * scale + ty;
       this.#nodeData[base + 2] = node.width * scale;
       this.#nodeData[base + 3] = node.height * scale;
       // The corner radius lives in virtual space: it grows with the node
-      // under zoom instead of staying a fixed screen size.
-      this.#nodeData[base + 4] = CORNER_RADIUS * scale;
+      // under zoom instead of staying a fixed screen size. Premises render
+      // as capsules — the fragment shader clamps the radius to the half
+      // size, so the full half-height is safe to submit.
+      this.#nodeData[base + 4] = (node.premise ? node.height / 2 : CORNER_RADIUS) * scale;
       this.#nodeData[base + 5] = borderWidth;
-      this.#nodeData.set(this.#theme.nodeBg, base + 6);
+      this.#nodeData.set(
+        node.premise && !emphasized
+          ? premix(this.#theme.nodeBg, this.#theme.canvasBg, 0.45)
+          : this.#theme.nodeBg,
+        base + 6,
+      );
       this.#nodeData.set(borderColor, base + 10);
       this.#nodeData[base + 14] = node.selected ? 1 : 0;
       this.#nodeData[base + 15] = entry.alpha;

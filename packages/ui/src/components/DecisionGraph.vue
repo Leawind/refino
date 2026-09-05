@@ -126,6 +126,7 @@ const scene = computed<SceneInput>(() => {
       selected: selectionSet.has(lite.id),
       focus: lite.id === focusId,
       hovered: lite.id === hoveredId,
+      premise: lite.type === "premise",
       cls:
         lite.id === focusId
           ? CULL_FOCUS
@@ -142,7 +143,12 @@ const scene = computed<SceneInput>(() => {
     if (lite.type !== "constraint") continue;
     for (const ground of lite.grounds ?? []) {
       if (!displayedIds.has(ground)) continue;
-      edges.push({ fromId: ground, toId: lite.id, emphasized: lite.id === hoveredId });
+      edges.push({
+        fromId: ground,
+        toId: lite.id,
+        emphasized: lite.id === hoveredId,
+        weak: byId.value.get(ground)?.type === "premise",
+      });
     }
   }
   return { nodes, edges, focusId };

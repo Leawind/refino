@@ -27,6 +27,8 @@ export interface CanvasConfig {
   descendantDepth: number;
   /** Whether strong siblings of the selection join the working set. */
   showSiblings: boolean;
+  /** Whether premise nodes render on the canvas as the facts layer. */
+  showPremises: boolean;
   /** Sibling candidates kept per anchor (overlap-descending, id-ascending). */
   siblingLimit: number;
   /** Per-anchor neighborhood truncation limit (nearest-first). */
@@ -49,6 +51,7 @@ const DEFAULT_CONFIG: CanvasConfig = {
   ancestorDepth: 2,
   descendantDepth: 2,
   showSiblings: true,
+  showPremises: true,
   siblingLimit: 24,
   neighborhoodLimit: 400,
   budgetMode: "auto",
@@ -63,6 +66,7 @@ const CONFIG_KEYS: Record<keyof CanvasConfig, string> = {
   ancestorDepth: "refino.canvas.ancestorDepth",
   descendantDepth: "refino.canvas.descendantDepth",
   showSiblings: "refino.canvas.showSiblings",
+  showPremises: "refino.canvas.showPremises",
   siblingLimit: "refino.canvas.siblingLimit",
   neighborhoodLimit: "refino.canvas.neighborhoodLimit",
   budgetMode: "refino.canvas.budgetMode",
@@ -103,6 +107,8 @@ function loadConfig(): CanvasConfig {
     ),
     showSiblings:
       readPreference(CONFIG_KEYS.showSiblings, String(DEFAULT_CONFIG.showSiblings)) === "true",
+    showPremises:
+      readPreference(CONFIG_KEYS.showPremises, String(DEFAULT_CONFIG.showPremises)) === "true",
     siblingLimit: readNumberPreference(CONFIG_KEYS.siblingLimit, DEFAULT_CONFIG.siblingLimit),
     neighborhoodLimit: readNumberPreference(
       CONFIG_KEYS.neighborhoodLimit,
@@ -419,15 +425,15 @@ export function createWorkspace(client: RefinoClient) {
   }
 
   /**
-   * Nodes the canvas draws: every constraint of the working set. Premise
-   * nodes are not displayed (ui README, "显示规则与样式"); edges come from
-   * the grounds of the displayed constraints, restricted to grounds that are
-   * themselves displayed constraints.
+   * Nodes the canvas draws: the working set's constraints, plus its premises
+   * when the facts layer is on (README, "显示规则与样式" — premises render
+   * as weakened capsules). Edges come from the grounds of the displayed
+   * constraints, restricted to grounds that are themselves displayed nodes.
    */
   const displayed = computed<NodeLite[]>(() => {
     const result: NodeLite[] = [];
     for (const node of workingSet.value.values()) {
-      if (node.type === "constraint") result.push(node);
+      if (node.type === "constraint" || state.config.showPremises) result.push(node);
     }
     return result;
   });

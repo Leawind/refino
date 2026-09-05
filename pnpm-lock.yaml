@@ -134,6 +134,9 @@ importers:
 
   packages/ui:
     dependencies:
+      '@refino/harness':
+        specifier: workspace:^
+        version: link:../harness
       '@vicons/ionicons5':
         specifier: ^0.13.0
         version: 0.13.0
