@@ -2,14 +2,10 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  RefinoStore,
-  StorageIssueCode,
-  WriteRejected,
   confirmedToMs,
   isValidConfirmed,
   nodeRelativeFile,
   type NodeContent,
-  type StorageIssue,
 } from "@refino/storage";
 import { CommanderError, Command, Option } from "commander";
 import {
@@ -22,15 +18,13 @@ import {
   RefinoError,
   requireNode,
 } from "refino";
-import type { Graph, NodeWithDepth, QueryGroup, RefinoIssue, RefinoNode } from "refino";
+import type { Graph, NodeWithDepth, QueryGroup, RefinoNode } from "refino";
 import { processIo, renderFullRecord, renderIssues, renderNodeTable } from "./format.js";
 import type { CliIo } from "./format.js";
+import { createDevCommand } from "./dev.js";
+import { emit, fail, refinoDir, withStore, withStoreForWrite } from "./shared.js";
+import type { GlobalOptions } from "./shared.js";
 import { startWebServer } from "./web/server.js";
-
-export interface GlobalOptions {
-  root: string;
-  json: boolean;
-}
 
 /**
  * Entry point. Returns the process exit code instead of calling
@@ -508,6 +502,13 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
       }),
     );
 
+  // Hidden dev tooling: registered only when explicitly enabled, so without
+  // REFINO_DEV=true the command does not exist at all — help output, unknown
+  // command errors and completions are indistinguishable from a bare CLI.
+  if (process.env.REFINO_DEV === "true") {
+    program.addCommand(createDevCommand(io, run), { hidden: true });
+  }
+
   try {
     await program.parseAsync(argv, { from: "user" });
   } catch (error) {
@@ -521,71 +522,6 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
   return exitCode;
 }
 
-/**
- * Open the store and run a query against it. Graph issues make query results
- * ambiguous, so queries refuse to run while any exist.
- */
-async function withStore(
-  io: CliIo,
-  opts: GlobalOptions,
-  query: (store: RefinoStore) => number | Promise<number>,
-): Promise<number> {
-  const store = RefinoStore.open(refinoDir(opts));
-  try {
-    await store.ready();
-    const issues = store.issues();
-    if (issues.length > 0) return reportBlockingIssues(io, opts, issues);
-    return await query(store);
-  } catch (error) {
-    return fail(io, error);
-  } finally {
-    store.close();
-  }
-}
-
-/**
- * Open the store for a write command. Pre-existing issues elsewhere must not
- * block the write; the store's write methods validate the change itself and
- * reject it with the offending issues before anything is written.
- */
-async function withStoreForWrite(
-  io: CliIo,
-  opts: GlobalOptions,
-  action: (store: RefinoStore) => Promise<number>,
-): Promise<number> {
-  const store = RefinoStore.open(refinoDir(opts));
-  try {
-    try {
-      await store.ready();
-    } catch (error) {
-      // A missing `.refino` directory is the empty store, not an error:
-      // creating the first node must work.
-      if (!(error instanceof RefinoError) || error.code !== StorageIssueCode.RefinoDirNotFound) {
-        throw error;
-      }
-    }
-    return await action(store);
-  } catch (error) {
-    if (error instanceof WriteRejected) {
-      io.stderr.write(`${renderIssues(error.issues)}\n`);
-      return 1;
-    }
-    return fail(io, error);
-  } finally {
-    store.close();
-  }
-}
-
-/** Graph issues make query results ambiguous, so queries refuse to run. */
-function reportBlockingIssues(
-  io: CliIo,
-  opts: GlobalOptions,
-  issues: ReadonlyArray<RefinoIssue | StorageIssue>,
-): number {
-  if (opts.json) emit(io, { ok: false, issues });
-  else io.stdout.write(`${renderIssues(issues)}\n`);
-  return 1;
-}
 function emitWritten(
   io: CliIo,
   opts: GlobalOptions,
@@ -719,20 +655,6 @@ function fullNodeJson(node: RefinoNode, content?: NodeContent): Record<string, u
 function nodeJson(node: RefinoNode): Record<string, unknown> {
   const base = { id: node.id, type: node.type, summary: node.summary };
   return node.type === "constraint" ? { ...base, grounds: node.grounds } : base;
-}
-
-function emit(io: CliIo, payload: unknown): void {
-  // Compact: the primary JSON consumers are programs and agents.
-  io.stdout.write(`${JSON.stringify(payload)}\n`);
-}
-
-function fail(io: CliIo, error: unknown): number {
-  io.stderr.write(`error: ${error instanceof Error ? error.message : String(error)}\n`);
-  return 1;
-}
-
-function refinoDir(opts: GlobalOptions): string {
-  return join(opts.root, ".refino");
 }
 
 /** List order: upstream → downstream by longest-path layer (refino,
