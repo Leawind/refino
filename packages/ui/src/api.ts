@@ -7,6 +7,7 @@ import type {
   NodePayload,
   QueryGroup,
   RangeResult,
+  SearchNode,
   SearchPage,
   SiblingSet,
 } from "./types";
@@ -48,6 +49,18 @@ export interface RefinoClient {
 
   /** GET /api/validate — the current issues and revision. */
   fetchIssues(): Promise<{ ok: boolean; issues: IssueRecord[]; revision: number }>;
+
+  /** GET /api/stats — counts for the project-overview cold start. */
+  fetchStats(): Promise<{
+    revision: number;
+    nodes: number;
+    constraints: number;
+    premises: number;
+    roots: number;
+  }>;
+
+  /** GET /api/pending — constraints pending review since the last reload. */
+  fetchPending(): Promise<{ revision: number; nodes: SearchNode[] }>;
 
   /** POST /api/reload — authoritative full rescan. */
   reloadGraph(): Promise<ChangeEvent>;
@@ -117,6 +130,8 @@ export function createHttpClient(): RefinoClient {
     },
     fetchNode: (id) => request(`/api/nodes/${id}`),
     fetchIssues: () => request("/api/validate"),
+    fetchStats: () => request("/api/stats"),
+    fetchPending: () => request("/api/pending"),
     reloadGraph: () => request("/api/reload", { method: "POST" }),
     createNode: (type, payload) => post(`/api/nodes/${type}`, payload),
     updateNode: (id, payload, revision) =>

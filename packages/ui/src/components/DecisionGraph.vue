@@ -31,6 +31,7 @@ import {
 import type { AdaptiveBudget } from "../graph/render/budget";
 import { GraphRenderer, readThemeColors } from "../graph/render/renderer";
 import type { RenderEdgeInput, RenderNodeInput, SceneInput } from "../graph/render/renderer";
+import GraphOverview from "./GraphOverview.vue";
 import type { LayoutDirection } from "../types";
 
 const props = defineProps<{ direction: LayoutDirection; layoutMode: LayoutMode }>();
@@ -277,7 +278,7 @@ function onMouseLeave(): void {
       @mouseleave="onMouseLeave"
     />
     <p v-if="glFailed" class="empty">{{ t("canvas.glUnavailable") }}</p>
-    <p v-else-if="scene.nodes.length === 0" class="empty">{{ t("node.emptySelection") }}</p>
+    <GraphOverview v-else-if="scene.nodes.length === 0" />
   </div>
 </template>
 

@@ -31,6 +31,7 @@ import DecisionGraph from "./components/DecisionGraph.vue";
 import NodeDetailWindow from "./components/NodeDetailWindow.vue";
 import NodePeek from "./components/NodePeek.vue";
 import GraphFloat from "./components/GraphFloat.vue";
+import ReviewDrawer from "./components/ReviewDrawer.vue";
 import SelectionList from "./components/SelectionList.vue";
 import WorkspaceToasts from "./components/WorkspaceToasts.vue";
 import type { LayoutDirection } from "./types";
@@ -121,7 +122,9 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
       <!-- Own flex shell: naive's NLayout boxes carry no layout of their own. -->
       <div class="shell" :class="{ dark: store.state.theme === 'dark' }">
         <NLayoutHeader class="header" bordered>
-          <AppHeader v-model:direction="direction" @refresh="refresh" />
+          <AppHeader v-model:direction="direction" @refresh="refresh">
+            <ReviewDrawer />
+          </AppHeader>
         </NLayoutHeader>
         <div class="content">
           <NAlert

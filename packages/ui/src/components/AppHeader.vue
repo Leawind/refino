@@ -62,6 +62,7 @@ const localeOptions = computed(() =>
     </div>
 
     <div class="actions">
+      <slot />
       <button class="nav-btn" :aria-label="t('app.refresh')" @click="emit('refresh')">
         <NIcon :component="RefreshOutline" />
       </button>
