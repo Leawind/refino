@@ -6,7 +6,9 @@ CRG 文件系统存储格式的权威定义与实现，也是 `.refino/` 目录�
 
 本包提供：
 
-- 加载：读取 `.refino/` 目录并构建内存图（图逻辑委托给 `refino` 引擎）
+- 常驻投影 Store（`RefinoStore`）：有状态的 `.refino/` 长驻视图——常驻图（拓扑 + 摘要 + confirmed）驻留内存，写入方法内部完成校验、原子写、重读、增量应用与 issue 复检，API 写入与外部文件事件走同一增量入口，可选内建变更监听
+- 加载：读取 `.refino/` 目录并构建常驻内存图（图逻辑委托给 `refino` 引擎；body/rationale 不驻留）
+- 内容分页：按 ID 按需读取节点内容（body、rationale），带 LRU 缓存
 - 单节点读取：按 ID 直接读取并解析单个节点文件（候选路径的取舍与重复检出规则与全量加载一致）
 - 创建、更新、删除：写入前提节点与约束节点文件（创建时 id 可显式指定，省略则由 `refino` 引擎生成；同 id 重复写入报 `DUPLICATE_ID`）
 - 原子写：所有写入操作采用临时文件 + rename，保证监听与并发读取不会撞到半写文件
@@ -16,7 +18,7 @@ CRG 文件系统存储格式的权威定义与实现，也是 `.refino/` 目录�
 
 本包不提供：
 
-- 图数据模型与图逻辑：校验、查询、写入前 grounds 校验等（由 `refino` 引擎提供）
+- 图数据模型与图逻辑：校验、查询、内存变更原语等（由 `refino` 引擎提供；写入前 grounds 校验经 Store 间接调用引擎原语完成）
 - ID 合法性校验：ID 规则由 `refino` 引擎统一定义并校验，本包只负责将合法 ID 映射为安全路径
 - 命令行接口、可视化界面
 
@@ -42,9 +44,9 @@ CRG 文件系统存储格式的权威定义与实现，也是 `.refino/` 目录�
 
 每个节点文件是可选 YAML frontmatter 加 Markdown 正文：
 
-- frontmatter 字段：约束节点可用 `grounds`（依据 ID 列表）与 `rationale`（理由）；前提节点可用 `confirmed`（RFC 3339 带显式 UTC 偏移的确认时间）；两类节点均可用 `summary`（独立摘要属性）。
+- frontmatter 字段：约束节点可用 `grounds`（依据 ID 列表）与 `rationale`（理由）；前提节点可用 `confirmed`（文件中为 RFC 3339 带显式 UTC 偏移的确认时间，内存中由本包转换为 epoch 毫秒 number，重写时规范化为 UTC Z 形式）；两类节点均可用 `summary`（独立摘要属性）。
 - ID 与类型都不出现在文件内容中（类型由文件名表达）。
-- frontmatter 中的未知字段一律忽略，不作错误处理。
+- frontmatter 中的未知字段，以及已知字段出现在错误类型的节点上（如 premise 文件声明 `grounds`），一律静默忽略，不作错误处理（见 docs/design.md「存储格式容错」）。
 
 ## 摘要规则
 
