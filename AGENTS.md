@@ -34,3 +34,5 @@
 - WebGL `vertexAttribPointer` 的 stride 是**每实例字节数**，不是缓冲容量：误传容量会让实例属性越界读取，`drawArraysInstanced` 被**整体静默丢弃**——控制台零输出，唯一线索是 `gl.getError()` 返回 1282（INVALID_OPERATION）。stride 应由字段布局求和得出；传 0 也不是"交错排列"，而是"各属性分别紧密排列"。画布内容缺失而代码看似正常时，第一步查 `gl.getError()`。参见 `packages/ui/src/graph/render/renderer.ts`。
 - WebGL 着色器的编译/链接错误只在浏览器运行时暴露，默认表现是**画布静默空白**（无任何报错，jsdom 组件测试无法发现）。本次实际踩中的两种触法：使用 GLSL 保留字（如 `half`）作变量名；顶点与片段着色器的 varying 声明不一致（一侧删了 `v_color` 传递、另一侧还在读）。`GraphRenderer.create` 已捕获初始化异常并回落 DOM 提示、控制台输出 `getShaderInfoLog`/`getProgramInfoLog`，但修改着色器仍必须真实浏览器冒烟。参见 `packages/ui/src/graph/render/shaders.ts`。
 - vite dev 下经 HMR 更新过的模块，应用内部持有的是带 `?t=` 时间戳 URL 的实例；此后在页面里用裸 URL 动态 `import()` 同一模块会得到**独立副本**，读写它的状态都与应用无关——表现为"控制台里改了状态、界面纹丝不动，读回的状态也是假象"。要在页面里直接操作/检查应用状态，必须先整页刷新（消除 HMR 时间戳），再注入脚本。
+- monorepo 中下游包的测试消费的是依赖包的 **dist 而非 src**：修改了依赖包的源码并让依赖包自身测试通过后，下游包的测试仍跑在旧 dist 上，表现为"修复在依赖包内可复现验证、在下游测试中却像没生效"。改完被依赖的包必须先重新构建它的 dist，再跑下游测试；跨包排查"改动无效"类问题时第一步核对 dist 新旧。
+- 同一 id 在外部被删除后以**另一类型重建**（如约束删了、同 id 建前提），投影增量应用时若走"就地更新"原语会被静默丢弃——引擎 `updateNode` 的契约是节点类型固定、类型不匹配直接返回。换类型必须 remove + add 整体替换。图节点类型切换类变更不生效时先查应用路径是否绕过了类型检查。参见 `packages/storage/src/store.ts` 的 `putEntry`。
