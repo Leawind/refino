@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { extractSummary, parseNodeSource, SUMMARY_MAX_LENGTH } from "../src/parser.js";
 import { IssueCode } from "refino";
+import { StorageIssueCode } from "../src/codes.js";
 
 describe("parseNodeSource", () => {
   it("accepts both separator styles and stores the canonical forward-slash form", () => {
@@ -162,7 +163,7 @@ describe("parseNodeSource", () => {
       "---\nsummary: 42\n---\n\nFallback paragraph.\n",
     );
     expect(issues).toHaveLength(1);
-    expect(issues[0]).toMatchObject({ code: IssueCode.InvalidFrontmatter });
+    expect(issues[0]).toMatchObject({ code: StorageIssueCode.InvalidFrontmatter });
     expect(node?.summary).toBe("Fallback paragraph.");
   });
 
@@ -186,7 +187,7 @@ describe("parseNodeSource", () => {
       "---\ngrounds: [unclosed\n---\n\nBody.\n",
     );
     expect(node).toBeNull();
-    expect(issues.map((i) => i.code)).toEqual([IssueCode.InvalidFrontmatter]);
+    expect(issues.map((i) => i.code)).toEqual([StorageIssueCode.InvalidFrontmatter]);
   });
 
   it("reports INVALID_FRONTMATTER when the frontmatter is not a mapping", () => {
@@ -196,7 +197,7 @@ describe("parseNodeSource", () => {
       "constraint",
       "---\n- a\n- b\n---\n\nBody.\n",
     );
-    expect(issues.map((i) => i.code)).toEqual([IssueCode.InvalidFrontmatter]);
+    expect(issues.map((i) => i.code)).toEqual([StorageIssueCode.InvalidFrontmatter]);
   });
 
   it.each([

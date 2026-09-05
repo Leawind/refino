@@ -2,7 +2,7 @@ import { IssueCode, RefinoError } from "refino";
 import type { Context } from "hono";
 import type { GraphIndex } from "./graph-index.js";
 import * as query from "./query.js";
-import { errorResponse, readPayload } from "./api.js";
+import { errorResponse, INVALID_REQUEST, readPayload } from "./api.js";
 
 /**
  * Canvas on-demand query endpoints (docs/design.md, "画布按需查询") and the
@@ -89,10 +89,7 @@ export async function getSearch(c: Context, index: GraphIndex): Promise<Response
     const q = (c.req.query("q") ?? "").trim();
     const type = c.req.query("type");
     if (type !== undefined && type !== "premise" && type !== "constraint") {
-      throw new RefinoError(
-        IssueCode.InvalidFrontmatter,
-        `"type" must be "premise" or "constraint".`,
-      );
+      throw new RefinoError(INVALID_REQUEST, `"type" must be "premise" or "constraint".`);
     }
     const roots = c.req.query("roots");
     const rootsOnly = roots === "1" || roots === "true";
@@ -174,7 +171,7 @@ function startIndex(all: readonly string[], cursor: string | undefined): number 
 function readIds(payload: Record<string, unknown>): string[] {
   const ids = payload.ids;
   if (!Array.isArray(ids) || ids.some((id) => typeof id !== "string")) {
-    throw new RefinoError(IssueCode.InvalidFrontmatter, `"ids" must be an array of node ids.`);
+    throw new RefinoError(INVALID_REQUEST, `"ids" must be an array of node ids.`);
   }
   return [...new Set(ids as string[])];
 }
@@ -182,10 +179,7 @@ function readIds(payload: Record<string, unknown>): string[] {
 function readIdField(payload: Record<string, unknown>, key: string): string {
   const value = payload[key];
   if (typeof value !== "string") {
-    throw new RefinoError(
-      IssueCode.InvalidFrontmatter,
-      `"${key}" is required and must be a string.`,
-    );
+    throw new RefinoError(INVALID_REQUEST, `"${key}" is required and must be a string.`);
   }
   return value;
 }
@@ -193,7 +187,7 @@ function readIdField(payload: Record<string, unknown>, key: string): string {
 function readNonNegativeInt(payload: Record<string, unknown>, key: string): number {
   const value = payload[key];
   if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
-    throw new RefinoError(IssueCode.InvalidFrontmatter, `"${key}" must be a non-negative integer.`);
+    throw new RefinoError(INVALID_REQUEST, `"${key}" must be a non-negative integer.`);
   }
   return value;
 }

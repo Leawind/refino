@@ -7,6 +7,7 @@ import {
   type RefinoIssue,
   type RefinoNode,
 } from "refino";
+import { StorageIssueCode } from "./codes.js";
 
 const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---(?:\n|$)/;
 const EMPTY_FRONTMATTER_RE = /^---\n---(?:\n|$)/;
@@ -67,7 +68,7 @@ export function parseNodeSource(
     summaryExplicit = true;
   } else {
     issues.push({
-      code: IssueCode.InvalidFrontmatter,
+      code: StorageIssueCode.InvalidFrontmatter,
       message: '"summary" must be a non-empty string.',
       file: canonicalFile,
       nodeId: id,
@@ -134,7 +135,7 @@ function parseConstraint(
       node.rationale = rationale;
     } else {
       issues.push({
-        code: IssueCode.InvalidFrontmatter,
+        code: StorageIssueCode.InvalidFrontmatter,
         message: '"rationale" must be a string.',
         file,
         nodeId: id,
@@ -154,7 +155,7 @@ function parseFrontmatter(
     data = parseYaml(yaml);
   } catch (error) {
     issues.push({
-      code: IssueCode.InvalidFrontmatter,
+      code: StorageIssueCode.InvalidFrontmatter,
       message: `Frontmatter is not valid YAML: ${error instanceof Error ? error.message : String(error)}`,
       file,
     });
@@ -163,7 +164,7 @@ function parseFrontmatter(
   if (data === null || data === undefined) return {}; // empty frontmatter block
   if (typeof data !== "object" || Array.isArray(data)) {
     issues.push({
-      code: IssueCode.InvalidFrontmatter,
+      code: StorageIssueCode.InvalidFrontmatter,
       message: "Frontmatter must be a YAML mapping.",
       file,
     });

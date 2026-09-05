@@ -1,6 +1,7 @@
 import { open, readdir, stat, type FileHandle } from "node:fs/promises";
 import { join } from "node:path";
 import { buildGraph, ID_CHARSET, ID_RE, IssueCode, RefinoError } from "refino";
+import { StorageIssueCode } from "./codes.js";
 import { parseNodeSource } from "./parser.js";
 import { nodeFilePath, nodeRelativeFile, NODE_TYPES } from "./writer.js";
 import type { Graph, NodeType, RefinoIssue, RefinoNode } from "refino";
@@ -134,12 +135,12 @@ export async function loadGraph(refinoDir: string): Promise<LoadResult> {
     dirStat = await stat(refinoDir);
   } catch {
     throw new RefinoError(
-      IssueCode.RefinoDirNotFound,
+      StorageIssueCode.RefinoDirNotFound,
       `No .refino directory found at ${refinoDir}`,
     );
   }
   if (!dirStat.isDirectory()) {
-    throw new RefinoError(IssueCode.RefinoDirNotFound, `${refinoDir} is not a directory`);
+    throw new RefinoError(StorageIssueCode.RefinoDirNotFound, `${refinoDir} is not a directory`);
   }
 
   const nodes: RefinoNode[] = [];
@@ -161,7 +162,7 @@ export async function loadGraph(refinoDir: string): Promise<LoadResult> {
     if (shard.isFile() && shard.name.endsWith(".md")) {
       const file = `${NODES_DIR}/${shard.name}`;
       issues.push({
-        code: IssueCode.InvalidNodePath,
+        code: StorageIssueCode.InvalidNodePath,
         message: `Node files must live at ${NODES_DIR}/<shard>/<id_2>-<type>.md, e.g. ${NODES_DIR}/01/9ABCDE-premise.md; got "${file}".`,
         file,
       });
@@ -184,7 +185,7 @@ export async function loadGraph(refinoDir: string): Promise<LoadResult> {
       const parsed = parseFileName(entry.name.slice(0, -".md".length));
       if (!parsed) {
         issues.push({
-          code: IssueCode.InvalidNodePath,
+          code: StorageIssueCode.InvalidNodePath,
           message: `Node file names must be <id_2>-<type>.md with <type> one of ${NODE_TYPES.join("|")}, got "${entry.name}".`,
           file,
         });

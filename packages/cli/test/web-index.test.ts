@@ -3,7 +3,7 @@ import { mkdir, rename, writeFile } from "node:fs/promises";
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
 import { createWebApp } from "../src/web/server.js";
 import { GraphIndex } from "../src/web/graph-index.js";
-import { createConstraint, deleteNode, updateConstraint } from "@refino/storage";
+import { createConstraint, deleteNode, StorageIssueCode, updateConstraint } from "@refino/storage";
 import { constraint, createRefino, premise, removeRefino } from "@refino/testkit";
 import { IssueCode } from "refino";
 
@@ -252,7 +252,7 @@ describe("GraphIndex incremental updates", () => {
     );
     const first = await index.applyChange({ changed: ["9CABCDEF3"] });
     expect(first).toBeDefined();
-    expect(index.issues().some((i) => i.code === IssueCode.InvalidFrontmatter)).toBe(true);
+    expect(index.issues().some((i) => i.code === StorageIssueCode.InvalidFrontmatter)).toBe(true);
 
     // A no-op echo of the same broken file must not bump the revision.
     const revision = index.revision;

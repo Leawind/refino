@@ -29,6 +29,16 @@
 - 随机数使用 Web Crypto（`globalThis.crypto`），因此运行时要求 Node >= 20（或任何提供 `globalThis.crypto` 的环境）；
 - CRG 在文件系统中的存储格式——目录结构、节点文件格式、Markdown/YAML 解析、序列化、摘要提取规则——不是引擎的职责，由 `@refino/storage` 定义并实现；引擎只消费其产出的内存图。
 
+## 错误码归属
+
+issue 与错误携带的 `code` 字段是对外的 wire 值（SCREAMING_SNAKE 字符串），类型为 `string`，不构成封闭集合，由**产生方**定义各自的码：
+
+- 引擎的 `IssueCode` 只包含图级语义码（id 规则、grounds 结构、id 唯一性、成环、节点不存在等），供所有产生方复用；
+- 存储格式相关的码（frontmatter、节点文件路径形状、`.refino` 目录存在性）由 `@refino/storage` 定义；
+- 请求形状相关的码由各请求处理层自行定义，不得借用其他产生方的码。
+
+消费方按需针对具体码做分支（如 HTTP 状态映射、友好提示），展示类消费直接透传字符串。
+
 ## 引擎提供的共享原语
 
 以下原语由引擎统一提供，供 CLI、Web API、harness 等所有消费方复用，避免各自重复实现：

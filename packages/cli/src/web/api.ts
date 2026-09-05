@@ -4,6 +4,7 @@ import {
   deleteNode,
   updateConstraint,
   updatePremise,
+  StorageIssueCode,
 } from "@refino/storage";
 import {
   checkGroundsChange,
@@ -45,6 +46,13 @@ export function nodeJson(
     ...(node.type === "premise" && node.confirmed !== undefined && { confirmed: node.confirmed }),
   };
 }
+
+/**
+ * Wire code for request-shape errors raised by the web layer itself (bad
+ * JSON, wrong field types). The web layer defines its own code instead of
+ * borrowing one from the engine or the storage format.
+ */
+export const INVALID_REQUEST = "INVALID_REQUEST";
 
 /** GET /api/graph — all nodes, validation issues and per-node dependents (compatibility endpoint; the canvas uses /api/query/*). */
 export async function getGraph(c: Context, index: GraphIndex): Promise<Response> {
@@ -186,7 +194,7 @@ export async function putNode(c: Context, index: GraphIndex): Promise<Response> 
     const typeField = readString(payload, "type");
     if (typeField !== undefined && typeField !== entry.node.type) {
       throw new RefinoError(
-        IssueCode.InvalidFrontmatter,
+        INVALID_REQUEST,
         `"type" does not match the existing node "${id}"; node types cannot change.`,
       );
     }
@@ -265,7 +273,7 @@ async function createWithId(c: Context, index: GraphIndex, id: string): Promise<
   const type = readString(payload, "type");
   if (type !== "premise" && type !== "constraint") {
     throw new RefinoError(
-      IssueCode.InvalidFrontmatter,
+      INVALID_REQUEST,
       `"type" must be "premise" or "constraint" to create node "${id}".`,
     );
   }
@@ -316,10 +324,10 @@ function resolveGrounds(payload: Payload): string[] {
 
 export async function readPayload(c: Context): Promise<Payload> {
   const payload: unknown = await c.req.json().catch(() => {
-    throw new RefinoError(IssueCode.InvalidFrontmatter, "Request body must be valid JSON.");
+    throw new RefinoError(INVALID_REQUEST, "Request body must be valid JSON.");
   });
   if (typeof payload !== "object" || payload === null) {
-    throw new RefinoError(IssueCode.InvalidFrontmatter, "Request body must be a JSON object.");
+    throw new RefinoError(INVALID_REQUEST, "Request body must be a JSON object.");
   }
   return payload as Payload;
 }
@@ -335,10 +343,7 @@ function requireParam(c: Context): string {
 function readRequiredString(payload: Payload, key: string): string {
   const value = payload[key];
   if (typeof value !== "string") {
-    throw new RefinoError(
-      IssueCode.InvalidFrontmatter,
-      `"${key}" is required and must be a string.`,
-    );
+    throw new RefinoError(INVALID_REQUEST, `"${key}" is required and must be a string.`);
   }
   return value;
 }
@@ -365,7 +370,7 @@ export function readString(payload: Payload, key: string): string | undefined {
     return undefined;
   }
   if (typeof value !== "string") {
-    throw new RefinoError(IssueCode.InvalidFrontmatter, `"${key}" must be a string.`);
+    throw new RefinoError(INVALID_REQUEST, `"${key}" must be a string.`);
   }
   return value;
 }
@@ -375,10 +380,7 @@ function readRevision(payload: Payload): number | undefined {
   const value = payload.revision;
   if (value === undefined || value === null) return undefined;
   if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
-    throw new RefinoError(
-      IssueCode.InvalidFrontmatter,
-      `"revision" must be a non-negative integer.`,
-    );
+    throw new RefinoError(INVALID_REQUEST, `"revision" must be a non-negative integer.`);
   }
   return value;
 }
@@ -396,6 +398,6 @@ export function errorResponse(c: Context, error: unknown): Response {
 }
 
 function errorStatus(code: RefinoError["code"]): 400 | 404 {
-  if (code === IssueCode.NodeNotFound || code === IssueCode.RefinoDirNotFound) return 404;
+  if (code === IssueCode.NodeNotFound || code === StorageIssueCode.RefinoDirNotFound) return 404;
   return 400;
 }

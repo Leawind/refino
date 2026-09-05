@@ -71,37 +71,36 @@ export interface Graph {
 export type QueryGroup<T> = { id: string; results: T[] } | { id: string; error: string };
 
 /**
- * The code of a validation issue or thrown error. The string values are the
- * wire format (CLI `--json` output, web API responses), so members keep
- * their SCREAMING_SNAKE spelling as the value.
+ * Codes of issues and thrown errors emitted by the engine itself, all of
+ * them graph-level semantics. The string values are the wire format (CLI
+ * `--json` output, web API responses), so members keep their
+ * SCREAMING_SNAKE spelling as the value. Other emitters define their own
+ * codes (`RefinoIssue.code` and `RefinoError.code` accept any string):
+ * storage-format codes belong to `@refino/storage`, request-shape codes to
+ * the web layer, and so on.
  */
 export enum IssueCode {
-  /** Frontmatter is not valid YAML, not a mapping, or a known field has the wrong shape. */
-  InvalidFrontmatter = "INVALID_FRONTMATTER",
-  /** A node id (from a file path or caller input) fails the engine's id rule. */
+  /** A node id (from any source) fails the engine's id rule. */
   InvalidId = "INVALID_ID",
-  /** A file under `nodes/` does not have the `<id_2>-<type>.md` shape the storage format requires. */
-  InvalidNodePath = "INVALID_NODE_PATH",
   /** A premise declares `grounds` (parse) or grounds are applied to a premise target (write check). */
   PremiseWithGrounds = "PREMISE_WITH_GROUNDS",
   /** A `grounds` list or entry is malformed, or lists the same id more than once. */
   InvalidGrounds = "INVALID_GROUNDS",
   /** `confirmed` is not an RFC 3339 timestamp with an explicit UTC offset. */
   InvalidConfirmed = "INVALID_CONFIRMED",
-  /** Two files resolve to the same node id (path is identity, ids are globally unique). */
+  /** Two nodes carry the same id; ids are globally unique across the graph. */
   DuplicateId = "DUPLICATE_ID",
   /** A `grounds` reference does not resolve to an existing node; carries `groundId`. */
   UnknownGround = "UNKNOWN_GROUND",
   /** A constraint -> constraint `grounds` path closes; carries `cycle`. */
   Cycle = "CYCLE",
-  /** The `.refino` directory is missing or not a directory (thrown as a `RefinoError`). */
-  RefinoDirNotFound = "REFINO_DIR_NOT_FOUND",
   /** An id does not resolve to a node (thrown as a `RefinoError`). */
   NodeNotFound = "NODE_NOT_FOUND",
 }
 
 export interface RefinoIssue {
-  code: IssueCode;
+  /** Wire code; the engine emits `IssueCode` values, other emitters their own. */
+  code: string;
   message: string;
   /** Node file the issue relates to, relative to the `.refino` directory. */
   file?: string;
@@ -114,9 +113,10 @@ export interface RefinoIssue {
 }
 
 export class RefinoError extends Error {
-  readonly code: IssueCode;
+  /** Wire code; the engine throws with `IssueCode` values, other emitters their own. */
+  readonly code: string;
 
-  constructor(code: IssueCode, message: string) {
+  constructor(code: string, message: string) {
     super(message);
     this.name = "RefinoError";
     this.code = code;

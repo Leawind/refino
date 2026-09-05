@@ -8,6 +8,7 @@ import {
   loadGraph,
   nodeRelativeFile,
   readNode,
+  StorageIssueCode,
   updateConstraint,
   updatePremise,
 } from "@refino/storage";
@@ -16,7 +17,6 @@ import {
   assignLayers,
   checkGroundsChange,
   generateId,
-  IssueCode,
   getAncestors,
   getDependents,
   getGrounds,
@@ -702,7 +702,7 @@ async function loadGraphForWrite(refinoDir: string): Promise<Graph> {
   try {
     return (await loadGraph(refinoDir)).graph;
   } catch (error) {
-    if (error instanceof RefinoError && error.code === IssueCode.RefinoDirNotFound) {
+    if (error instanceof RefinoError && error.code === StorageIssueCode.RefinoDirNotFound) {
       return { refinoDir, nodes: new Map(), dependents: new Map() };
     }
     throw error;

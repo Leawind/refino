@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { loadGraph } from "../src/loader.js";
 import { constraint, createRefino, premise, removeRefino } from "@refino/testkit";
 import { IssueCode } from "refino";
+import { StorageIssueCode } from "../src/codes.js";
 
 describe("loadGraph", () => {
   it("builds the graph and the dependents index from a nodes/ directory", async () => {
@@ -73,7 +74,7 @@ describe("loadGraph", () => {
     try {
       const { graph, issues } = await loadGraph(`${root}/.refino`);
       expect(graph.nodes.size).toBe(0);
-      expect(issues.map((i) => i.code)).toEqual([IssueCode.InvalidNodePath]);
+      expect(issues.map((i) => i.code)).toEqual([StorageIssueCode.InvalidNodePath]);
       expect(issues[0]?.file).toBe(file);
       expect(issues[0]?.message).toContain("must");
     } finally {
@@ -129,7 +130,7 @@ describe("loadGraph", () => {
     try {
       await expect(loadGraph(`${root}/.refino`)).rejects.toMatchObject({
         name: "RefinoError",
-        code: IssueCode.RefinoDirNotFound,
+        code: StorageIssueCode.RefinoDirNotFound,
       });
     } finally {
       await removeRefino(root);
