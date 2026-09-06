@@ -7,6 +7,40 @@
  * in a repository that has none of refino's own docs.
  */
 
+/**
+ * The SKILL.md content proper (not the install guidance around it). Carries
+ * only stable routing info — concept, invocation, hard rules, self-serve
+ * pointers — so an installed copy going stale is harmless: the protocol
+ * source of truth is `refino guide`, fetched fresh at runtime.
+ */
+export function skillMarkdown(): string {
+  return `---
+name: refino
+description: 用 refino 管理项目决策。当任务涉及项目约束、决策谱系、前提变化时使用；仅在已有 .refino/ 的仓库使用，绝不直接编辑 .refino/ 下的文件。
+---
+
+# refino
+
+refino 在\`.refino/\` 目录中维护的约束细化图（CRG），记录项目的决策（约束）与事实（前提）及其从抽象到具体的细化关系。约束是必须满足的项目决策，可被有授权地继续细化或修改。
+
+## 运行方式
+
+refino 是 npm 命令行工具，可访问特定目录下的CRG。终端可直接运行 \`refino\` 时直接用；否则用 \`npx -y @refino/cli\`（下文的 \`refino\` 命令均可按此替换）。
+
+## 硬规则
+
+- 仅在仓库已有 \`.refino/\` 目录时使用 refino；为仓库接入 refino 须经用户明确要求。
+- 绝不直接编辑 \`.refino/\` 下的文件，一切读写经 \`refino\` 命令。
+- 授权（冻结区）由人签发；未经人明确同意，不得擅自修改冻结区。
+
+## 自取其余
+
+- \`refino guide\`：完整工作协议（概念、任务生命周期、命令用法）。
+- \`refino context\`：本项目决策上下文，开局先运行。
+- \`refino --help\`：命令清单。
+`;
+}
+
 /** The full working protocol, printed by `refino guide`. Kept terse: this
  * text is injected into model context, so every byte should earn its place. */
 export function guideText(): string {
@@ -56,40 +90,6 @@ refino 用约束细化图（CRG）管理项目决策：CRG 是 \`.refino/\` 目�
 
 - 宿主插件：宿主已装 refino 插件时以宿主集成为准，本协议命令用作检查与人工操作。
 - 通用接入（Skill + CLI）：运行 \`refino skill --output <技能目录>\` 生成技能目录并登记进宿主技能机制（宿主级或仓库级随 git 分发均可，技能仅在含 .refino/ 的仓库激活）；技能只承载指令，读写经本 CLI 命令完成。
-`;
-}
-
-/**
- * The SKILL.md content proper (not the install guidance around it). Carries
- * only stable routing info — concept, invocation, hard rules, self-serve
- * pointers — so an installed copy going stale is harmless: the protocol
- * source of truth is `refino guide`, fetched fresh at runtime.
- */
-export function skillMarkdown(): string {
-  return `---
-name: refino
-description: 用 refino 管理项目决策。当任务涉及项目约束、决策谱系、前提变化时使用；仅在已有 .refino/ 的仓库使用，绝不直接编辑 .refino/ 下的文件。
----
-
-# refino
-
-refino 在\`.refino/\` 目录中维护的约束细化图（CRG），记录项目的决策（约束）与事实（前提）及其从抽象到具体的细化关系。约束是必须满足的项目决策，可被有授权地继续细化或修改。
-
-## 运行方式
-
-refino 是 npm 命令行工具，可访问特定目录下的CRG。终端可直接运行 \`refino\` 时直接用；否则用 \`npx -y @refino/cli\`（下文的 \`refino\` 命令均可按此替换）。
-
-## 硬规则
-
-- 仅在仓库已有 \`.refino/\` 目录时使用 refino；为仓库接入 refino 须经用户明确要求。
-- 绝不直接编辑 \`.refino/\` 下的文件，一切读写经 \`refino\` 命令。
-- 授权（冻结区）由人签发；未经人明确同意，不得擅自修改冻结区。
-
-## 自取其余
-
-- \`refino guide\`：完整工作协议（概念、任务生命周期、命令用法）。
-- \`refino context\`：本项目决策上下文，开局先运行。
-- \`refino --help\`：命令清单。
 `;
 }
 
