@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { realpathSync } from "node:fs";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -54,10 +55,24 @@ export function refinoHome(env: NodeJS.ProcessEnv = process.env): string {
   return env.REFINO_HOME ?? join(homedir(), ".refino");
 }
 
-/** Per-workspace state file: `<home>/workspaces/<sha256 of absolute root>.json`. */
+/**
+ * Per-workspace state file: `<home>/workspaces/<sha256 of canonical root>.json`.
+ * The root is canonicalized through symlinks so one repository maps to one
+ * state file no matter which path variant reaches it (docs/design.md,
+ * "授权状态的作用域"); a nonexistent root falls back to the literal absolute
+ * path — keying must not throw before the store reports the real problem.
+ */
 export function workspaceStatePath(root: string, env: NodeJS.ProcessEnv = process.env): string {
-  const key = createHash("sha256").update(resolve(root)).digest("hex").slice(0, 16);
+  const key = createHash("sha256").update(canonicalRoot(root)).digest("hex").slice(0, 16);
   return join(refinoHome(env), "workspaces", `${key}.json`);
+}
+
+function canonicalRoot(root: string): string {
+  try {
+    return realpathSync(resolve(root));
+  } catch {
+    return resolve(root);
+  }
 }
 
 /** Explicit orchestrator credential, by flag or environment. */
