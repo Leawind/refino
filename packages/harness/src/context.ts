@@ -7,10 +7,11 @@ import type { AuthorizationContext, ContextBlock, DeltaEvent } from "./types.js"
  * Render the authorization context as stable, identifiable blocks: one per
  * anchor, per premise (premises are injected by default, docs/crg.md 2.2)
  * and per frozen constraint. Blocks carry summaries only; full bodies are
- * fetched on demand via tools. Constraints outside the frozen zone are
- * intentionally not enumerated — they form the modification space by
- * complement. Premise members of the zone are covered by their premise
- * blocks and are not repeated.
+ * fetched on demand via tools. Premise members of the zone are covered by
+ * their premise blocks and are not repeated; frozen constraints are always
+ * rendered as their own block even when also anchored — the read-only
+ * annotation must survive a context whose anchors cover the whole graph
+ * (the default for small graphs).
  */
 export function contextBlocks(graph: Graph, context: AuthorizationContext): ContextBlock[] {
   validateContext(graph, context);
@@ -30,7 +31,7 @@ export function contextBlocks(graph: Graph, context: AuthorizationContext): Cont
     });
   }
   for (const node of frozenZone(graph, context)) {
-    if (anchors.has(node.id) || node.type === "premise") continue;
+    if (node.type === "premise") continue;
     blocks.push({
       id: `frozen:${node.id}`,
       kind: "frozen",

@@ -32,9 +32,12 @@ function graphOf(): Graph {
 describe("contextBlocks", () => {
   it("renders anchors, all premises and the derived frozen zone with stable ids", () => {
     const blocks = contextBlocks(graphOf(), { anchors: [A1], frozen: [E5] });
+    // A1 is both anchor and frozen: the frozen block repeats so the
+    // read-only annotation survives an anchor set covering the graph.
     expect(blocks.map((b) => b.id)).toEqual([
       `anchor:${A1}`,
       `premise:${P1}`,
+      `frozen:${A1}`,
       `frozen:${D4}`,
       `frozen:${E5}`,
     ]);

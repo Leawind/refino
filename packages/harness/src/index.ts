@@ -9,6 +9,14 @@ export {
   validateContext,
 } from "./boundary.js";
 export { defaultAuthorizationContext } from "./default.js";
+export {
+  applyAuthorization,
+  authorizationContextOf,
+  convergeAuthorization,
+  materializeDefaultAuthorization,
+  parseSignedAuthorization,
+} from "./authorization.js";
+export type { ApplyDraft, ApplyPreview, SignedAuthorization } from "./authorization.js";
 export { pendingReview } from "./pending.js";
 export { contextBlocks, diffContext, estimateContext, renderContext } from "./context.js";
 export { searchNodes } from "./search.js";
