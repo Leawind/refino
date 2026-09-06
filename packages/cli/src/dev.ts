@@ -1,3 +1,5 @@
+import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
 import { InvalidArgumentError, Command } from "commander";
 import { renderIssues } from "./format.js";
 import type { CliIo } from "./format.js";
@@ -241,6 +243,9 @@ export function createDevCommand(io: CliIo, run: RunFn): Command {
         // was picked at random, keeping one-off runs reproducible after the
         // fact.
         const seed = o.seed ?? Math.floor(Math.random() * 0x1_0000_0000);
+        // Dev tooling is exempt from the adoption contract: generating
+        // fixtures into a bare root is the point, so adopt unconditionally.
+        await mkdir(join(refinoDir(opts), "nodes"), { recursive: true });
         return withStoreForWrite(io, opts, async (store) => {
           if (store.graph.nodes.size > 0 && o.force !== true) {
             io.stderr.write(

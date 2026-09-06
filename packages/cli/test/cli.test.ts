@@ -57,6 +57,14 @@ async function run(argv: string[]) {
   return { code, out: cap.out(), err: cap.err() };
 }
 
+/** An adopted empty repository: bare fixture plus `refino init`. */
+async function adoptedRoot(): Promise<string> {
+  const root = await createRefino({});
+  const { code, err } = await run(["--root", root, "init"]);
+  if (code !== 0) throw new Error(`init failed: ${err}`);
+  return root;
+}
+
 describe("refino cli", () => {
   it("validate succeeds on a valid graph", async () => {
     const { code, out } = await run(["--root", validRoot, "validate"]);
@@ -85,10 +93,30 @@ describe("refino cli", () => {
       const { code, err } = await run(["--root", emptyRoot, "list"]);
       expect(code).toBe(1);
       expect(err).toContain("No .refino directory found");
-      // The error is the bootstrap guidance: it names the recovery commands.
+      // The error is the adoption guidance: it names the recovery command.
       expect(err).toContain("refino init");
     } finally {
       await removeRefino(emptyRoot);
+    }
+  });
+
+  it("write commands refuse to adopt an unadopted repository", async () => {
+    const bare = await createRefino({});
+    try {
+      const { code, err } = await run([
+        "--root",
+        bare,
+        "new",
+        "premise",
+        "--id",
+        "1A2B3C4D",
+        "--body",
+        "Fact.",
+      ]);
+      expect(code).toBe(1);
+      expect(err).toContain("refino init");
+    } finally {
+      await removeRefino(bare);
     }
   });
 
@@ -135,7 +163,7 @@ describe("refino cli", () => {
   });
 
   it("show text output labels summary, rationale and confirmed", async () => {
-    const emptyRoot = await createRefino({});
+    const emptyRoot = await adoptedRoot();
     try {
       await run([
         "--root",
@@ -220,7 +248,7 @@ describe("refino cli", () => {
 
   describe("update", () => {
     it("changes only the given fields and replaces grounds wholesale", async () => {
-      const emptyRoot = await createRefino({});
+      const emptyRoot = await adoptedRoot();
       try {
         await run(["--root", emptyRoot, "new", "premise", "--id", "1A2B3C4D", "--body", "Fact."]);
         await run([
@@ -289,7 +317,7 @@ describe("refino cli", () => {
     });
 
     it("keeps a body-derived summary derived instead of materializing it", async () => {
-      const emptyRoot = await createRefino({});
+      const emptyRoot = await adoptedRoot();
       try {
         await run(["--root", emptyRoot, "new", "premise", "--id", "1A2B3C4D", "--body", "Fact."]);
         const { code } = await run([
@@ -313,7 +341,7 @@ describe("refino cli", () => {
     });
 
     it("rejects missing nodes and empty edits, ignores misplaced options, validates values", async () => {
-      const emptyRoot = await createRefino({});
+      const emptyRoot = await adoptedRoot();
       try {
         await run(["--root", emptyRoot, "new", "premise", "--id", "1A2B3C4D", "--body", "Fact."]);
 
@@ -383,7 +411,7 @@ describe("refino cli", () => {
 
   describe("delete", () => {
     it("refuses while others ground on the target and deletes leaves", async () => {
-      const emptyRoot = await createRefino({});
+      const emptyRoot = await adoptedRoot();
       try {
         await run(["--root", emptyRoot, "new", "premise", "--id", "1A2B3C4D", "--body", "Fact."]);
         await run([
@@ -429,7 +457,7 @@ describe("refino cli", () => {
     });
 
     it("supports partial success over a batch", async () => {
-      const emptyRoot = await createRefino({});
+      const emptyRoot = await adoptedRoot();
       try {
         await run(["--root", emptyRoot, "new", "premise", "--id", "1A2B3C4D", "--body", "Fact."]);
         const { code, out } = await run(["--root", emptyRoot, "delete", "1A2B3C4D", "D4E5F6G7"]);
@@ -446,7 +474,7 @@ describe("refino cli", () => {
     });
 
     it("--force deletes through dependents and warns", async () => {
-      const emptyRoot = await createRefino({});
+      const emptyRoot = await adoptedRoot();
       try {
         await run(["--root", emptyRoot, "new", "premise", "--id", "1A2B3C4D", "--body", "Fact."]);
         await run([
@@ -611,7 +639,7 @@ describe("refino cli", () => {
   });
 
   it("new premise creates a premise node and prints id and path", async () => {
-    const emptyRoot = await createRefino({});
+    const emptyRoot = await adoptedRoot();
     try {
       const { code, out } = await run([
         "--root",
@@ -638,7 +666,7 @@ describe("refino cli", () => {
   });
 
   it("new constraint creates a constraint node with grounds and rationale", async () => {
-    const emptyRoot = await createRefino({});
+    const emptyRoot = await adoptedRoot();
     try {
       await run(["--root", emptyRoot, "new", "premise", "--id", "1A2B3C4D", "--body", "Fact."]);
       const { code, out } = await run([
@@ -665,7 +693,7 @@ describe("refino cli", () => {
   });
 
   it("new constraint rejects unknown grounds before creating anything", async () => {
-    const emptyRoot = await createRefino({});
+    const emptyRoot = await adoptedRoot();
     try {
       await run(["--root", emptyRoot, "new", "premise", "--id", "1A2B3C4D", "--body", "Fact."]);
       const { code, err } = await run([
@@ -690,7 +718,7 @@ describe("refino cli", () => {
   });
 
   it("new constraint rejects repeated ground ids", async () => {
-    const emptyRoot = await createRefino({});
+    const emptyRoot = await adoptedRoot();
     try {
       await run(["--root", emptyRoot, "new", "premise", "--id", "1A2B3C4D", "--body", "Fact."]);
       const { code, err } = await run([
@@ -710,26 +738,8 @@ describe("refino cli", () => {
     }
   });
 
-  it("new constraint still works when .refino does not exist yet", async () => {
-    const emptyRoot = await createRefino({});
-    await removeRefino(emptyRoot); // drop the .refino directory itself
-    try {
-      const { code } = await run([
-        "--root",
-        emptyRoot,
-        "new",
-        "constraint",
-        "--body",
-        "Root decision.",
-      ]);
-      expect(code).toBe(0);
-    } finally {
-      await removeRefino(emptyRoot);
-    }
-  });
-
   it("new premise --now stamps the current UTC time and validates", async () => {
-    const emptyRoot = await createRefino({});
+    const emptyRoot = await adoptedRoot();
     try {
       const { code } = await run([
         "--root",
@@ -760,7 +770,7 @@ describe("refino cli", () => {
   });
 
   it("new premise rejects --now together with --confirmed", async () => {
-    const emptyRoot = await createRefino({});
+    const emptyRoot = await adoptedRoot();
     try {
       const { code, err } = await run([
         "--root",
@@ -781,7 +791,7 @@ describe("refino cli", () => {
   });
 
   it("new emits JSON with --json", async () => {
-    const emptyRoot = await createRefino({});
+    const emptyRoot = await adoptedRoot();
     try {
       const { code, out } = await run([
         "--root",
@@ -851,7 +861,7 @@ describe("refino cli", () => {
   });
 
   it("new premise --id creates the node under the given id", async () => {
-    const emptyRoot = await createRefino({});
+    const emptyRoot = await adoptedRoot();
     try {
       const { code, out } = await run([
         "--root",
@@ -871,7 +881,7 @@ describe("refino cli", () => {
   });
 
   it("new rejects an invalid --id with exit code 1", async () => {
-    const emptyRoot = await createRefino({});
+    const emptyRoot = await adoptedRoot();
     try {
       const { code, err } = await run([
         "--root",
@@ -891,7 +901,7 @@ describe("refino cli", () => {
   });
 
   it("new --summary stores an explicit summary in frontmatter", async () => {
-    const emptyRoot = await createRefino({});
+    const emptyRoot = await adoptedRoot();
     try {
       const { code } = await run([
         "--root",

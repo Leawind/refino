@@ -189,6 +189,7 @@ describe("refino guide and skill", () => {
     expect(code).toBe(0);
     expect(out).toContain("## 安装指引");
     expect(out).toContain("npx -y @refino/cli");
+    expect(out).toContain("仅在仓库已有");
     expect(out).toContain("name: refino");
     expect(out).toContain("----- 8< -----");
     // Skill content is instruction-only: no project-specific data, no graph reads.

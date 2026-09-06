@@ -28,6 +28,15 @@ export function refinoDir(opts: GlobalOptions): string {
  * Open the store and run a query against it. Graph issues make query results
  * ambiguous, so queries refuse to run while any exist.
  */
+/**
+ * Reads and writes refuse an unadopted repository; `refino init` is the
+ * explicit adoption gate (docs/design.md, "采用契约").
+ */
+function failUnadopted(io: CliIo, error: RefinoError): number {
+  io.stderr.write(`error: ${error.message} — run "refino init" to adopt this repository\n`);
+  return 1;
+}
+
 export async function withStore(
   io: CliIo,
   opts: GlobalOptions,
@@ -41,11 +50,7 @@ export async function withStore(
     return await query(store);
   } catch (error) {
     if (error instanceof RefinoError && error.code === StorageIssueCode.RefinoDirNotFound) {
-      // Uninitialized repository: the fix is one command away, so say which.
-      io.stderr.write(
-        `error: ${error.message} — run "refino init" to adopt, or "refino new" to create the first node\n`,
-      );
-      return 1;
+      return failUnadopted(io, error);
     }
     return fail(io, error);
   } finally {
@@ -54,9 +59,11 @@ export async function withStore(
 }
 
 /**
- * Open the store for a write command. Pre-existing issues elsewhere must not
- * block the write; the store's write methods validate the change itself and
- * reject it with the offending issues before anything is written.
+ * Open the store for a write command. An unadopted repository is refused:
+ * writing must never silently adopt it (see "采用契约" in docs/design.md).
+ * Pre-existing issues elsewhere must not block the write; the store's write
+ * methods validate the change itself and reject it with the offending issues
+ * before anything is written.
  */
 export async function withStoreForWrite(
   io: CliIo,
@@ -65,17 +72,12 @@ export async function withStoreForWrite(
 ): Promise<number> {
   const store = RefinoStore.open(refinoDir(opts));
   try {
-    try {
-      await store.ready();
-    } catch (error) {
-      // A missing `.refino` directory is the empty store, not an error:
-      // creating the first node must work.
-      if (!(error instanceof RefinoError) || error.code !== StorageIssueCode.RefinoDirNotFound) {
-        throw error;
-      }
-    }
+    await store.ready();
     return await action(store);
   } catch (error) {
+    if (error instanceof RefinoError && error.code === StorageIssueCode.RefinoDirNotFound) {
+      return failUnadopted(io, error);
+    }
     if (error instanceof WriteRejected) {
       io.stderr.write(`${renderIssues(error.issues)}\n`);
       return 1;
