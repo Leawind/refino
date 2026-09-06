@@ -277,12 +277,16 @@ export function createWorkspace(client: RefinoClient) {
   /** Expands the current selection into the working set; an empty selection
    * keeps the canvas as it is (accumulation). */
   async function refresh(): Promise<void> {
-    const token = ++refreshToken;
     const anchors = dedupe(state.selection);
     if (anchors.length === 0) {
       state.ready = true;
       return;
     }
+    // The token is taken only when an expansion actually starts: an
+    // empty-selection refresh fetches nothing, and bumping the token here
+    // would invalidate an in-flight commit — the cold-start seed loses to
+    // the SSE initial snapshot (an empty-selection refresh) every load.
+    const token = ++refreshToken;
     await expandInto(anchors, token, state.config.descendantDepth);
   }
 

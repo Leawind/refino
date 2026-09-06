@@ -349,6 +349,38 @@ describe("cold start seeds from the roots", () => {
     expect(new Set(displayedIds())).toEqual(new Set([C1, P1, C2]));
     expect(workspace.state.selection).toEqual([]);
   });
+
+  it("keeps the seed when the SSE snapshot lands mid-flight", async () => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    // Hold the seed's expand response in flight; the real server sends the
+    // SSE initial snapshot right after connect, i.e. between the seed's
+    // search and its expand commit.
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (path: string, init?: { method?: string; body?: string }) => {
+        const response = respond(init?.method ?? "GET", path, JSON.parse(init?.body ?? "null"));
+        if (init?.method === "POST" && path === "/api/query/expand") await gate;
+        return {
+          ok: response.status < 400,
+          status: response.status,
+          json: async () => response.json,
+        };
+      }),
+    );
+    workspace.start();
+    await vi.waitFor(() =>
+      expect(calls.some((call) => call.path === "/api/query/expand")).toBe(true),
+    );
+    const source = FakeEventSource.instances[FakeEventSource.instances.length - 1]!;
+    source.emit({ revision: 1, changed: [], deleted: [], reload: true });
+    release();
+    await vi.waitFor(() => expect(displayedIds().length).toBeGreaterThan(0));
+    expect(new Set(displayedIds())).toEqual(new Set([C1, P1, C2, C4, P2, C3, C6]));
+  });
 });
 
 describe("selection model", () => {
