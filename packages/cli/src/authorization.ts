@@ -144,6 +144,23 @@ export async function writeWorkspaceState(statePath: string, state: WorkspaceSta
   await rename(tmp, statePath);
 }
 
+/**
+ * Materialize a signed document as an orchestrator credential file
+ * (`auth apply --output`): the written file feeds back through
+ * `--authorization` / `REFINO_AUTHORIZATION` into child processes, so an
+ * orchestrator can hand each task its signed context without touching the
+ * conversation lane's workspace state (docs/design.md, "授权状态的作用域").
+ */
+export async function writeCredentialFile(
+  outputPath: string,
+  doc: SignedAuthorization,
+): Promise<void> {
+  await mkdir(dirname(outputPath), { recursive: true });
+  const tmp = `${outputPath}.${process.pid}.tmp`;
+  await writeFile(tmp, `${JSON.stringify(doc, null, 2)}\n`, "utf8");
+  await rename(tmp, outputPath);
+}
+
 export async function removeWorkspaceState(statePath: string): Promise<boolean> {
   try {
     await stat(statePath);

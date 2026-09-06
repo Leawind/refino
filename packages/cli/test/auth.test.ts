@@ -1,4 +1,5 @@
 import { mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -179,5 +180,62 @@ describe("refino auth", () => {
     } finally {
       await rm(statePath, { force: true });
     }
+  });
+});
+
+describe("refino auth apply --output", () => {
+  it("materializes the signed document as an orchestrator credential file", async () => {
+    const outDir = join(tmpdir(), `refino-cred-${Date.now()}`);
+    await mkdir(outDir, { recursive: true });
+    const credentialPath = join(outDir, "task-auth.json");
+    try {
+      const { code, out } = await run([
+        "--root",
+        root(),
+        "auth",
+        "apply",
+        "--frozen-frontier",
+        D4,
+        "--output",
+        credentialPath,
+      ]);
+      expect(code).toBe(0);
+      expect(out).toContain(`凭据文件：${credentialPath}`);
+
+      const doc = JSON.parse(await readFile(credentialPath, "utf8")) as {
+        version: number;
+        frozenFrontier: string[];
+      };
+      expect(doc.version).toBe(1);
+      expect(doc.frozenFrontier).toEqual([D4]);
+
+      // The produced file feeds back through --authorization and takes
+      // precedence over the workspace state (docs/design.md, 编排车道).
+      const show = await run(["--root", root(), "--authorization", credentialPath, "auth", "show"]);
+      expect(show.out).toContain("编排者凭据");
+    } finally {
+      await rm(outDir, { recursive: true, force: true });
+      await rm(workspaceStatePath(root()), { force: true });
+    }
+  });
+
+  it("writes nothing under --dry-run, not even the credential file", async () => {
+    const credentialPath = join(tmpdir(), `refino-dry-${Date.now()}.json`);
+    const { code } = await run([
+      "--root",
+      root(),
+      "auth",
+      "apply",
+      "--dry-run",
+      "--frozen-frontier",
+      D4,
+      "--output",
+      credentialPath,
+    ]);
+    expect(code).toBe(0);
+    await expect(stat(credentialPath)).rejects.toMatchObject({ code: "ENOENT" });
+    // The workspaces directory may exist from earlier tests; the state file
+    // itself must not.
+    await expect(stat(workspaceStatePath(root()))).rejects.toMatchObject({ code: "ENOENT" });
   });
 });

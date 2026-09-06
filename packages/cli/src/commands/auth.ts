@@ -19,6 +19,7 @@ import {
   renderPreview,
   resolveAuthorization,
   workspaceStatePath,
+  writeCredentialFile,
   writeWorkspaceState,
   type WorkspaceState,
 } from "../authorization.js";
@@ -67,6 +68,10 @@ export function createAuthCommand(io: CliIo, run: RunFn): Command {
     )
     .option("--dry-run", "preview the signing without writing anything", false)
     .option(
+      "--output <path>",
+      "also write the signed document to this path as an orchestrator credential file",
+    )
+    .option(
       "--expect-revision <n>",
       "refuse unless the current revision matches (optimistic concurrency)",
     )
@@ -104,6 +109,7 @@ interface ApplyOptions {
   frozenFrontier?: string[];
   dryRun?: boolean;
   expectRevision?: string;
+  output?: string;
 }
 
 function currentRevision(state: WorkspaceState | undefined): number {
@@ -237,10 +243,24 @@ async function applyAuthorizationCommand(
           // saw before any signature existed.
           [materializeDefaultAuthorization(graph)],
   });
-  if (opts.json) emit(io, { ok: true, revision, statePath, preview });
+  // The credential channel produces documents for the orchestration lane; it
+  // runs alongside the workspace-state write, never instead of it.
+  if (o.output !== undefined) await writeCredentialFile(o.output, doc);
+  if (opts.json)
+    emit(io, {
+      ok: true,
+      revision,
+      statePath,
+      preview,
+      ...(o.output !== undefined && { output: o.output }),
+    });
   else {
     io.stdout.write(
-      [`已签发 revision ${revision}（写入 ${statePath}）`, ...renderPreview(preview)].join("\n"),
+      [
+        `已签发 revision ${revision}（写入 ${statePath}）`,
+        ...(o.output !== undefined ? [`凭据文件：${o.output}`] : []),
+        ...renderPreview(preview),
+      ].join("\n"),
     );
     io.stdout.write("\n");
   }

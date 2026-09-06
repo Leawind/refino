@@ -189,7 +189,7 @@ dsh 插件是深度集成宿主的完整形态；面向扩展能力受限的 har
 
 **发布**——skill 无独立分发工件，npm 是唯一通道：skill 文本由 CLI 现场生成（`refino skill`），不存在离于 CLI 包的 skill 产物。曾评估随 skill 捆绑可执行脚本（Anthropic 文档技能的模式），否决：安装 skill 的渠道（npm）本身就交付了可执行 CLI，捆绑是同一交付机制的重复；且捆绑把工具冻结在安装时点，refino 预发布期允许破坏性变更，旧捆绑工具可能读不了新 CLI 写出的图——经 npx 取最新反而更安全。生态背景：Agent Skills 规范只定义工件、不管分发；业界通行「git 仓库 + 宿主 marketplace / `npx skills add`」双轨，适用于把 skill 目录提交进 git 的纯指令仓库，refino 不入此轨；将来若登宿主 marketplace，同仓库加 manifest 即可，现阶段不作承诺。
 
-**授权签发**在对话内完成，无向导、无 TTY 门。模型凭图知识起草授权文档（`freezableConstraints`、`frozenFrontier`、注入估算原语均经只读命令获取），`refino auth apply --dry-run` 预演效果（「将冻结 N 个约束、M 个前提」；解冻根约束单独警告授权级别要求，见 crg.md 1.3），人在对话中批准后模型执行 `refino auth apply`。人的批准有两个落点：对话本身，以及 harness 的命令审批面——安装与签发的文件写入都要过审批，模型无法伪造「人批准过」。签发文档单一 schema、三处来源，按优先级解析：编排者凭据（`REFINO_AUTHORIZATION` 环境变量或 `--authorization <path>`，编排脚本按任务生成，天然实现每任务/每 agent 隔离）→ 工具管理的用户级状态（路径由工具从工作区规范路径推导：`~/.refino/workspaces/<根目录真实路径的哈希>.json`，`REFINO_HOME` 可重定向，人无感）→ `defaultAuthorizationContext`。落盘 `frozenFrontier` 最小表示，读取时按当前图重新闭包（签发后新长出的祖先自动入冻，无需重签）；签发列表中被删除的节点读取侧静默收敛（与 dsh 定案一致：收敛而非重置为默认）。revision 单调递增，仅计授权签发：每次 `auth apply` 递增一，图内容变更不参与计数（内容变化经重新查询取用，不产生增量信号）。它支撑 `refino context --since <rev>` 增量拉取——只覆盖签发变化——与 `--expect-revision` 乐观并发（多 agent 并发签发不互相覆盖）。
+**授权签发**在对话内完成，无向导、无 TTY 门。模型凭图知识起草授权文档（`freezableConstraints`、`frozenFrontier`、注入估算原语均经只读命令获取），`refino auth apply --dry-run` 预演效果（「将冻结 N 个约束、M 个前提」；解冻根约束单独警告授权级别要求，见 crg.md 1.3），人在对话中批准后模型执行 `refino auth apply`。人的批准有两个落点：对话本身，以及 harness 的命令审批面——安装与签发的文件写入都要过审批，模型无法伪造「人批准过」。签发文档单一 schema、三处来源，按优先级解析：编排者凭据（`REFINO_AUTHORIZATION` 环境变量或 `--authorization <path>`，编排脚本按任务生成，天然实现每任务/每 agent 隔离）→ 工具管理的用户级状态（路径由工具从工作区规范路径推导：`~/.refino/workspaces/<根目录真实路径的哈希>.json`，`REFINO_HOME` 可重定向，人无感）→ `defaultAuthorizationContext`。落盘 `frozenFrontier` 最小表示，读取时按当前图重新闭包（签发后新长出的祖先自动入冻，无需重签）；签发列表中被删除的节点读取侧静默收敛（与 dsh 定案一致：收敛而非重置为默认）。revision 单调递增，仅计授权签发：每次 `auth apply` 递增一，图内容变更不参与计数（内容变化经重新查询取用，不产生增量信号）。它支撑 `refino context --since <rev>` 增量拉取——只覆盖签发变化——与 `--expect-revision` 乐观并发（多 agent 并发签发不互相覆盖）。`auth apply --output <path>` 在签发同时把文档落为编排者凭据文件，供编排系统经 `--authorization`/`REFINO_AUTHORIZATION` 注入子进程（见「授权状态的作用域」的编排车道）——凭据是签发的产出，不是签发的旁路。
 
 **授权状态的作用域**——授权上下文按任务签发，但 skill+CLI 形态没有常驻进程，「会话」不是可挂靠状态的稳定对象（上下文窗口有损，压缩会丢句柄）；状态句柄永不进入上下文窗口。状态走两条车道，各挂一个进程层作用域：对话车道挂**工作区**——`~/.refino/workspaces/` 按根目录真实路径键控（解析符号链接），单例 `current` 是对话车道的唯一签发落点，一个 checkout 同时只承载一个活动任务，顺序任务开局须核对签发归属（revision 与 signedAt），不属于本任务即重签；编排车道挂**进程环境**——编排者 spawn 任务时设置 `REFINO_AUTHORIZATION`，凭据随进程继承对任务全程生效、模型无感，且凭据生效时 `auth apply` 与 `auth reset` 被拒绝，任务内授权不可自我扩张，改冻结区须回到签发者。并发任务不发明会话隔离，交给 git 结构：CRG 随 git 版本化，并发任务走 worktree/分支，worktree 路径不同即状态键不同，授权状态自动隔离。
 
@@ -202,7 +202,7 @@ dsh 插件是深度集成宿主的完整形态；面向扩展能力受限的 har
 **命令面**（除 `init` 外均为模型面向）：
 
 - 已有：`show` / `grounds` / `ancestors` / `dependents` / `new` / `update` / `delete`（批量 + 部分成功语义）；
-- 通用接入形态：`init`（显式采用：创建 `.refino/` 骨架，已存在则拒绝）、`context`（渲染授权上下文，两级注入第一级；`--since` 取签发增量）、`search`（分页搜索，语义与 Web `GET /api/search` 对齐）、`guide`（完整协议与命令用法，写给模型读）、`skill`（输出接入指引；`--output <dir>` 在 `<dir>/refino/` 下生成 SKILL.md，目录名固定与 `name` 一致）、`auth show` / `auth apply` / `auth reset`（对话内签发；`--dry-run` 预演、`--expect-revision` 乐观并发；编排者凭据生效时拒绝写入）。
+- 通用接入形态：`init`（显式采用：创建 `.refino/` 骨架，已存在则拒绝）、`context`（渲染授权上下文，两级注入第一级；`--since` 取签发增量）、`search`（分页搜索，语义与 Web `GET /api/search` 对齐）、`guide`（完整协议与命令用法，写给模型读）、`skill`（输出接入指引；`--output <dir>` 在 `<dir>/refino/` 下生成 SKILL.md，目录名固定与 `name` 一致）、`auth show` / `auth apply` / `auth reset`（对话内签发；`--dry-run` 预演、`--expect-revision` 乐观并发、`--output <path>` 产出编排者凭据文件；编排者凭据生效时拒绝写入）。
 
 ## 命名约定
 
