@@ -194,4 +194,24 @@ describe("refino guide and skill", () => {
     // Skill content is instruction-only: no project-specific data, no graph reads.
     expect(out).not.toContain(A1);
   });
+
+  it("skill --output writes <dir>/refino/SKILL.md", async () => {
+    const outDir = join(bareRoot, "skills");
+    const { code, out } = await run(["--root", graphRoot, "skill", "--output", outDir]);
+    expect(code).toBe(0);
+    const file = join(outDir, "refino", "SKILL.md");
+    expect(await readFile(file, "utf8")).toContain("name: refino");
+    expect(out).toContain(file);
+
+    const { code: jsonCode, out: jsonOut } = await run([
+      "--root",
+      graphRoot,
+      "--json",
+      "skill",
+      "--output",
+      join(bareRoot, "skills2"),
+    ]);
+    expect(jsonCode).toBe(0);
+    expect(jsonOut).toContain('"wrote"');
+  });
 });

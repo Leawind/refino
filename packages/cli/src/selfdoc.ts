@@ -70,8 +70,8 @@ export function guideText(): string {
 
 - 宿主插件：宿主已装 refino 插件时以宿主集成为准，本协议命令用作检查与
   人工操作。
-- 通用接入（Skill + CLI）：运行 \`refino skill\` 获取技能内容与安装指引；
-  技能只承载指令，读写经本 CLI 命令完成。
+- 通用接入（Skill + CLI）：运行 \`refino skill --output <技能目录>\` 生成
+  技能目录并登记进宿主技能机制；技能只承载指令，读写经本 CLI 命令完成。
 `;
 }
 
@@ -118,12 +118,11 @@ export function skillText(): string {
 
 ## 安装指引
 
-1. 将下方内容保存为你的技能机制所要求的形态（多数 harness 是名为
-   refino/SKILL.md 的文件，目录位置按宿主约定）。
-2. 宿主没有技能机制时，将「硬规则」一节并入常驻指令文件（如 AGENTS.md），
-   保留「自取其余」的命令指引。
-3. 运行 \`refino context\` 验证命令可用。
-4. 技能随 CLI 版本演进：更新 = 重新运行本命令获取最新内容并重装。
+1. 运行 \`refino skill --output <技能目录>\`：在 <技能目录>/refino/ 下生成
+   SKILL.md（目录名固定为 refino，技能规范要求与 name 一致）。
+2. 将该 refino/ 目录登记进你的技能机制（位置按宿主约定），然后运行
+   \`refino context\` 验证命令可用。
+3. 技能随 CLI 版本演进：更新 = 重新生成本目录并重装。
 
 ## 技能内容
 
