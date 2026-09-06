@@ -1,6 +1,7 @@
 {
   "name": "@refino/cli",
   "version": "0.0.1",
+  "private": false,
   "description": "Command line interface for querying Constraint Refinement Graphs (CRG).",
   "type": "module",
   "repository": {

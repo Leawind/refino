@@ -1,6 +1,7 @@
 {
   "name": "@refino/storage",
   "version": "0.0.1",
+  "private": false,
   "description": "Filesystem storage format for Constraint Refinement Graphs (CRG): the sole reader and writer of the .refino/ directory.",
   "type": "module",
   "repository": {

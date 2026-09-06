@@ -1,6 +1,7 @@
 {
   "name": "refino",
   "version": "0.0.1",
+  "private": false,
   "description": "Pure engine for parsing, validating, querying and serializing Constraint Refinement Graphs (CRG).",
   "type": "module",
   "repository": {
