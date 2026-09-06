@@ -28,11 +28,11 @@ export interface Siblings {
 }
 
 /**
- * Relationship between two range endpoints: ancestor (one reaches the other),
- * branches (different branches, one shortest path per side through their
- * common ancestor; definitive when both ancestor searches completed) or
- * disconnected (budget exhausted before the relationship could be judged).
- * The last two return only the clicked node.
+ * Relationship between two range endpoints: ancestor (one reaches the
+ * other), branches (different branches, one shortest path per side through
+ * their common ancestor) or disconnected (no common ancestor — definitively
+ * unrelated endpoints, or the budget ran out before one could be found).
+ * Disconnected results carry only the clicked node.
  */
 export type RangeMode = "ancestor" | "branches" | "disconnected";
 
@@ -128,10 +128,10 @@ export const DEFAULT_RANGE_BUDGET = 10_000;
  * ancestor — one endpoint reaches the other, nodes are the constraints on
  * all paths between them plus the endpoints; branches — a single shortest
  * path between the endpoints, each side walking its grounds upstream to the
- * nearest common ancestor (minimal total path length, ties by id); when no
- * common ancestor exists within the budget the result degrades to only the
- * clicked node, definitively (`branches`) if both searches completed,
- * `disconnected` otherwise.
+ * nearest common ancestor (minimal total path length, ties by id);
+ * disconnected — no common ancestor exists within the budget (definitively
+ * unrelated endpoints, or the budget ran out before one could be found) and
+ * the result degrades to only the clicked node.
  */
 export function range(
   graph: Graph,
@@ -206,7 +206,7 @@ export function range(
   }
 
   return {
-    mode: focusAnc.complete && clickedAnc.complete ? "branches" : "disconnected",
+    mode: "disconnected",
     nodes: [
       { ...toLite(graph.nodes.get(clickedId)!), depth: clickedAnc.depths.get(focusId) ?? null },
     ],
@@ -303,8 +303,6 @@ function materialize(
 interface BoundedAncestors {
   /** Id -> depth from the start node; includes the start at depth 0. */
   depths: Map<string, number>;
-  /** False when the budget ran out before the full ancestor set was known. */
-  complete: boolean;
   expansions: number;
 }
 
@@ -317,12 +315,8 @@ function ancestorsWithin(graph: Graph, start: string, budget: number): BoundedAn
   const depths = new Map<string, number>([[start, 0]]);
   const queue: string[] = [start];
   let expansions = 0;
-  let complete = true;
   for (let head = 0; head < queue.length; head++) {
-    if (expansions >= Math.max(1, budget)) {
-      complete = false;
-      break;
-    }
+    if (expansions >= Math.max(1, budget)) break;
     const current = queue[head]!;
     const depth = depths.get(current)!;
     expansions++;
@@ -335,7 +329,7 @@ function ancestorsWithin(graph: Graph, start: string, budget: number): BoundedAn
       }
     }
   }
-  return { depths, complete, expansions };
+  return { depths, expansions };
 }
 
 function byDepthThenId(a: [string, number], b: [string, number]): number {

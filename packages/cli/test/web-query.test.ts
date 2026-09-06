@@ -184,7 +184,7 @@ describe("POST /api/query/range", () => {
       mode: string;
       nodes: Array<{ id: string; depth: number | null }>;
     };
-    expect(body.mode).toBe("branches");
+    expect(body.mode).toBe("disconnected");
     expect(body.nodes.map((n) => n.id)).toEqual([C5]);
     expect(body.nodes[0]!.depth).toBeNull();
   });

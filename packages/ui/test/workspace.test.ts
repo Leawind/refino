@@ -114,7 +114,7 @@ const RANGES: Record<string, { mode: string; nodes: Array<[string, number | null
       [C1, 2],
     ],
   },
-  [`${C3}->${C5}`]: { mode: "branches", nodes: [[C5, null]] },
+  [`${C3}->${C5}`]: { mode: "disconnected", nodes: [[C5, null]] },
 };
 
 interface RecordedCall {
@@ -338,7 +338,7 @@ describe("selection model", () => {
     await select(C3);
     await workspace.rangeSelect(lite[C5]!);
     await vi.waitFor(() => expect(workspace.state.selection).toEqual([C5]));
-    expect(workspace.state.notice).toBe("rangeDegraded");
+    expect(workspace.state.notice).toBe("rangeDisconnected");
     workspace.dismissNotice();
   });
 

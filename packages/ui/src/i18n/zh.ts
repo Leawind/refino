@@ -128,8 +128,7 @@ export default {
     styleSettings: "样式设置",
     textSize: "文本大小",
     textSizeReset: "重置",
-    rangeDegraded: "两节点不在同一祖先链上，选择已替换为被点击的节点",
-    rangeDisconnected: "预算内未能建立两节点的关联，选择已替换为被点击的节点",
+    rangeDisconnected: "两节点间未找到路径（无公共祖先或超出搜索预算），选择已替换为被点击的节点",
     glUnavailable: "当前环境不支持 WebGL 2，画布无法渲染",
   },
   selection: {

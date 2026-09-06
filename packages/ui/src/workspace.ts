@@ -83,7 +83,7 @@ const CONFIG_KEYS: Record<keyof CanvasConfig, string> = {
 };
 
 /** Why the last range selection degraded to just the clicked node. */
-export type RangeNotice = "rangeDegraded" | "rangeDisconnected";
+export type RangeNotice = "rangeDisconnected";
 
 interface WorkspaceState {
   /** False until the first successful expansion. */
@@ -287,14 +287,14 @@ export function createWorkspace(client: RefinoClient) {
     try {
       const result = await client.queryRange(focusId, lite.id);
       for (const node of result.nodes) prime(node);
-      if (result.mode === "ancestor") {
-        setSelection(result.nodes.map((node) => node.id));
-      } else {
-        // No common ancestor within the budget (definitively or before the
-        // budget ran out): the clicked node replaces the selection, per
+      if (result.mode === "disconnected") {
+        // No common ancestor within the budget (definitively unrelated, or
+        // the budget ran out): the clicked node replaces the selection, per
         // design.
         setSelection([lite.id]);
-        state.notice = result.mode === "disconnected" ? "rangeDisconnected" : "rangeDegraded";
+        state.notice = "rangeDisconnected";
+      } else {
+        setSelection(result.nodes.map((node) => node.id));
       }
     } catch (error) {
       state.error = error instanceof Error ? error.message : String(error);

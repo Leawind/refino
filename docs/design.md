@@ -222,8 +222,8 @@ Web 层只保留 HTTP 语义：
 - `POST /api/query/grounds`：`{ ids }` → 各节点的直接依据（悬停时单跳拉取）。
 - `POST /api/query/range`：`{ focusId, clickedId, budget }` → `{ mode, nodes }`。`mode` 取值：
   - `ancestor`：一端是另一端的祖先，`nodes` 为「祖先的后代约束集 ∩ 后代的祖先约束集」加两个端点自身，有序去重；
-  - `branches`：不同分支，`nodes` 为两节点间最短路径（两端点各自沿 grounds 上行、在最近公共祖先汇合，每侧取一条）上的约束节点加两个端点自身，有序去重；搜索预算内找不到公共祖先时退化为仅含被点击节点；
-  - `disconnected`：预算内无法判定关系，`nodes` 仅含被点击节点。
+  - `branches`：不同分支，`nodes` 为两节点间最短路径（两端点各自沿 grounds 上行、在最近公共祖先汇合，每侧取一条）上的约束节点加两个端点自身，有序去重；
+  - `disconnected`：预算内不存在公共祖先（确定无关，或预算耗尽无法判定），`nodes` 仅含被点击节点。
     返回的节点序列只含约束节点与两个端点自身（端点为前提时保留）。
 - `POST /api/query/siblings`：`{ ids, limit? }` → 各节点的强兄弟（共享 ≥1 个直接 grounds 的约束，不含自身与前提），按重叠数降序、id 升序截断。
 - `GET /api/search`：资源浏览器、命令面板与依据选择器的分页搜索，`?q=&type=&limit=&cursor=&roots=`，轻量返回（id、类型、摘要）；`roots` 过滤仅返回 grounds 为空的约束，供项目概览冷启动。
