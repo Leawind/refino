@@ -92,7 +92,8 @@ refino 在\`.refino/\` 目录中维护的约束细化图（CRG），记录项目
 `;
 }
 
-/** Full stdout of `refino skill`: install guidance first, content after. */
+/** Full stdout of `refino skill`: install guidance only — the SKILL.md
+ * content itself is materialized by `skill --output`, never echoed. */
 export function skillText(): string {
   return `## 为 Harness 接入 refino
 

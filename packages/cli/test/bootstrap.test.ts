@@ -184,16 +184,14 @@ describe("refino guide and skill", () => {
     expect(out).toContain("git diff --name-only");
   });
 
-  it("skill prints install guidance around the SKILL.md content", async () => {
+  it("skill prints install guidance pointing at --output", async () => {
     const { code, out } = await run(["--root", graphRoot, "skill"]);
     expect(code).toBe(0);
-    expect(out).toContain("## 安装指引");
+    expect(out).toContain("## 为 Harness 接入 refino");
     expect(out).toContain("npx -y @refino/cli");
-    expect(out).toContain("仅在仓库已有");
-    expect(out).toContain("name: refino");
-    expect(out).toContain("----- 8< -----");
-    // Skill content is instruction-only: no project-specific data, no graph reads.
-    expect(out).not.toContain(A1);
+    expect(out).toContain("refino/SKILL.md");
+    // Guidance only: the SKILL.md content itself is written by --output.
+    expect(out).not.toContain("name: refino");
   });
 
   it("skill --output writes <dir>/refino/SKILL.md", async () => {
