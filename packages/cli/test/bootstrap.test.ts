@@ -83,15 +83,21 @@ describe("refino context", () => {
     const { code, out } = await run(["--root", graphRoot, "context"]);
     expect(code).toBe(0);
     expect(out).toContain("# CRG 授权上下文（revision 0，来源：默认");
-    expect(out).toContain("## 冻结区（只读，不可修改）");
-    expect(out).toContain(`${A1} [constraint]`);
-    expect(out).toContain(`${Z9} [constraint]`);
-    // D4 is not a root: it stays out of the frozen zone's read-only section
-    // even though the default anchors cover the whole graph.
-    expect(out).toContain("## 冻结区（只读，不可修改）");
-    expect(out).toContain(`${D4} [constraint]`);
-    expect(out.indexOf(A1)).toBeLessThan(out.indexOf("## 冻结区"));
-    expect(out).not.toContain("## 冻结区（只读，不可修改）\n- D4E5F6G7");
+    expect(out).toContain("## 作用域锚点");
+    // Under the default authorization every node is an anchor, so the premise
+    // renders inside the anchor section and no premise heading appears.
+    expect(out).toContain(`${P1} [premise] PostgreSQL 16 is in use.`);
+    expect(out).not.toContain("## 项目前提");
+    // The frozen zone is not enumerated: frozen anchors carry the mark, the
+    // protocol statement replaces the read-only section.
+    expect(out).not.toContain("## 冻结区");
+    expect(out).toContain(`${A1} [constraint] [冻结]`);
+    expect(out).toContain(`${Z9} [constraint] [冻结]`);
+    // D4 is modifiable under the default authorization: unfrozen nodes are
+    // not specially marked.
+    expect(out).toContain(`${D4} [constraint] Access goes through repositories.`);
+    expect(out.indexOf(`${D4} [constraint]`)).toBeGreaterThan(out.indexOf("## 作用域锚点"));
+    expect(out).toContain("标注 [冻结] 者只读");
     expect(out).toContain("refino auth apply");
     expect(out).toContain("refino guide");
   });

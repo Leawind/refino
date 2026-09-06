@@ -24,11 +24,8 @@ function fixtureGraph(): Graph {
 }
 
 describe("initialContextText", () => {
-  it("frames the rendered context with anchors, premises and frozen zone sections", () => {
+  it("frames the rendered context: anchors and premises with the frozen-marking protocol", () => {
     const graph = fixtureGraph();
-    // A partial context exercises all three sections; the default context's
-    // all-node anchors fold premises and frozen constraints into the anchor
-    // section, which renders only one heading.
     const context = { anchors: ["C1CHILD"], frozen: ["R1ROOT"] };
     const text = initialContextText(graph, context);
     expect(text).toMatch(/^<system-reminder>\n/);
@@ -37,9 +34,11 @@ describe("initialContextText", () => {
     expect(text).toContain("C1CHILD");
     expect(text).toContain("## 项目前提");
     expect(text).toContain("P1PREMISE");
-    expect(text).toContain("## 冻结区");
-    expect(text).toContain("R1ROOT");
-    expect(text).toContain("冻结区以外的全部约束均属于修改空间");
+    // The frozen zone is not enumerated; the anchor line carries the mark.
+    expect(text).not.toContain("## 冻结区");
+    expect(text).toContain("[冻结]");
+    expect(text).toContain("标注 [冻结] 者只读");
+    expect(text).toContain("未列出者均属修改空间");
   });
 
   it("escapes a closing tag inside node text so the frame cannot be closed early", () => {

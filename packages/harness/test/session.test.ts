@@ -67,13 +67,12 @@ describe("HarnessSession", () => {
   it("updateContext returns the incremental delta and switches the context", () => {
     const session = new HarnessSession(graphOf(), ctx);
     const delta = session.updateContext({ anchors: [A1], frozen: [Z9, D4] });
-    // Freezing D4 pulls its ancestor A1 into the zone as well.
-    expect(delta).toEqual([
-      { type: "frozen_added", id: A1 },
-      { type: "frozen_added", id: D4 },
-    ]);
+    // Delta events act on the declared frontier only: freezing D4 covers its
+    // ancestor A1 semantically, but the closure is not evented. Z9 was
+    // already frozen, so only D4 is new.
+    expect(delta).toEqual([{ type: "frozen_added", id: D4 }]);
     expect(session.authorizationContext.frozen).toEqual([Z9, D4]);
-    expect(session.blocks().map((b) => b.id)).toContain("frozen:D4E5F6G7");
+    expect(session.blocks().map((b) => b.id)).toContain(`anchor:${A1}`);
   });
 
   it("checkModification applies the current context", () => {

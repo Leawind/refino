@@ -20,9 +20,17 @@ export function truncate(text: string, maxLength: number): string {
 /**
  * One line per node: `id  type  [depth]  summary`, columns aligned across the
  * batch. The depth column appears only when at least one row carries a depth.
+ * Frozen rows carry the `[冻结]` mark on the summary (docs/design.md,
+ * 上下文注入协议); unfrozen rows are not specially marked.
  */
 export function renderNodeTable(
-  rows: ReadonlyArray<{ id: string; type: string; summary: string; depth?: number }>,
+  rows: ReadonlyArray<{
+    id: string;
+    type: string;
+    summary: string;
+    depth?: number;
+    frozen?: boolean;
+  }>,
 ): string {
   const withDepth = rows.some((r) => r.depth !== undefined);
   const idWidth = Math.max(...rows.map((r) => r.id.length), 2);
@@ -32,7 +40,8 @@ export function renderNodeTable(
     .map((r) => {
       const head = `${r.id.padEnd(idWidth)}  ${r.type.padEnd(typeWidth)}  `;
       const depthCol = withDepth ? `${String(r.depth ?? "").padEnd(depthWidth)}  ` : "";
-      return `${head}${depthCol}${truncate(r.summary, 80)}`;
+      const summary = r.frozen === true ? `[冻结] ${r.summary}` : r.summary;
+      return `${head}${depthCol}${truncate(summary, 80)}`;
     })
     .join("\n");
 }
@@ -69,8 +78,12 @@ export function renderFullRecord(
     grounds?: string[];
   },
   content?: { body?: string; rationale?: string },
+  frozen?: boolean,
 ): string {
   const lines = [renderNodeHeading(node), `summary: ${node.summary}`];
+  // Frozen status is annotated only when present (docs/design.md): unmarked
+  // means modifiable, so unfrozen records stay unlabeled.
+  if (frozen === true) lines.push("frozen: true");
   if (content?.rationale !== undefined) lines.push(`rationale: ${content.rationale}`);
   const record = node as { confirmed?: number };
   if (record.confirmed !== undefined) {

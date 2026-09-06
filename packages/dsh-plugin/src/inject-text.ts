@@ -21,16 +21,18 @@ function sanitize(text: string): string {
 }
 
 /**
- * The initial task context: anchors, all premises and the read-only frozen
- * zone as summaries, with the modification-space complement statement.
- * Summaries only (two-level injection) — full bodies are fetched via tools.
+ * The initial task context: anchors (frozen ones marked `[冻结]`) and all
+ * premises as summaries, closed by the frozen-marking protocol statement
+ * (docs/design.md, 上下文注入协议). The frozen zone is not enumerated —
+ * frozen status is annotated wherever a node is rendered. Summaries only
+ * (two-level injection) — full bodies are fetched via tools.
  */
 export function initialContextText(graph: Graph, context: AuthorizationContext): string {
   return frame(
     [
       "以下是与当前任务相关的 CRG（约束细化图）上下文。约束是项目已作出的、会限制后续实现选择空间的决策；前提是项目运作依赖的客观事实。",
       renderContext(graph, context),
-      "以上仅为摘要。需要某个节点的完整内容、理由或上下游关系时，用 refino_show / refino_grounds / refino_ancestors / refino_dependents 查询。",
+      "以上仅为摘要，初始上下文未列出全部节点。需要某个节点的完整内容、理由或上下游关系时，用 refino_show / refino_grounds / refino_ancestors / refino_dependents 查询；查询结果中冻结节点同样带 [冻结] 标注。",
     ].join("\n\n"),
   );
 }

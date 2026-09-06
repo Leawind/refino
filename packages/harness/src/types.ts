@@ -56,14 +56,19 @@ export interface EscalationReport {
  * update stays unambiguous and prompt-cache friendly.
  */
 export interface ContextBlock {
-  /** Stable block identifier, e.g. `frozen:E5F6G7H8`. */
+  /** Stable block identifier, e.g. `anchor:E5F6G7H8`. */
   id: string;
   kind: ContextBlockKind;
   nodeId: string;
   text: string;
 }
 
-export type ContextBlockKind = "anchor" | "premise" | "frozen";
+/**
+ * The frozen zone has no block kind of its own: a frozen node stays in its
+ * anchor/premise block with a `[冻结]` mark on the line (docs/design.md,
+ * 上下文注入协议).
+ */
+export type ContextBlockKind = "anchor" | "premise";
 
 /**
  * Incremental change between two authorization contexts. Hosts inject only

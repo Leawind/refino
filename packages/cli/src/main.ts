@@ -29,6 +29,7 @@ import {
   renderEscalation,
   resolveAuthorization,
 } from "./authorization.js";
+import { frozenIds } from "./frozen.js";
 import { createInitCommand } from "./commands/init.js";
 import { createContextCommand } from "./commands/context.js";
 import { createSearchCommand } from "./commands/search.js";
@@ -129,12 +130,16 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
             }
             nodes = nodes.filter((n) => n.type === "premise" && !referenced.has(n.id));
           }
+          const frozen = await frozenIds(graph, opts);
           if (opts.json) {
-            emit(io, nodes.map(nodeJson));
+            emit(
+              io,
+              nodes.map((n) => nodeJson(n, frozen)),
+            );
           } else if (nodes.length === 0) {
             io.stdout.write("(no nodes)\n");
           } else {
-            io.stdout.write(`${renderNodeTable(nodes)}\n`);
+            io.stdout.write(`${renderNodeTable(nodes.map((n) => withFrozen(n, frozen)))}\n`);
           }
           return 0;
         }),
@@ -159,6 +164,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
             const content = await store.content(group.id);
             if (content !== undefined) contents.set(group.id, content);
           }
+          const frozen = await frozenIds(graph, opts);
           if (opts.json) {
             emit(
               io,
@@ -168,7 +174,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
                   : {
                       id: group.id,
                       results: group.results.map((node) =>
-                        fullNodeJson(node, contents.get(group.id)),
+                        fullNodeJson(node, contents.get(group.id), frozen),
                       ),
                     },
               ),
@@ -179,7 +185,11 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
                 .map((group) =>
                   "error" in group
                     ? `error: ${group.error}`
-                    : renderFullRecord(group.results[0]!, contents.get(group.id)),
+                    : renderFullRecord(
+                        group.results[0]!,
+                        contents.get(group.id),
+                        frozen.has(group.id),
+                      ),
                 )
                 .join("\n\n")}\n`,
             );
@@ -195,8 +205,13 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
     .argument("<ids...>", "node ids")
     .action((ids: string[], _opts, cmd) =>
       run(cmd, async (opts) =>
-        withStore(io, opts, (store) => {
-          const { missing } = emitGroupedNodes(io, opts, queryGroups(store.graph, ids, getGrounds));
+        withStore(io, opts, async (store) => {
+          const { missing } = emitGroupedNodes(
+            io,
+            opts,
+            queryGroups(store.graph, ids, getGrounds),
+            await frozenIds(store.graph, opts),
+          );
           return missing ? 1 : 0;
         }),
       ),
@@ -208,11 +223,12 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
     .argument("<ids...>", "node ids")
     .action((ids: string[], _opts, cmd) =>
       run(cmd, async (opts) =>
-        withStore(io, opts, (store) => {
+        withStore(io, opts, async (store) => {
           const { missing } = emitGroupedDepths(
             io,
             opts,
             queryGroups(store.graph, ids, getAncestors),
+            await frozenIds(store.graph, opts),
           );
           return missing ? 1 : 0;
         }),
@@ -225,11 +241,12 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
     .argument("<ids...>", "node ids")
     .action((ids: string[], _opts, cmd) =>
       run(cmd, async (opts) =>
-        withStore(io, opts, (store) => {
+        withStore(io, opts, async (store) => {
           const { missing } = emitGroupedDepths(
             io,
             opts,
             queryGroups(store.graph, ids, getDependents),
+            await frozenIds(store.graph, opts),
           );
           return missing ? 1 : 0;
         }),
@@ -610,13 +627,21 @@ function emitWritten(
   else io.stdout.write(`${verb} ${id} (${join(".refino", file)})\n`);
 }
 
-function emitNodes(io: CliIo, opts: GlobalOptions, nodes: RefinoNode[]): void {
+function emitNodes(
+  io: CliIo,
+  opts: GlobalOptions,
+  nodes: RefinoNode[],
+  frozen?: ReadonlySet<string>,
+): void {
   if (opts.json) {
-    emit(io, nodes.map(nodeJson));
+    emit(
+      io,
+      nodes.map((n) => nodeJson(n, frozen)),
+    );
   } else if (nodes.length === 0) {
     io.stdout.write("(empty)\n");
   } else {
-    io.stdout.write(`${renderNodeTable(nodes)}\n`);
+    io.stdout.write(`${renderNodeTable(nodes.map((n) => withFrozen(n, frozen)))}\n`);
   }
 }
 
@@ -631,38 +656,47 @@ function emitGroupedNodes(
   io: CliIo,
   opts: GlobalOptions,
   groups: QueryGroup<RefinoNode>[],
+  frozen?: ReadonlySet<string>,
 ): { missing: boolean } {
   const missing = groups.some((group) => "error" in group);
   if (opts.json) {
     emit(
       io,
       groups.map((group) =>
-        "error" in group ? group : { id: group.id, results: group.results.map(nodeJson) },
+        "error" in group
+          ? group
+          : { id: group.id, results: group.results.map((n) => nodeJson(n, frozen)) },
       ),
     );
   } else if (groups.length === 1) {
-    emitNodesOrError(io, opts, groups[0]!);
+    emitNodesOrError(io, opts, groups[0]!, frozen);
   } else {
     for (const group of groups) {
       io.stdout.write(`${group.id}:\n`);
-      emitNodesOrError(io, opts, group);
+      emitNodesOrError(io, opts, group, frozen);
     }
   }
   return { missing };
 }
 
-function emitNodesOrError(io: CliIo, opts: GlobalOptions, group: QueryGroup<RefinoNode>): void {
+function emitNodesOrError(
+  io: CliIo,
+  opts: GlobalOptions,
+  group: QueryGroup<RefinoNode>,
+  frozen?: ReadonlySet<string>,
+): void {
   if ("error" in group) {
     io.stdout.write(`error: ${group.error}\n`);
     return;
   }
-  emitNodes(io, opts, group.results);
+  emitNodes(io, opts, group.results, frozen);
 }
 
 function emitGroupedDepths(
   io: CliIo,
   opts: GlobalOptions,
   groups: QueryGroup<NodeWithDepth>[],
+  frozen?: ReadonlySet<string>,
 ): { missing: boolean } {
   const missing = groups.some((group) => "error" in group);
   if (opts.json) {
@@ -673,49 +707,69 @@ function emitGroupedDepths(
           ? group
           : {
               id: group.id,
-              results: group.results.map((r) => ({ ...nodeJson(r.node), depth: r.depth })),
+              results: group.results.map((r) => ({ ...nodeJson(r.node, frozen), depth: r.depth })),
             },
       ),
     );
   } else if (groups.length === 1) {
-    emitDepthsOrError(io, opts, groups[0]!);
+    emitDepthsOrError(io, opts, groups[0]!, frozen);
   } else {
     for (const group of groups) {
       io.stdout.write(`${group.id}:\n`);
-      emitDepthsOrError(io, opts, group);
+      emitDepthsOrError(io, opts, group, frozen);
     }
   }
   return { missing };
 }
 
-function emitDepthsOrError(io: CliIo, opts: GlobalOptions, group: QueryGroup<NodeWithDepth>): void {
+function emitDepthsOrError(
+  io: CliIo,
+  opts: GlobalOptions,
+  group: QueryGroup<NodeWithDepth>,
+  frozen?: ReadonlySet<string>,
+): void {
   if ("error" in group) {
     io.stdout.write(`error: ${group.error}\n`);
     return;
   }
-  emitDepths(io, opts, group.results);
+  emitDepths(io, opts, group.results, frozen);
 }
 
 function emitDepths(
   io: CliIo,
   opts: GlobalOptions,
   results: ReadonlyArray<{ node: RefinoNode; depth: number }>,
+  frozen?: ReadonlySet<string>,
 ): void {
   if (opts.json) {
     emit(
       io,
-      results.map((r) => ({ ...nodeJson(r.node), depth: r.depth })),
+      results.map((r) => ({ ...nodeJson(r.node, frozen), depth: r.depth })),
     );
   } else if (results.length === 0) {
     io.stdout.write("(empty)\n");
   } else {
-    io.stdout.write(`${renderNodeTable(results.map((r) => ({ ...r.node, depth: r.depth })))}\n`);
+    io.stdout.write(
+      `${renderNodeTable(results.map((r) => withFrozen({ ...r.node, depth: r.depth }, frozen)))}\n`,
+    );
   }
 }
 
-function fullNodeJson(node: RefinoNode, content?: NodeContent): Record<string, unknown> {
+/** Text-side frozen annotation: the JSON side carries a `frozen` field. */
+function withFrozen<T extends { id: string }>(
+  row: T,
+  frozen?: ReadonlySet<string>,
+): T & { frozen?: boolean } {
+  return frozen === undefined ? row : { ...row, frozen: frozen.has(row.id) };
+}
+
+function fullNodeJson(
+  node: RefinoNode,
+  content?: NodeContent,
+  frozen?: ReadonlySet<string>,
+): Record<string, unknown> {
   return {
-    ...nodeJson(node),
+    ...nodeJson(node, frozen),
     body: content?.body ?? "",
     ...(node.type === "constraint" &&
       content?.rationale !== undefined && {
@@ -728,8 +782,13 @@ function fullNodeJson(node: RefinoNode, content?: NodeContent): Record<string, u
   };
 }
 
-function nodeJson(node: RefinoNode): Record<string, unknown> {
-  const base = { id: node.id, type: node.type, summary: node.summary };
+function nodeJson(node: RefinoNode, frozen?: ReadonlySet<string>): Record<string, unknown> {
+  const base = {
+    id: node.id,
+    type: node.type,
+    summary: node.summary,
+    ...(frozen !== undefined && { frozen: frozen.has(node.id) }),
+  };
   return node.type === "constraint" ? { ...base, grounds: node.grounds } : base;
 }
 

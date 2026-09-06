@@ -107,3 +107,41 @@ describe("write-path boundary enforcement", () => {
     }
   });
 });
+
+describe("read-side frozen annotation", () => {
+  // Frontier [A1]: the zone is {A1} alone, independent of any other node's
+  // fate in earlier tests of this file (some delete or update nodes).
+  it("marks frozen nodes in show output; unfrozen records stay unlabeled", async () => {
+    await useOrchestratorCredential([A1]);
+    try {
+      const frozen = await run(["--root", root(), "show", A1]);
+      expect(frozen.code).toBe(0);
+      expect(frozen.out).toContain("frozen: true");
+
+      const modifiable = await run(["--root", root(), "show", Z9]);
+      expect(modifiable.code).toBe(0);
+      expect(modifiable.out).not.toContain("frozen: true");
+    } finally {
+      clearOrchestratorCredential();
+    }
+  });
+
+  it("carries the frozen field in JSON and the mark in table output", async () => {
+    await useOrchestratorCredential([A1]);
+    try {
+      const show = await run(["--root", root(), "--json", "show", A1, Z9]);
+      const groups = JSON.parse(show.out) as Array<{
+        id: string;
+        results: Array<{ id: string; frozen: boolean }>;
+      }>;
+      const byQueried = new Map(groups.map((g) => [g.id, g.results[0]!]));
+      expect(byQueried.get(A1)!.frozen).toBe(true);
+      expect(byQueried.get(Z9)!.frozen).toBe(false);
+
+      const listed = await run(["--root", root(), "list"]);
+      expect(listed.out).toContain("[冻结]");
+    } finally {
+      clearOrchestratorCredential();
+    }
+  });
+});
