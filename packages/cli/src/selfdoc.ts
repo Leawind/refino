@@ -58,7 +58,7 @@ refino 在\`.refino/\` 目录中维护的约束细化图（CRG），记录项目
 
 ## 任务生命周期
 
-1. 开局：运行 \`refino context\` 获取授权上下文（锚点、前提、冻结区，摘要级）。大图不带锚点：用 \`refino search\` 定位后经用户确认签发。
+1. 开局：运行 \`refino context\` 获取授权上下文（锚点、前提、冻结区，摘要级）。工作区签发可能属于上一个任务：核对 revision 与 signedAt，不属于本任务时经用户确认重签。大图不带锚点：用 \`refino search\` 定位后经用户确认签发。
 2. 按需遍历：先读摘要判断相关性再展开。\`refino show <id>...\` 全文；\`refino grounds|ancestors|dependents <id>...\` 沿边追溯；\`refino search <关键词>\` 分页搜索。查询支持批量 id，按 id 分组、允许部分成功。
 3. 修改：\`refino new premise|constraint\`、\`refino update <id>\`（部分更新，省略的字段不变）、\`refino delete <id>...\`。写入前经 grounds 与冻结区校验。
 4. 完成前回答两个问题：产出是否违反任务涉及的约束；过程中的决策是否值得长期保留（持续限制未来选择空间、违反代价高）。值得保留的用 \`refino new\`沉淀，随正常 Git 流程审核。
