@@ -24,6 +24,7 @@ export {
   updateConstraint,
   deleteNode,
   nodeRelativeFile,
+  nodeIdFromRelativeFile,
 } from "./writer.js";
 export type {
   CreateOptions,

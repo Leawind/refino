@@ -187,7 +187,7 @@ describe("refino guide and skill", () => {
     expect(out).toContain("冻结区");
     expect(out).toContain("refino context");
     expect(out).toContain("refino auth apply --dry-run");
-    expect(out).toContain("git diff --name-only");
+    expect(out).toContain("refino pending");
   });
 
   it("skill prints install guidance pointing at --output", async () => {

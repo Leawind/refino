@@ -33,6 +33,7 @@ import { frozenIds } from "./frozen.js";
 import { createInitCommand } from "./commands/init.js";
 import { createContextCommand } from "./commands/context.js";
 import { createSearchCommand } from "./commands/search.js";
+import { createPendingCommand } from "./commands/pending.js";
 import { createAuthCommand } from "./commands/auth.js";
 import { createGuideCommand, createSkillCommand } from "./commands/selfdoc.js";
 import { emit, fail, refinoDir, withStore, withStoreForWrite } from "./shared.js";
@@ -591,6 +592,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
   program.addCommand(createInitCommand(io, run));
   program.addCommand(createContextCommand(io, run));
   program.addCommand(createSearchCommand(io, run));
+  program.addCommand(createPendingCommand(io, run));
   program.addCommand(createAuthCommand(io, run));
   program.addCommand(createGuideCommand(io, run));
   program.addCommand(createSkillCommand(io, run));

@@ -112,6 +112,18 @@ export function nodeRelativeFile(type: NodeType, id: string): string {
   return `${NODES_DIR}/${id.slice(0, 2)}/${id.slice(2)}-${type}.md`;
 }
 
+/**
+ * Inverse of `nodeRelativeFile`: the node id encoded in a canonical
+ * `.refino`-relative path, or undefined when the path is not a node file.
+ * Single point of the path↔id mapping so consumers (e.g. `refino pending`
+ * mapping git-changed files back to ids) never hard-code the storage layout.
+ */
+export function nodeIdFromRelativeFile(file: string): string | undefined {
+  const match = /^nodes\/(.{2})\/(.*)-(premise|constraint)\.md$/.exec(file);
+  if (match === null) return undefined;
+  return `${match[1]}${match[2]}`;
+}
+
 /** Absolute path of a node file of the given type (platform separators). */
 export function nodeFilePath(refinoDir: string, type: NodeType, id: string): string {
   return join(refinoDir, nodeRelativeFile(type, id));

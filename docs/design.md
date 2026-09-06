@@ -197,12 +197,12 @@ dsh 插件是深度集成宿主的完整形态；面向扩展能力受限的 har
 
 **不变量**：refino 的全部产出 = CRG 节点（版本化）+ 用户级授权状态（仓库外、工具管理）；refino 不探测任何 harness 的配置、技能或插件目录，唯一的文件写入是 `refino skill --output` 按模型显式给出的路径生成技能目录——把技能登记进宿主这一步始终由模型执行。仓库内不产生任何易变状态：授权凭据、缓存、水位一律在用户级目录。
 
-**明确不做**：`refino pending` 与 delta 水位——待审查由模型组合 `git diff --name-only` 与 `refino dependents` 自行推导（「路径即身份」使文件改动可直接映射到节点）；模型反复拼同一条组合链时再固化为命令。任何 harness 适配与自动安装逻辑。
+**明确不做**：delta 水位与任何 harness 适配、自动安装逻辑。（曾在此声明不做 `refino pending`、由模型拼 `git diff` 与 `dependents` 推导；已改判固化成命令——「路径即身份」的映射属于存储层，不应作为协议细节泄漏进模型侧的每次组合调用。）
 
 **命令面**（除 `init` 外均为模型面向）：
 
 - 已有：`show` / `grounds` / `ancestors` / `dependents` / `new` / `update` / `delete`（批量 + 部分成功语义）；
-- 通用接入形态：`init`（显式采用：创建 `.refino/` 骨架，已存在则拒绝）、`context`（渲染授权上下文，两级注入第一级；`--since` 取签发增量）、`search`（分页搜索，语义与 Web `GET /api/search` 对齐）、`guide`（完整协议与命令用法，写给模型读）、`skill`（输出接入指引；`--output <dir>` 在 `<dir>/refino/` 下生成 SKILL.md，目录名固定与 `name` 一致）、`auth show` / `auth apply` / `auth reset`（对话内签发；`--dry-run` 预演、`--expect-revision` 乐观并发、`--output <path>` 产出编排者凭据文件；编排者凭据生效时拒绝写入）。
+- 通用接入形态：`init`（显式采用：创建 `.refino/` 骨架，已存在则拒绝）、`context`（渲染授权上下文，两级注入第一级；`--since` 取签发增量）、`search`（分页搜索，语义与 Web `GET /api/search` 对齐）、`guide`（完整协议与命令用法，写给模型读）、`skill`（输出接入指引；`--output <dir>` 在 `<dir>/refino/` 下生成 SKILL.md，目录名固定与 `name` 一致）、`auth show` / `auth apply` / `auth reset`（对话内签发；`--dry-run` 预演、`--expect-revision` 乐观并发、`--output <path>` 产出编排者凭据文件；编排者凭据生效时拒绝写入）、`pending`（git 基线以来的已改节点与下游待审查约束，见 crg.md 1.6；路径→id 映射走存储层单点定义）。
 
 ## 命名约定
 
