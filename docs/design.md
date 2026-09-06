@@ -105,7 +105,7 @@ CLI、Web 服务与工具插件一律经 Store 访问 `.refino/`，不再各自�
 
 ## harness 与工具插件功能设计
 
-集成 refino 后，agent 需要面向用户与 AI 模型两组能力。本节确定 `@refino/harness` 与各工具插件（首个为 `@refino/dsh-plugin`）的功能边界。
+集成 refino 后，agent 需要面向用户与 AI 模型两组能力。本节确定 `@refino/harness` 与各工具插件（首个为 `@refino/dsh-plugin`）的功能边界。接入形态有两种：深度集成宿主的工具插件，以及仅依赖 SKILL 与 CLI 的通用接入形态（见「通用接入形态」）。
 
 ### 用户侧：授权控制台
 
@@ -156,7 +156,7 @@ refino 的四项接入需求中，两项只有进程内 Cordis 插件能实现�
 - **初始上下文注入**：dsh 的 MCP 支持只桥接 tools（resources 与 prompts 均不支持），无法在会话初始化时注入锚点上下文；Cordis 插件可监听 `agent/session-start` 并经 `agent.inject()` 注入，注入内容为持久化的 user-role 消息，resume/重放/压缩安全。
 - **增量 delta 注入**：dsh 全线按 append-only、KV-cache 前缀稳定设计，`agent.inject()` 排入下一 pre-step 且不唤醒驱动，与 harness 的「稳定前缀 + delta」注入协议同构；MCP 无推送通道。
 - **读写工具**：`ctx.tools.register()` 原生工具的结构化结果与 `output.render` 投影贴合 `QueryGroup` 部分成功语义；MCP 工具强制 `mcp__<server>__<tool>` 命名且结果文本化。
-- **Skill 不能承载工具**：Skill 本质是按需加载的 Markdown 指令，若只发 Skill，模型需直接操作 `.refino/` 文件，违反「模型不直接访问 CRG 文件」的原则；可用 `ctx.skills.register()` 注册一个讲解 CRG 概念与工具选用时机的技能作为补充。
+- **Skill 与工具是两种机制**：工具（`ctx.tools.register()`）是模型可调用的结构化函数接口；Skill 是按需加载的指令包，且支持目录形式捆绑资源——dsh 自身的 `skill-filesystem` 即提供 directory bundle（`resourceBase` 指向目录），Anthropic Agent Skills 生态同样以「SKILL.md + 可执行脚本」为标准形态，dsh 的代码执行能力（`code-runtime`）可以运行包内脚本。因此「只发 Skill」并不必然导致模型直接操作 `.refino/` 文件：Skill 可捆绑受守卫的执行逻辑。dsh 仍不以此承载读写，原因是实现唯一性——受守卫的读写只有一份实现（Store 写路径），Skill 捆绑脚本会派生第二份实现漂移；读写走原生工具注册（结构化结果贴合 `QueryGroup` 部分成功语义），`ctx.skills.register()` 注册讲解 CRG 概念与工具选用时机的技能作为补充。纯 Skill 方案做不了前两项注入，其读写执行体只能是 CLI——即「通用接入形态」。
 
 对 dsh 的依赖保持薄封装：运行时仅 `@deepseek-ai/dsh-tools`（`defineTool`）与 `@deepseek-ai/dsh-llm`（`createUserMessage`，注入消息须经官方工厂生成稳定 id）；`@deepseek-ai/cordis`、`@deepseek-ai/dsh-agent`（`Agent` 接口与 `agent/*` 事件声明）、`@deepseek-ai/dsh-session`（会话头类型）仅作类型依赖。
 
@@ -170,6 +170,35 @@ refino 的四项接入需求中，两项只有进程内 Cordis 插件能实现�
 - **锚点/冻结区签发**：主交互面为授权控制台组件（`@refino/ui`，见「用户侧：授权控制台」），经 dsh Web Client 的 slots/Conversation 节点扩展点挂载；辅助面为 `ctx.commands` 用户命令与工具内 `ctx.userQuestions.ask()` 模型发起的多选确认（dsh 限制仅运行时根 agent 可发起）。命令面：`/refino` 打开控制台、`/refino-anchor` 设锚点、`/refino-freeze` / `/refino-unfreeze`（作用于 frontier 语义并回显传播结果）、`/refino-context` 重述当前上下文、`/refino-pending` 列待审查、`/refino-changes` 列本会话 agent 写入清单。升级报告在宿主支持结构化渲染时呈现为升级卡片（阻挡约束、原因、受影响下游、打开控制台等操作），无宿主 UI 时降级为文本并引导运行 `/refino`。
 - **版本策略**：dsh 处于 developer preview，`@deepseek-ai/*` 依赖锁精确版本，CI 对 dsh 升级跑插件冒烟。
 
+#### 通用接入形态（Skill + CLI）
+
+dsh 插件是深度集成宿主的完整形态；面向扩展能力受限的 harness，refino 另提供一套仅依赖 SKILL 与 CLI 的通用接入形态作为保底层，与插件共享同一协议文本（两级注入、块标识、升级报告）与写入路径。前提与范围：只考虑支持 SKILL 与 MCP 的 harness——不支持者要么已被更好的方案取代，要么欠缺维护，不予考虑；MCP 因配置繁琐暂不做，留作出现真实需求时的通用工具适配层。设计原则：模型拥有智能，机制只提供最薄的正交原语；人只有对话，模型拥有协议，机器守住底线。
+
+**自举**——人的唯一动作是复制一段固定指令给 agent（文本放在仓库根 README，供人复制）：
+
+1. agent 运行 `npx -y @refino/cli skill`（纯 stdout 发射器，不写任何文件）获取技能内容与安装指引，按其自身宿主的技能机制**自行安装**——宿主的技能目录、清单格式等"最后一公里"知识由模型用自己对宿主的了解补齐，refino 保持中立；
+2. agent 运行 `refino guide` 获取完整协议与命令用法（该文档的单一来源在代码里，随命令一起演进，不会过期）；仓库尚无 `.refino/` 时运行 `refino init`（纯脚手架）；
+3. 日常流转自取：`refino context` → 按需遍历 → 对话内签发 → 受守卫读写。
+
+工具获取即 npm 本身，无安装门槛：默认经 `npx -y @refino/cli` 运行（首次需网络，此后走 npx 本地缓存），全局安装降级为人类可选优化，不再是自举步骤。
+
+**Skill 内容规范**——技能只承载指令，不捆绑任何脚本或工具：refino 与 CRG 的概念介绍（指向 crg.md）、调用方式（终端可直接运行 `refino` 时直接用，否则 `npx -y @refino/cli`）、硬规则（不直接编辑 `.refino/nodes/`，一切读写经 `refino` 命令；授权变更须经人明确同意）、自取指引（`refino guide` / `refino context`）。技能触发描述须覆盖「遇到 `.refino/` 目录」与「任务涉及项目约束 / 决策谱系」，使装好的技能能被任意 refino 项目唤起。具体工作原理与用法不进 Skill，由模型执行 `refino` 命令自取。不设「内容几乎不变」的约束：skill 文本由 CLI 单一来源生成、随版本演进，更新即重跑 `refino skill` 重装；装进宿主的旧文本无碍——协议真相源是每次现跑的 `guide`，漂移自愈。
+
+**发布**——skill 无独立分发工件，npm 是唯一通道：skill 文本由 CLI 现场生成（`refino skill`），不存在离于 CLI 包的 skill 产物。曾评估随 skill 捆绑可执行脚本（Anthropic 文档技能的模式），否决：安装 skill 的渠道（npm）本身就交付了可执行 CLI，捆绑是同一交付机制的重复；且捆绑把工具冻结在安装时点，refino 预发布期允许破坏性变更，旧捆绑工具可能读不了新 CLI 写出的图——经 npx 取最新反而更安全。生态背景：Agent Skills 规范只定义工件、不管分发；业界通行「git 仓库 + 宿主 marketplace / `npx skills add`」双轨，适用于把 skill 目录提交进 git 的纯指令仓库，refino 不入此轨；将来若登宿主 marketplace，同仓库加 manifest 即可，现阶段不作承诺。
+
+**授权签发**在对话内完成，无向导、无 TTY 门。模型凭图知识起草授权文档（`freezableConstraints`、`frozenFrontier`、注入估算原语均经只读命令获取），`refino auth apply --dry-run` 预演效果（「将冻结 N 个约束、M 个前提」；解冻根约束单独警告授权级别要求，见 crg.md 1.3），人在对话中批准后模型执行 `refino auth apply`。人的批准有两个落点：对话本身，以及 harness 的命令审批面——安装与签发的文件写入都要过审批，模型无法伪造「人批准过」。签发文档单一 schema、三处来源，按优先级解析：编排者凭据（`REFINO_AUTHORIZATION` 环境变量或 `--authorization <path>`，编排脚本按任务生成，天然实现每任务/每 agent 隔离）→ 工具管理的用户级状态（路径由工具从工作区规范路径推导，如 `~/.config/refino/workspaces/<key>.json`，人无感）→ `defaultAuthorizationContext`。落盘 `frozenFrontier` 最小表示，读取时按当前图重新闭包（签发后新长出的祖先自动入冻，无需重签）；签发列表中被删除的节点读取侧静默收敛（与 dsh 定案一致：收敛而非重置为默认）。revision 单调递增（授权签发与图变更合并计数），支撑 `refino context --since <rev>` 增量拉取与 `--expect-revision` 乐观并发（多 agent 会话并存不互相覆盖）。
+
+**安全立场**：冻结区在写路径强制执行（Store 写入方法内建 grounds 校验与 harness 越界校验），模型拉不拉上下文只影响它「知道多少」，不影响它「能改什么」——通用形态相对插件形态降级的是上下文质量，不是约束保障。全自动（免审批）模式下冻结区是安全带而非保险库：兜底依次是 harness 的命令审批面、Skill 硬规则、以及约束修改本就必经的 Git 审核（越权改动的痕迹在 diff 中可审可回滚）。
+
+**不变量**：refino 的全部产出 = CRG 节点（版本化）+ 用户级授权状态（仓库外、工具管理）；refino 代码从不读写任何 harness 的配置、技能或插件目录——安装由模型执行，refino 只提供内容。仓库内不产生任何易变状态：授权凭据、缓存、水位一律在用户级目录。
+
+**明确不做**：`refino pending` 与 delta 水位——待审查由模型组合 `git diff --name-only` 与 `refino dependents` 自行推导（「路径即身份」使文件改动可直接映射到节点）；模型反复拼同一条组合链时再固化为命令。任何 harness 适配与自动安装逻辑。
+
+**命令面**（除 `init` 外均为模型面向）：
+
+- 已有：`show` / `grounds` / `ancestors` / `dependents` / `new` / `update` / `delete`（批量 + 部分成功语义）；
+- 通用接入形态：`init`（脚手架）、`context`（渲染授权上下文，两级注入第一级；`--since` 取签发增量）、`search`（分页搜索，语义与 Web `GET /api/search` 对齐）、`guide`（完整协议与命令用法，写给模型读）、`skill`（输出技能内容与安装指引）、`auth show` / `auth apply` / `auth reset`（对话内签发；`--dry-run` 预演、`--expect-revision` 乐观并发；编排者凭据生效时拒绝写入）。
+
 ## 命名约定
 
 vibe coding 工具插件统一命名为 `@refino/<tool>-plugin`，`<tool>` 为工具缩写，在此登记以避免命名漂移：
@@ -177,6 +206,8 @@ vibe coding 工具插件统一命名为 `@refino/<tool>-plugin`，`<tool>` 为�
 | 缩写  | 包名                 | 工具             |
 | ----- | -------------------- | ---------------- |
 | `dsh` | `@refino/dsh-plugin` | DeepSeek harness |
+
+通用接入形态（见「harness 与工具插件功能设计」）由 CLI 命令 + Skill 承载，不占 `@refino/<tool>-plugin` 命名。
 
 ## 前端技术栈
 
