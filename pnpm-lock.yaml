@@ -50,6 +50,9 @@ importers:
       '@hono/node-server':
         specifier: ^2.1.1
         version: 2.1.1(hono@4.13.5)
+      '@refino/harness':
+        specifier: workspace:^
+        version: link:../harness
       '@refino/storage':
         specifier: workspace:^
         version: link:../storage

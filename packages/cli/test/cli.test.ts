@@ -355,6 +355,10 @@ describe("refino cli", () => {
           "D4E5F6G7",
           "--body",
           "Decision.",
+          // Grounds keep it out of the default frozen zone (root constraints),
+          // which write-path boundary checks enforce.
+          "--grounds",
+          "1A2B3C4D",
         ]);
         const constraintConfirmed = await run(["--root", emptyRoot, "update", "D4E5F6G7", "--now"]);
         expect(constraintConfirmed.code).toBe(0);

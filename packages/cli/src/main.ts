@@ -22,6 +22,18 @@ import type { Graph, NodeWithDepth, QueryGroup, RefinoNode } from "refino";
 import { processIo, renderFullRecord, renderIssues, renderNodeTable } from "./format.js";
 import type { CliIo } from "./format.js";
 import { createDevCommand } from "./dev.js";
+import { checkModification, type ModificationCheck } from "@refino/harness";
+import {
+  coveringFrontier,
+  effectiveContext,
+  renderEscalation,
+  resolveAuthorization,
+} from "./authorization.js";
+import { createInitCommand } from "./commands/init.js";
+import { createContextCommand } from "./commands/context.js";
+import { createSearchCommand } from "./commands/search.js";
+import { createAuthCommand } from "./commands/auth.js";
+import { createGuideCommand, createSkillCommand } from "./commands/selfdoc.js";
 import { emit, fail, refinoDir, withStore, withStoreForWrite } from "./shared.js";
 import type { GlobalOptions } from "./shared.js";
 import { startWebServer } from "./web/server.js";
@@ -40,6 +52,10 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
     .version(readVersion())
     .option("--root <dir>", "project root directory containing .refino/", process.cwd())
     .option("--json", "emit machine-readable JSON on stdout", false)
+    .option(
+      "--authorization <path>",
+      "path to an orchestrator-signed authorization document (overrides workspace state)",
+    )
     .configureOutput({
       writeOut: (text) => void io.stdout.write(text),
       writeErr: (text) => void io.stderr.write(text),
@@ -307,6 +323,19 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
                 summary,
               });
               emitWritten(io, opts, outcome.id, "constraint", "created");
+              // Creation always lands in the modification space (new nodes
+              // have no downstream), but a grounds-less constraint is a root:
+              // under the default authorization it is frozen from the next
+              // invocation on, so say so while the caller can still react.
+              // JSON consumers get structured output only.
+              if (groundIds.length === 0 && !opts.json) {
+                const resolved = await resolveAuthorization(store.graph, opts);
+                if (resolved.source === "default") {
+                  io.stdout.write(
+                    'notice: created a root constraint; under the default authorization root constraints are frozen — re-sign via "refino auth apply" to modify it later\n',
+                  );
+                }
+              }
               return 0;
             });
           }),
@@ -363,6 +392,15 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
           const entry = store.entry(id);
           if (entry === undefined) {
             io.stderr.write(`error: node "${id}" not found\n`);
+            return 1;
+          }
+          // The frozen zone is enforced on the write path itself: a target
+          // inside it is refused with a structured escalation report, no
+          // matter how the command was invoked.
+          const resolved = await resolveAuthorization(store.graph, opts);
+          const check = checkModification(store.graph, effectiveContext(resolved), id);
+          if (!check.allowed) {
+            renderEscalation(store.graph, resolved, check, io, opts.json);
             return 1;
           }
           const node = entry.node;
@@ -428,12 +466,40 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
       run(cmd, async (opts) => {
         const { force } = cmd.opts() as { force?: boolean };
         return withStoreForWrite(io, opts, async (store) => {
-          const results: Array<{ id: string; error?: string }> = [];
+          const resolved = await resolveAuthorization(store.graph, opts);
+          const context = effectiveContext(resolved);
+          const results: Array<{
+            id: string;
+            error?: string;
+            blocked?: {
+              coveringFrontier: string[];
+              affected: Array<{ id: string; depth: number }>;
+            };
+          }> = [];
+          const blocked: ModificationCheck[] = [];
           let failure = false;
           for (const id of ids) {
             const node = store.graph.nodes.get(id);
             if (node === undefined) {
               results.push({ id, error: `node "${id}" not found` });
+              failure = true;
+              continue;
+            }
+            // Authorization is not bypassable with --force: --force covers the
+            // structural guard only, the frozen zone needs a signed change.
+            const check = checkModification(store.graph, context, id);
+            if (!check.allowed) {
+              const covering = coveringFrontier(store.graph, resolved, id);
+              results.push({
+                id,
+                error: `frozen by authorization (frontier: ${covering.join(", ")})`,
+                blocked: {
+                  coveringFrontier: covering,
+                  affected:
+                    check.report?.affected.map((a) => ({ id: a.node.id, depth: a.depth })) ?? [],
+                },
+              });
+              blocked.push(check);
               failure = true;
               continue;
             }
@@ -462,6 +528,9 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
           }
           if (opts.json) emit(io, results);
           else {
+            for (const check of blocked) {
+              renderEscalation(store.graph, resolved, check, io, false);
+            }
             io.stdout.write(
               `${results
                 .map((r) => (r.error === undefined ? `deleted ${r.id}` : `error: ${r.error}`))
@@ -501,6 +570,13 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
         });
       }),
     );
+
+  program.addCommand(createInitCommand(io, run));
+  program.addCommand(createContextCommand(io, run));
+  program.addCommand(createSearchCommand(io, run));
+  program.addCommand(createAuthCommand(io, run));
+  program.addCommand(createGuideCommand(io, run));
+  program.addCommand(createSkillCommand(io, run));
 
   // Hidden dev tooling: registered only when explicitly enabled, so without
   // REFINO_DEV=true the command does not exist at all — help output, unknown
