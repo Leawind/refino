@@ -22,10 +22,10 @@ import {
   getSearch,
   getStats,
   getPending,
+  postQueryExpand,
   postQueryGrounds,
   postQueryNeighbors,
   postQueryRange,
-  postQuerySiblings,
 } from "./query-api.js";
 import { WebState } from "./web-state.js";
 
@@ -167,8 +167,8 @@ function createWeb(options: WebAppOptions): WebParts {
     api((c, web) => postQueryRange(c, web)),
   );
   app.post(
-    "/api/query/siblings",
-    api((c, web) => postQuerySiblings(c, web)),
+    "/api/query/expand",
+    api((c, web) => postQueryExpand(c, web)),
   );
   app.get(
     "/api/search",

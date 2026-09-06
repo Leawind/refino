@@ -216,16 +216,16 @@ Web 层只保留 HTTP 语义：
 
 #### 画布按需查询
 
-界面中央的 CRG 交互式可视化区域（下称"画布"）不默认全量加载：一个项目可能包含 10⁶ 量级的约束节点，全量拉取不可行。画布以选择驱动按需展开，工作集与渲染预算等细节见 `@refino/ui` README；跨包的查询契约如下，均沿用批量、部分成功语义，返回形状为 `QueryGroup<T>`：
+界面中央的 CRG 交互式可视化区域（下称"画布"）不默认全量加载：一个项目可能包含 10⁶ 量级的约束节点，全量拉取不可行。画布以选择驱动按需展开，且工作集为**积累式**：选中节点变化时其展开块并入画布，已有内容不清空，仅当总量达到工作集上限时按最旧访问淘汰未选中节点。工作集与渲染预算等细节见 `@refino/ui` README；跨包的查询契约如下，均沿用批量、部分成功语义，返回形状为 `QueryGroup<T>`：
 
-- `POST /api/query/neighbors`：`{ ids, ancestorDepth, descendantDepth, limit? }` → 各节点的邻域（含相对深度 `depth`），按近者优先截断，返回 `truncated` 标志。邻域含锚点自身（`depth` 为 0）；邻域内祖先必含约束与前提；后代只含约束。
+- `POST /api/query/expand`：`{ ids, descendantDepth, showSiblings?, siblingLimit?, limit? }` → 各锚点的展开块（画布工作集的增长单元）：锚点上游沿 grounds 到根全量闭合、下游 `descendantDepth` 代约束、强兄弟（共享 ≥1 个直接 grounds 的约束，不含自身与前提，经共享依据计距离 2），以及块内全部约束的上游闭合（保证可见边的两端都在块内）。近者优先返回（`depth` 为相对锚点的近似跳距，仅用于截断排序），`limit` 同时充当单块截断上限与遍历扩展计数上限，返回 `truncated` 标志。
+- `POST /api/query/neighbors`：`{ ids, ancestorDepth, descendantDepth, limit? }` → 各节点的有界邻域（含相对深度 `depth`），按近者优先截断，返回 `truncated` 标志。邻域含锚点自身（`depth` 为 0）；邻域内祖先必含约束与前提；后代只含约束。供详情栏等轻量下游查询使用。
 - `POST /api/query/grounds`：`{ ids }` → 各节点的直接依据（悬停时单跳拉取）。
 - `POST /api/query/range`：`{ focusId, clickedId, budget }` → `{ mode, nodes }`。`mode` 取值：
   - `ancestor`：一端是另一端的祖先，`nodes` 为「祖先的后代约束集 ∩ 后代的祖先约束集」加两个端点自身，有序去重；
   - `branches`：不同分支，`nodes` 为两节点间最短路径（两端点各自沿 grounds 上行、在最近公共祖先汇合，每侧取一条）上的约束节点加两个端点自身，有序去重；
   - `disconnected`：预算内不存在公共祖先（确定无关，或预算耗尽无法判定），`nodes` 仅含被点击节点。
     返回的节点序列只含约束节点与两个端点自身（端点为前提时保留）。
-- `POST /api/query/siblings`：`{ ids, limit? }` → 各节点的强兄弟（共享 ≥1 个直接 grounds 的约束，不含自身与前提），按重叠数降序、id 升序截断。
 - `GET /api/search`：资源浏览器、命令面板与依据选择器的分页搜索，`?q=&type=&limit=&cursor=&roots=`，轻量返回（id、类型、摘要）；`roots` 过滤仅返回 grounds 为空的约束，供项目概览冷启动。
 - `GET /api/stats`：项目概览计数（节点总数、约束数、前提数、根约束数），常驻索引直接聚合。
 - `GET /api/pending`：待审查约束清单。服务端在变更批处理入口以 harness `pendingReview` 相同的派生逻辑维护「自最近一次 `POST /api/reload`（或服务启动）以来直接依赖过变更节点的约束」；被删除的变更节点以其旧图下游计入。确认状态存于客户端偏好（按 id+revision 键，节点再变更自动重新挂起），不进图数据（派生态不持久化）。

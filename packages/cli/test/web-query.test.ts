@@ -202,32 +202,102 @@ describe("POST /api/query/range", () => {
   });
 });
 
-describe("POST /api/query/siblings", () => {
-  it("returns constraints sharing a direct ground, excluding self and premises", async () => {
-    const res = await post("/api/query/siblings", { ids: [C1, C2, P1] });
+describe("POST /api/query/expand", () => {
+  it("closes the full upstream and one descendant generation", async () => {
+    const res = await post("/api/query/expand", {
+      ids: [C2],
+      descendantDepth: 1,
+      showSiblings: false,
+    });
     expect(res.status).toBe(200);
-    const groups = (await res.json()) as QueryGroup[];
-    const of = (index: number) =>
-      (
-        groups[index] as {
-          id: string;
-          results: Array<{ nodes: Array<{ id: string; overlap: number }> }>;
-        }
-      ).results[0]!.nodes;
-    expect(of(0).map((n) => n.id)).toEqual([C6]); // C6 shares C1's direct ground P1
-    expect(of(1).map((n) => n.id)).toEqual([C4, C6]); // C4 shares two grounds, C6 one
-    expect(of(2)).toEqual([]); // premises have no grounds, hence no siblings
-  });
-
-  it("sorts by descending overlap, then id, and truncates", async () => {
-    const res = await post("/api/query/siblings", { ids: [C2], limit: 1 });
     const groups = (await res.json()) as QueryGroup[];
     const { results } = groups[0] as {
       id: string;
-      results: Array<{ truncated: boolean; nodes: Array<{ id: string }> }>;
+      results: Array<{ truncated: boolean; nodes: Array<{ id: string; depth: number }> }>;
+    };
+    expect(results[0]!.truncated).toBe(false);
+    // C2's upstream to the roots (C1, P2, P1), its descendant C3, itself.
+    expect(results[0]!.nodes.map((n) => `${n.id}:${n.depth}`)).toEqual([
+      `${C2}:0`,
+      `${P2}:1`,
+      `${C1}:1`,
+      `${C3}:1`,
+      `${P1}:2`,
+    ]);
+  });
+
+  it("joins strong siblings and closes their upstream too", async () => {
+    const res = await post("/api/query/expand", { ids: [C1], descendantDepth: 1 });
+    const groups = (await res.json()) as QueryGroup[];
+    const { results } = groups[0] as {
+      id: string;
+      results: Array<{ truncated: boolean; nodes: Array<{ id: string; depth: number }> }>;
+    };
+    // Downstream C2/C4 (siblings default on), C6 joins as C1's sibling via
+    // shared ground P1 at distance 2, and C2/C4's side ground P2 closes in.
+    expect(results[0]!.truncated).toBe(false);
+    expect(results[0]!.nodes.map((n) => `${n.id}:${n.depth}`)).toEqual([
+      `${C1}:0`,
+      `${P1}:1`,
+      `${C2}:1`,
+      `${C4}:1`,
+      `${P2}:2`,
+      `${C6}:2`,
+    ]);
+  });
+
+  it("omits siblings when showSiblings is false", async () => {
+    const res = await post("/api/query/expand", {
+      ids: [C1],
+      descendantDepth: 0,
+      showSiblings: false,
+    });
+    const groups = (await res.json()) as QueryGroup[];
+    const { results } = groups[0] as {
+      id: string;
+      results: Array<{ nodes: Array<{ id: string }> }>;
+    };
+    expect(results[0]!.nodes.map((n) => n.id)).toEqual([C1, P1]);
+  });
+
+  it("keeps at most siblingLimit siblings, overlap-descending", async () => {
+    const res = await post("/api/query/expand", {
+      ids: [C2],
+      descendantDepth: 0,
+      siblingLimit: 1,
+    });
+    const groups = (await res.json()) as QueryGroup[];
+    const { results } = groups[0] as {
+      id: string;
+      results: Array<{ nodes: Array<{ id: string; depth: number }> }>;
+    };
+    // C4 (overlap 2 with C2) beats C6 (overlap 1); C4 joins at distance 2.
+    expect(results[0]!.nodes.map((n) => `${n.id}:${n.depth}`)).toEqual([
+      `${C2}:0`,
+      `${P2}:1`,
+      `${C1}:1`,
+      `${P1}:2`,
+      `${C4}:2`,
+    ]);
+  });
+
+  it("truncates nearest-first and flags it", async () => {
+    const res = await post("/api/query/expand", { ids: [C1], descendantDepth: 1, limit: 3 });
+    const groups = (await res.json()) as QueryGroup[];
+    const { results } = groups[0] as {
+      id: string;
+      results: Array<{ truncated: boolean; nodes: Array<{ id: string; depth: number }> }>;
     };
     expect(results[0]!.truncated).toBe(true);
-    expect(results[0]!.nodes.map((n) => n.id)).toEqual([C4]); // overlap 2 beats overlap 1
+    expect(results[0]!.nodes.map((n) => n.depth)).toEqual([0, 1, 1]);
+  });
+
+  it("answers 207 with a per-id error for unknown ids", async () => {
+    const res = await post("/api/query/expand", { ids: [C1, "ZZZZZZZZ"], descendantDepth: 1 });
+    expect(res.status).toBe(207);
+    const groups = (await res.json()) as QueryGroup[];
+    expect(groups[0]).toHaveProperty("results");
+    expect(groups[1]).toHaveProperty("error");
   });
 });
 

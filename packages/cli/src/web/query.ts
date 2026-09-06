@@ -21,12 +21,6 @@ export interface Neighborhood {
   nodes: NodeWithDepth[];
 }
 
-/** One id's strong siblings: overlap-descending, truncated when over budget. */
-export interface Siblings {
-  truncated: boolean;
-  nodes: Array<NodeLite & { overlap: number }>;
-}
-
 /**
  * Relationship between two range endpoints: ancestor (one reaches the
  * other), branches (different branches, one shortest path per side through
@@ -97,27 +91,73 @@ export function grounds(graph: Graph, ids: readonly string[]): QueryGroup<NodeLi
 }
 
 /**
- * Strong siblings: constraints sharing at least one direct ground with the
- * queried node (never the node itself, never premises). Overlap-descending,
- * id-ascending; `limit` truncates. The group's `results` array holds exactly
- * one sibling set object.
+ * Per-id expansion block: the unit the canvas working set grows by. The
+ * anchor's full upstream closure, `descendantDepth` generations of
+ * constraints downstream, strong siblings (undirected distance 2 via a
+ * shared ground), and the upstream closure of every block constraint — so
+ * each rendered edge has both ends on the canvas. Nearest-first; `limit`
+ * truncates and caps traversal. The group's `results` array holds exactly
+ * one expansion object.
  */
-export function siblings(
+export interface Expansion {
+  truncated: boolean;
+  nodes: NodeWithDepth[];
+}
+
+export interface ExpandParams {
+  /** Descendant constraint generations per anchor. */
+  descendantDepth: number;
+  /** Whether strong siblings of the anchor join the block. */
+  showSiblings: boolean;
+  /** Sibling candidates kept per anchor (overlap-descending, id-ascending). */
+  siblingLimit?: number;
+  /** Per-block truncation limit (nearest-first) and traversal cap. */
+  limit?: number;
+}
+
+export function expand(
   graph: Graph,
   ids: readonly string[],
-  limit?: number,
-): QueryGroup<Siblings>[] {
-  return queryGroups(graph, ids, (g, id): Siblings[] => {
-    const all = getSiblings(g, id);
-    const truncated = limit !== undefined && all.length > limit;
-    const kept = truncated ? all.slice(0, limit) : all;
-    return [
-      {
-        truncated,
-        nodes: kept.map(({ node, overlap }) => ({ ...toLite(node), overlap })),
-      },
-    ];
-  });
+  params: ExpandParams,
+): QueryGroup<Expansion>[] {
+  return queryGroups(graph, ids, (g, id): Expansion[] => [expandOne(g, id, params)]);
+}
+
+function expandOne(graph: Graph, id: string, params: ExpandParams): Expansion {
+  const depth = new Map<string, number>([[id, 0]]);
+
+  // Downstream constraints (only constraints carry grounds), nearest-first
+  // min-depth merge.
+  for (const entry of getDependents(graph, id, { maxDepth: Math.max(0, params.descendantDepth) })) {
+    const previous = depth.get(entry.node.id);
+    if (previous === undefined || entry.depth < previous) depth.set(entry.node.id, entry.depth);
+  }
+
+  // Upstream sources: the anchor at 0, every downstream node at its depth
+  // (its side grounds must close), strong siblings at 2. Ascending order
+  // lets the nearest source claim nodes first, keeping depths minimal.
+  const seeds: Array<[string, number]> = [[id, 0]];
+  for (const [nodeId, d] of depth) {
+    if (nodeId !== id) seeds.push([nodeId, d]);
+  }
+  if (params.showSiblings) {
+    const all = getSiblings(graph, id);
+    const kept =
+      params.siblingLimit !== undefined ? all.slice(0, Math.max(0, params.siblingLimit)) : all;
+    for (const { node } of kept) seeds.push([node.id, 2]);
+  }
+  seeds.sort(byDepthThenId);
+
+  const { capped } = upstreamClosure(graph, seeds, depth, params.limit);
+
+  const limit = params.limit;
+  const sorted = [...depth].sort(byDepthThenId);
+  const truncated = limit !== undefined && sorted.length > limit;
+  const kept = truncated ? sorted.slice(0, Math.max(0, limit)) : sorted;
+  return {
+    truncated: truncated || capped,
+    nodes: kept.map(([nid, d]) => ({ ...toLite(graph.nodes.get(nid)!), depth: d })),
+  };
 }
 
 /** Default expansion budget per endpoint when the caller sends none. */
@@ -313,23 +353,54 @@ interface BoundedAncestors {
  */
 function ancestorsWithin(graph: Graph, start: string, budget: number): BoundedAncestors {
   const depths = new Map<string, number>([[start, 0]]);
-  const queue: string[] = [start];
+  const { expansions } = upstreamClosure(graph, [[start, 0]], depths, Math.max(1, budget));
+  return { depths, expansions };
+}
+
+/**
+ * Multi-source upstream closure over grounds edges (only constraints carry
+ * them). Sources are processed in ascending seed-depth order; each runs one
+ * breadth-first walk merging minimal depths into `depths`. A ground already
+ * mapped stays unexpanded — an earlier (nearer) source merged its chain
+ * already, or the cap truncated the traversal — while a mapped seed still
+ * walks, since only its own source closes its grounds. `cap` bounds total
+ * expansions (dequeues); `capped` reports an early stop, in which case the
+ * closure is incomplete. Depth values are advisory: they order nearest-first
+ * truncation, they are not consumed downstream.
+ */
+function upstreamClosure(
+  graph: Graph,
+  seeds: ReadonlyArray<[string, number]>,
+  depths: Map<string, number>,
+  cap: number | undefined,
+): { expansions: number; capped: boolean } {
+  const limit = cap === undefined ? undefined : Math.max(1, cap);
   let expansions = 0;
-  for (let head = 0; head < queue.length; head++) {
-    if (expansions >= Math.max(1, budget)) break;
-    const current = queue[head]!;
-    const depth = depths.get(current)!;
-    expansions++;
-    const node = graph.nodes.get(current);
-    const grounds = node?.type === "constraint" ? node.grounds : [];
-    for (const ground of grounds) {
-      if (!depths.has(ground)) {
-        depths.set(ground, depth + 1);
-        queue.push(ground);
+  for (const [seedId, base] of seeds) {
+    const previous = depths.get(seedId);
+    if (previous === undefined || base < previous) depths.set(seedId, base);
+    if (limit !== undefined && expansions >= limit) return { expansions, capped: true };
+    const queue: Array<[string, number]> = [[seedId, depths.get(seedId)!]];
+    const visited = new Set<string>([seedId]);
+    let capped = false;
+    for (let head = 0; head < queue.length; head++) {
+      if (limit !== undefined && expansions >= limit) {
+        capped = true;
+        break;
+      }
+      const [current, depth] = queue[head]!;
+      expansions++;
+      const node = graph.nodes.get(current);
+      for (const ground of node?.type === "constraint" ? node.grounds : []) {
+        if (!graph.nodes.has(ground) || visited.has(ground)) continue;
+        visited.add(ground);
+        if (!depths.has(ground)) depths.set(ground, depth + 1);
+        queue.push([ground, depth + 1]);
       }
     }
+    if (capped) return { expansions, capped: true };
   }
-  return { depths, expansions };
+  return { expansions, capped: false };
 }
 
 function byDepthThenId(a: [string, number], b: [string, number]): number {

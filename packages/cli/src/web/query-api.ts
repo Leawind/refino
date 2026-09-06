@@ -23,7 +23,7 @@ export async function postQueryNeighbors(c: Context, web: WebState): Promise<Res
     const ids = readIds(payload);
     const ancestorDepth = readNonNegativeInt(payload, "ancestorDepth");
     const descendantDepth = readNonNegativeInt(payload, "descendantDepth");
-    const limit = readOptionalLimit(payload);
+    const limit = readOptionalNonNegativeInt(payload, "limit");
     const groups = query.neighbors(web.store.graph, ids, { ancestorDepth, descendantDepth, limit });
     return c.json(groups, batchStatus(groups));
   } catch (error) {
@@ -63,11 +63,16 @@ export async function postQueryRange(c: Context, web: WebState): Promise<Respons
   }
 }
 
-/** POST /api/query/siblings — per-id strong siblings by shared direct grounds. */
-export async function postQuerySiblings(c: Context, web: WebState): Promise<Response> {
+/** POST /api/query/expand — per-id working-set expansion blocks. */
+export async function postQueryExpand(c: Context, web: WebState): Promise<Response> {
   try {
     const payload = await readPayload(c);
-    const groups = query.siblings(web.store.graph, readIds(payload), readOptionalLimit(payload));
+    const groups = query.expand(web.store.graph, readIds(payload), {
+      descendantDepth: readNonNegativeInt(payload, "descendantDepth"),
+      showSiblings: payload.showSiblings !== false,
+      siblingLimit: readOptionalNonNegativeInt(payload, "siblingLimit"),
+      limit: readOptionalNonNegativeInt(payload, "limit"),
+    });
     return c.json(groups, batchStatus(groups));
   } catch (error) {
     return errorResponse(c, error);
@@ -189,7 +194,10 @@ function readNonNegativeInt(payload: Record<string, unknown>, key: string): numb
   return value;
 }
 
-function readOptionalLimit(payload: Record<string, unknown>): number | undefined {
-  if (payload.limit === undefined || payload.limit === null) return undefined;
-  return readNonNegativeInt(payload, "limit");
+function readOptionalNonNegativeInt(
+  payload: Record<string, unknown>,
+  key: string,
+): number | undefined {
+  if (payload[key] === undefined || payload[key] === null) return undefined;
+  return readNonNegativeInt(payload, key);
 }
