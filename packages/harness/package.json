@@ -4,6 +4,10 @@
   "private": false,
   "description": "Task delimitation layer and shared agent logic for Constraint Refinement Graphs (CRG): authorization contexts, frozen zones, boundary escalation, context rendering and incremental updates.",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Leawind/refino.git"
+  },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
