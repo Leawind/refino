@@ -43,66 +43,39 @@ const lite: Record<string, NodeLite> = {
   [C6]: { id: C6, type: "constraint", summary: "C6。", grounds: [P1, P2] },
 };
 
-/** Nearest-first neighborhoods at the default depths (ancestors 2, descendants 2). Anchors come back at depth 0. */
-const NEIGHBORHOODS: Record<string, Array<[string, number]>> = {
+/** Expansion blocks at the default depths (descendants 2, siblings on), as
+ * [id, depth] nearest-first — the full upstream closure per anchor plus its
+ * descendants, strong siblings and their upstream closure. */
+const EXPANSIONS: Record<string, Array<[string, number]>> = {
   [C1]: [
     [C1, 0],
     [P1, 1],
     [C2, 1],
     [C4, 1],
-    [C6, 1],
+    [P2, 2],
     [C3, 2],
+    [C6, 2],
   ],
   [C2]: [
     [C2, 0],
-    [C1, 1],
     [P2, 1],
+    [C1, 1],
     [C3, 1],
-    [C4, 1],
     [P1, 2],
+    [C4, 2],
+    [C6, 2],
   ],
   [C3]: [
     [C3, 0],
     [C2, 1],
     [P2, 2],
     [C1, 2],
-  ],
-  [C4]: [
-    [C4, 0],
-    [C1, 1],
-    [P2, 1],
-    [P1, 2],
+    [P1, 3],
   ],
   [C5]: [
     [C5, 0],
     [P3, 1],
   ],
-  [C6]: [
-    [C6, 0],
-    [P1, 1],
-    [P2, 1],
-  ],
-};
-
-/** Strong siblings as [id, overlap], overlap-descending then id-ascending. */
-const SIBLINGS: Record<string, Array<[string, number]>> = {
-  [C1]: [[C6, 1]],
-  [C2]: [
-    [C4, 2],
-    [C6, 1],
-  ],
-  [C3]: [],
-  [C4]: [
-    [C2, 2],
-    [C6, 1],
-  ],
-  [C5]: [],
-  [C6]: [
-    [C1, 1],
-    [C2, 1],
-    [C4, 1],
-  ],
-  [P1]: [],
 };
 
 const RANGES: Record<string, { mode: string; nodes: Array<[string, number | null]> }> = {
@@ -138,14 +111,13 @@ function respond(
   json: unknown;
 } {
   calls.push({ method, path, body });
-  if (method === "POST" && path === "/api/query/neighbors") {
+  if (method === "POST" && path === "/api/query/expand") {
     const ids = (body?.ids as string[]) ?? [];
     const limit = body?.limit as number | undefined;
     return {
       status: 200,
       json: ids.map((id) => {
-        const all = (NEIGHBORHOODS[id] ?? []).filter(([nid]) => !gone.has(nid));
-        // Depth filtering is not simulated: fixtures fit the default depths.
+        const all = (EXPANSIONS[id] ?? []).filter(([nid]) => !gone.has(nid));
         const truncated = limit !== undefined && all.length > limit;
         const kept = truncated ? all.slice(0, limit) : all;
         return {
@@ -155,21 +127,18 @@ function respond(
       }),
     };
   }
-  if (method === "POST" && path === "/api/query/siblings") {
+  if (method === "POST" && path === "/api/query/neighbors") {
+    // The workspace only uses 0/0 neighborhoods as a batched lite fetch:
+    // each id answers with itself.
     const ids = (body?.ids as string[]) ?? [];
     return {
       status: 200,
-      json: ids.map((id) => ({
-        id,
-        results: [
-          {
-            truncated: false,
-            nodes: (SIBLINGS[id] ?? [])
-              .filter(([sid]) => !gone.has(sid))
-              .map(([sid, overlap]) => ({ ...lite[sid]!, overlap })),
-          },
-        ],
-      })),
+      json: ids
+        .filter((id) => !gone.has(id))
+        .map((id) => ({
+          id,
+          results: [{ truncated: false, nodes: [{ ...lite[id]!, depth: 0 }] }],
+        })),
     };
   }
   if (method === "POST" && path === "/api/query/range") {
@@ -256,11 +225,10 @@ beforeEach(() => {
   );
   // Restore defaults; the config is module state persisted in localStorage.
   workspace.setConfig({
-    ancestorDepth: 2,
     descendantDepth: 2,
     showSiblings: true,
     siblingLimit: 24,
-    neighborhoodLimit: 400,
+    workingSetLimit: 2000,
   });
   workspace.clearSelection();
   workspace.dismissNotice();
@@ -273,48 +241,81 @@ afterEach(() => {
 });
 
 describe("select expands the working set", () => {
-  it("unions the anchor, its neighborhood and its siblings", async () => {
+  it("merges the anchor's expansion block into the working set", async () => {
     await select(C3);
-    // The neighborhood carries the anchor itself, so the one neighbors call
-    // also refreshes the anchor's lite shape (grounds included).
-    expect(lastCall("/api/query/siblings").body).toMatchObject({ ids: [C3] });
-    expect(lastCall("/api/query/neighbors").body).toMatchObject({
+    expect(lastCall("/api/query/expand").body).toMatchObject({
       ids: [C3],
-      ancestorDepth: 2,
       descendantDepth: 2,
+      showSiblings: true,
+      siblingLimit: 24,
+      limit: 2000,
     });
-    // Constraints of the working set, in coverage order; the premises of
-    // the neighborhood join as the facts layer is on by default.
-    expect(new Set(displayedIds())).toEqual(new Set([C3, C2, C1, P2]));
+    // Constraints of the expansion block; its premises join as the facts
+    // layer is on by default.
+    expect(new Set(displayedIds())).toEqual(new Set([C3, C2, C1, P2, P1]));
     expect(workspace.state.focusId).toBe(C3);
   });
 
-  it("evicts nodes that leave all coverage when the selection moves", async () => {
+  it("accumulates: the previous block survives selecting elsewhere", async () => {
     await select(C3);
     await select(C5);
-    // The facts layer keeps the premise of the neighborhood visible.
-    expect(displayedIds()).toEqual([C5, P3]);
+    expect(new Set(displayedIds())).toEqual(new Set([C3, C2, C1, P2, P1, C5, P3]));
   });
 
-  it("includes strong siblings and their vertical neighborhoods", async () => {
+  it("includes strong siblings with closed upstream", async () => {
     await select(C2);
-    expect(lastCall("/api/query/neighbors").body).toMatchObject({ ids: [C2, C4, C6] });
-    // Premise grounds of the coverage stay visible through the facts layer.
+    // C4 and C6 share direct grounds with C2; their side grounds close in.
     expect(new Set(displayedIds())).toEqual(new Set([C2, C1, C3, C4, C6, P1, P2]));
   });
 
-  it("skips siblings when disabled in the config", async () => {
+  it("sends showSiblings to the expand query", async () => {
     workspace.setConfig({ showSiblings: false });
-    await select(C2);
-    expect(lastCall("/api/query/neighbors").body).toMatchObject({ ids: [C2] });
-    expect(new Set(displayedIds())).toEqual(new Set([C2, C1, P2, C3, C4, P1]));
+    await select(C1);
+    // The flag's effect (dropping siblings from the block) is pinned
+    // server-side in packages/cli/test/web-query.test.ts; here the request
+    // is what the client owns.
+    expect(lastCall("/api/query/expand").body).toMatchObject({ ids: [C1], showSiblings: false });
   });
 
-  it("surfaces the neighborhood truncation flag", async () => {
-    workspace.setConfig({ neighborhoodLimit: 2 });
+  it("surfaces the block truncation flag", async () => {
+    workspace.setConfig({ workingSetLimit: 3 });
     workspace.select(lite[C1]!);
     await vi.waitFor(() => expect(workspace.state.truncated).toBe(true));
-    expect(lastCall("/api/query/neighbors").body).toMatchObject({ limit: 2 });
+    expect(lastCall("/api/query/expand").body).toMatchObject({ limit: 3 });
+  });
+});
+
+describe("working set limit evicts least recently visited", () => {
+  it("evicts the oldest non-selected nodes over the limit", async () => {
+    workspace.setConfig({ workingSetLimit: 5 });
+    await select(C3);
+    await select(C5);
+    // The C3 block (stamped first) loses its id-oldest members — the two
+    // premises; selection C5 and its block stay.
+    expect(new Set(displayedIds())).toEqual(new Set([C3, C2, C1, C5, P3]));
+    expect(workspace.state.truncated).toBe(true);
+  });
+
+  it("never evicts selected nodes", async () => {
+    workspace.setConfig({ workingSetLimit: 4 });
+    await select(C3);
+    workspace.toggle(lite[C5]!);
+    // Both blocks re-stamp their members; with the limit at 4 the id-oldest
+    // non-selected candidates (P2, P3) are evicted and both selected nodes
+    // survive.
+    await vi.waitFor(() => expect(displayedIds().some((id) => id === C5 || id === P3)).toBe(true));
+    await vi.waitFor(() => expect(workspace.state.loading).toBe(false));
+    expect(workspace.state.selection).toEqual([C3, C5]);
+    expect(new Set(displayedIds())).toEqual(new Set([C3, C2, C1, C5]));
+    expect(workspace.state.truncated).toBe(true);
+  });
+
+  it("keeps the canvas when the selection clears", async () => {
+    await select(C3);
+    workspace.clearSelection();
+    expect(workspace.state.selection).toEqual([]);
+    expect(workspace.state.focusId).toBeNull();
+    expect(new Set(displayedIds())).toEqual(new Set([C3, C2, C1, P2, P1]));
   });
 });
 
@@ -358,13 +359,6 @@ describe("selection model", () => {
     expect(workspace.state.selection).toEqual([C2, C1, C3]);
     expect(workspace.state.focusId).toBe(C3);
   });
-
-  it("clears to the empty working set", async () => {
-    await select(C3);
-    workspace.clearSelection();
-    await vi.waitFor(() => expect(displayedIds()).toEqual([]));
-    expect(workspace.state.focusId).toBeNull();
-  });
 });
 
 describe("hover", () => {
@@ -391,32 +385,33 @@ describe("external change feed", () => {
     await vi.waitFor(() => expect(workspace.state.revision).toBe(7));
 
     await select(C3);
-    const neighborCalls = calls.filter((call) => call.path === "/api/query/neighbors").length;
+    const expandCalls = calls.filter((call) => call.path === "/api/query/expand").length;
     serverRevision = 8;
     source.emit({ revision: 8, changed: [C2], deleted: [] });
     await vi.waitFor(() => expect(workspace.state.revision).toBe(8));
     await vi.waitFor(() =>
-      expect(calls.filter((call) => call.path === "/api/query/neighbors").length).toBeGreaterThan(
-        neighborCalls,
+      expect(calls.filter((call) => call.path === "/api/query/expand").length).toBeGreaterThan(
+        expandCalls,
       ),
     );
+    // The changed accumulated node's lite shape is refreshed (0/0 fetch).
+    expect(lastCall("/api/query/neighbors").body).toMatchObject({ ids: [C2] });
     // The working set survives an unrelated change.
     expect(workspace.state.selection).toEqual([C3]);
   });
 
   it("prunes deleted nodes from selection and cache", async () => {
     await select(C3);
-    expect(new Set(displayedIds())).toEqual(new Set([C3, C2, C1, P2]));
+    expect(new Set(displayedIds())).toEqual(new Set([C3, C2, C1, P2, P1]));
     // The server has dropped C1; the client learns via the change feed.
     gone.add(C1);
     workspace.pruneDeleted([C1]);
-    await vi.waitFor(() => expect(new Set(displayedIds())).toEqual(new Set([C3, C2, P2])));
-    // Re-expanding from scratch does not revive the deleted node.
+    await vi.waitFor(() => expect(new Set(displayedIds())).toEqual(new Set([C3, C2, P2, P1])));
+    // Re-expanding does not revive the deleted node.
     workspace.clearSelection();
-    await vi.waitFor(() => expect(displayedIds()).toEqual([]));
     workspace.select({ ...lite[C3]! });
     await vi.waitFor(() => expect(workspace.state.loading).toBe(false));
-    expect(new Set(displayedIds())).toEqual(new Set([C3, C2, P2]));
+    expect(new Set(displayedIds())).toEqual(new Set([C3, C2, P2, P1]));
   });
 
   it("stops the subscription on stop()", () => {
@@ -434,9 +429,9 @@ describe("premise facts layer", () => {
     workspace.setConfig({ showPremises: false });
     await select(C3);
     expect(new Set(displayedIds())).toEqual(new Set([C3, C2, C1]));
-    // Turning the layer back on brings the neighborhood's premises in
-    // without a refetch: they already live in the working set.
+    // Turning the layer back on brings the block's premises in without a
+    // refetch: they already live in the working set.
     workspace.setConfig({ showPremises: true });
-    expect(new Set(displayedIds())).toEqual(new Set([C3, C2, C1, P2]));
+    expect(new Set(displayedIds())).toEqual(new Set([C3, C2, C1, P2, P1]));
   });
 });

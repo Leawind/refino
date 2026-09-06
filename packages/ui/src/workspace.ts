@@ -6,24 +6,25 @@ import type { LayoutMode } from "./graph/layout/types";
 import type { ChangeEvent, IssueRecord, LayoutDirection, NodeLite } from "./types";
 
 /**
- * On-demand working set state (docs/design.md, "画布按需查询"; @refino/ui
+ * Accumulated working-set state (docs/design.md, "画布按需查询"; @refino/ui
  * README, "数据：按需工作集").
  *
- * The full graph is never loaded. The canvas renders the working set: the
- * union of the selected nodes' neighborhoods and strong siblings, and range
- * selection paths (which join the selection). Premise nodes are not
- * displayed on the canvas (ui README, "显示规则与样式"). Nodes keep their
- * identity in `liteCache` when they leave the working set so re-entry is
- * instant.
+ * The full graph is never loaded. Each selection change expands one block
+ * per selected node (full upstream closure, bounded descendants, strong
+ * siblings) and merges it into the working set — earlier content stays on
+ * the canvas, so exploring accumulates. Only the total working-set limit
+ * evicts, least recently visited first (selection immune). Clearing the
+ * selection keeps the canvas; the content resets only via deletion events.
+ * Premise nodes are not displayed (ui README, "显示规则与样式"). Nodes keep
+ * their identity in `liteCache` when evicted so re-entry is instant.
  *
  * Selection is an ordered, duplicate-free id list; the focus is its last
- * element. External changes arrive over SSE and re-expand the selection, so
- * the working set is always rebuilt from fresh server data.
+ * element. External changes arrive over SSE and refresh both the selection's
+ * expansions and the lite shapes of accumulated nodes, so the working set
+ * never goes stale.
  */
 
 export interface CanvasConfig {
-  /** Ancestor generations fetched per anchor. Direct grounds are always fetched. */
-  ancestorDepth: number;
   /** Descendant constraint generations fetched per anchor. */
   descendantDepth: number;
   /** Whether strong siblings of the selection join the working set. */
@@ -32,8 +33,9 @@ export interface CanvasConfig {
   showPremises: boolean;
   /** Sibling candidates kept per anchor (overlap-descending, id-ascending). */
   siblingLimit: number;
-  /** Per-anchor neighborhood truncation limit (nearest-first). */
-  neighborhoodLimit: number;
+  /** Total nodes the working set keeps; over the limit, least recently
+   * visited non-selected nodes are evicted (ui README, "数据：按需工作集"). */
+  workingSetLimit: number;
   /** Render budget mode: estimated from viewport/hardware, or pinned. */
   budgetMode: "auto" | "manual";
   /** Manual render budget in cost units (budgetMode "manual"). */
@@ -51,12 +53,11 @@ export interface CanvasConfig {
 }
 
 const DEFAULT_CONFIG: CanvasConfig = {
-  ancestorDepth: 2,
   descendantDepth: 2,
   showSiblings: true,
   showPremises: true,
   siblingLimit: 24,
-  neighborhoodLimit: 400,
+  workingSetLimit: 2000,
   budgetMode: "auto",
   budgetManual: 6000,
   zoomAnchor: "cursor",
@@ -67,12 +68,11 @@ const DEFAULT_CONFIG: CanvasConfig = {
 };
 
 const CONFIG_KEYS: Record<keyof CanvasConfig, string> = {
-  ancestorDepth: "refino.canvas.ancestorDepth",
   descendantDepth: "refino.canvas.descendantDepth",
   showSiblings: "refino.canvas.showSiblings",
   showPremises: "refino.canvas.showPremises",
   siblingLimit: "refino.canvas.siblingLimit",
-  neighborhoodLimit: "refino.canvas.neighborhoodLimit",
+  workingSetLimit: "refino.canvas.workingSetLimit",
   budgetMode: "refino.canvas.budgetMode",
   budgetManual: "refino.canvas.budgetManual",
   zoomAnchor: "refino.canvas.zoomAnchor",
@@ -105,7 +105,6 @@ interface WorkspaceState {
 
 function loadConfig(): CanvasConfig {
   return {
-    ancestorDepth: readNumberPreference(CONFIG_KEYS.ancestorDepth, DEFAULT_CONFIG.ancestorDepth),
     descendantDepth: readNumberPreference(
       CONFIG_KEYS.descendantDepth,
       DEFAULT_CONFIG.descendantDepth,
@@ -115,9 +114,9 @@ function loadConfig(): CanvasConfig {
     showPremises:
       readPreference(CONFIG_KEYS.showPremises, String(DEFAULT_CONFIG.showPremises)) === "true",
     siblingLimit: readNumberPreference(CONFIG_KEYS.siblingLimit, DEFAULT_CONFIG.siblingLimit),
-    neighborhoodLimit: readNumberPreference(
-      CONFIG_KEYS.neighborhoodLimit,
-      DEFAULT_CONFIG.neighborhoodLimit,
+    workingSetLimit: Math.max(
+      1,
+      readNumberPreference(CONFIG_KEYS.workingSetLimit, DEFAULT_CONFIG.workingSetLimit),
     ),
     budgetMode:
       readPreference(CONFIG_KEYS.budgetMode, DEFAULT_CONFIG.budgetMode) === "manual"
@@ -179,6 +178,11 @@ export function createWorkspace(client: RefinoClient) {
    * quick restore. Pruned only on deletion events. */
   const liteCache = new Map<string, NodeLite>();
 
+  /** LRU bookkeeping for eviction: a monotonic clock stamping nodes each
+   * time they join an expansion or the selection. */
+  const lastVisited = new Map<string, number>();
+  let visitClock = 0;
+
   function prime(lite: NodeLite): void {
     liteCache.set(lite.id, lite);
   }
@@ -195,61 +199,67 @@ export function createWorkspace(client: RefinoClient) {
     return a.length === b.length && a.every((id, i) => id === b[i]);
   }
 
-  /** Rebuild the working set from the current selection. */
+  /**
+   * Expands every selected node and merges the blocks into the working set
+   * (accumulation: earlier content stays on the canvas). Over the working
+   * set limit, least recently visited non-selected nodes are evicted.
+   */
   async function refresh(): Promise<void> {
     const token = ++refreshToken;
     const anchors = dedupe(state.selection);
     if (anchors.length === 0) {
-      workingSet.value = new Map();
-      state.truncated = false;
+      // Accumulation: an empty selection keeps the canvas as it is.
       state.ready = true;
       return;
     }
     state.loading = true;
     try {
-      const siblingIds = new Set<string>();
-      let siblingsTruncated = false;
-      if (state.config.showSiblings) {
-        const groups = await client.querySiblings(anchors, state.config.siblingLimit);
-        for (const group of groups) {
-          if ("error" in group) continue;
-          const set = group.results[0];
-          if (set === undefined) continue;
-          siblingsTruncated ||= set.truncated;
-          for (const node of set.nodes) {
-            prime(node);
-            siblingIds.add(node.id);
-          }
-        }
-      }
-
-      // Direct grounds are part of the neighborhood contract regardless of N.
-      const groups = await client.queryNeighbors(dedupe([...anchors, ...siblingIds]), {
-        ancestorDepth: Math.max(state.config.ancestorDepth, 1),
+      let truncated = false;
+      const groups = await client.queryExpand(anchors, {
         descendantDepth: state.config.descendantDepth,
-        limit: state.config.neighborhoodLimit,
+        showSiblings: state.config.showSiblings,
+        siblingLimit: state.config.siblingLimit,
+        limit: state.config.workingSetLimit,
       });
-      let neighborsTruncated = false;
-      const coverage = new Set([...anchors, ...siblingIds]);
+      const joined = new Set<string>(anchors);
       for (const group of groups) {
         if ("error" in group) continue;
-        const neighborhood = group.results[0];
-        if (neighborhood === undefined) continue;
-        neighborsTruncated ||= neighborhood.truncated;
-        for (const node of neighborhood.nodes) {
+        const expansion = group.results[0];
+        if (expansion === undefined) continue;
+        truncated ||= expansion.truncated;
+        for (const node of expansion.nodes) {
           prime(node);
-          coverage.add(node.id);
+          joined.add(node.id);
         }
       }
 
-      const map = new Map<string, NodeLite>();
-      for (const id of coverage) {
+      const map = new Map(workingSet.value);
+      for (const id of joined) {
         const lite = liteCache.get(id);
         if (lite !== undefined) map.set(id, lite);
       }
+
+      // Stamp this expansion and the selection as most recently visited,
+      // then evict the oldest non-selected nodes down to the limit.
+      const stamp = ++visitClock;
+      for (const id of joined) lastVisited.set(id, stamp);
+      const selected = new Set(anchors);
+      const over = map.size - state.config.workingSetLimit;
+      if (over > 0) {
+        const lru = [...map.keys()]
+          .filter((id) => !selected.has(id))
+          .sort((a, b) => (lastVisited.get(a) ?? 0) - (lastVisited.get(b) ?? 0) || (a < b ? -1 : 1))
+          .slice(0, over);
+        for (const id of lru) {
+          map.delete(id);
+          lastVisited.delete(id);
+        }
+        truncated ||= lru.length > 0 || map.size > state.config.workingSetLimit;
+      }
+
       if (token !== refreshToken) return;
       workingSet.value = map;
-      state.truncated = siblingsTruncated || neighborsTruncated;
+      state.truncated = truncated;
       state.error = null;
       state.ready = true;
     } catch (error) {
@@ -324,11 +334,11 @@ export function createWorkspace(client: RefinoClient) {
     void refresh();
   }
 
+  /** Esc: clear the selection. The canvas keeps its accumulated content. */
   function clearSelection(): void {
     if (state.selection.length === 0) return;
     setSelection([]);
     state.hoveredId = null;
-    void refresh();
   }
 
   /** Hover: highlights the node and emphasizes its grounds edges. */
@@ -352,7 +362,17 @@ export function createWorkspace(client: RefinoClient) {
   function pruneDeleted(ids: readonly string[]): void {
     const deleted = new Set(ids);
     if (deleted.size === 0) return;
-    for (const id of deleted) liteCache.delete(id);
+    for (const id of deleted) {
+      liteCache.delete(id);
+      lastVisited.delete(id);
+    }
+    // Accumulation keeps stale entries alive unless dropped here: the next
+    // refresh merges into the existing set instead of rebuilding it.
+    if (workingSet.value.size > 0) {
+      const map = new Map(workingSet.value);
+      for (const id of deleted) map.delete(id);
+      workingSet.value = map;
+    }
     if (state.hoveredId !== null && deleted.has(state.hoveredId)) unhover();
     if (state.selection.some((id) => deleted.has(id))) {
       setSelection(state.selection.filter((id) => !deleted.has(id)));
@@ -374,8 +394,13 @@ export function createWorkspace(client: RefinoClient) {
     state.revision = event.revision;
     // Re-expand on every batch (changed ids may be new dependents or fresh
     // grounds of working-set nodes); the server batches events at 500ms.
+    // Accumulated nodes outside the selection get their lite shapes
+    // refreshed so summaries and grounds never go stale.
     if (event.deleted.length > 0) pruneDeleted(event.deleted);
-    else void refresh();
+    else {
+      void refresh();
+      void refreshLites(event.changed);
+    }
     void refreshIssues();
     for (const listener of changeListeners) {
       try {
@@ -383,6 +408,45 @@ export function createWorkspace(client: RefinoClient) {
       } catch {
         // a broken listener must not break change application
       }
+    }
+  }
+
+  /**
+   * Pulls fresh lite shapes for changed nodes still on the canvas. Without
+   * this, accumulated (unselected) nodes would keep stale summaries and
+   * grounds until they happen to join an expansion again. Advisory: failures
+   * leave the previous shapes in place.
+   */
+  async function refreshLites(ids: readonly string[]): Promise<void> {
+    const present = ids.filter((id) => workingSet.value.has(id));
+    if (present.length === 0) return;
+    try {
+      // A 0/0 neighborhood is a batched lite fetch: each id returns itself.
+      const groups = await client.queryNeighbors(present, {
+        ancestorDepth: 0,
+        descendantDepth: 0,
+      });
+      let replaced = false;
+      for (const group of groups) {
+        if ("error" in group) continue;
+        const neighborhood = group.results[0];
+        if (neighborhood === undefined) continue;
+        for (const node of neighborhood.nodes) {
+          if (!workingSet.value.has(node.id)) continue;
+          prime(node);
+          replaced = true;
+        }
+      }
+      if (replaced && workingSet.value.size > 0) {
+        const map = new Map(workingSet.value);
+        for (const id of present) {
+          const lite = liteCache.get(id);
+          if (lite !== undefined) map.set(id, lite);
+        }
+        workingSet.value = map;
+      }
+    } catch {
+      // The next expansion refetches anyway.
     }
   }
 

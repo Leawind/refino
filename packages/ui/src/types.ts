@@ -23,10 +23,12 @@ export interface Neighborhood {
   nodes: NodeWithDepth[];
 }
 
-/** One id's strong siblings: overlap-descending, truncated when over the limit. */
-export interface SiblingSet {
+/** One id's expansion block: the working set's growth unit — full upstream
+ * closure, bounded downstream, strong siblings and their upstream closure.
+ * Nearest-first, truncated when over the limit. */
+export interface Expansion {
   truncated: boolean;
-  nodes: Array<NodeLite & { overlap: number }>;
+  nodes: NodeWithDepth[];
 }
 
 export type RangeMode = "ancestor" | "branches" | "disconnected";

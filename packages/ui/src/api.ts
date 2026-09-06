@@ -1,6 +1,7 @@
 import type { InjectionKey } from "vue";
 import type {
   ChangeEvent,
+  Expansion,
   IssueRecord,
   Neighborhood,
   NodeDetail,
@@ -10,7 +11,6 @@ import type {
   RangeResult,
   SearchNode,
   SearchPage,
-  SiblingSet,
 } from "./types";
 
 /**
@@ -27,14 +27,22 @@ export interface RefinoClient {
     params: { ancestorDepth: number; descendantDepth: number; limit?: number },
   ): Promise<QueryGroup<Neighborhood>[]>;
 
+  /** POST /api/query/expand — per-id working-set expansion blocks. */
+  queryExpand(
+    ids: readonly string[],
+    params: {
+      descendantDepth: number;
+      showSiblings: boolean;
+      siblingLimit?: number;
+      limit?: number;
+    },
+  ): Promise<QueryGroup<Expansion>[]>;
+
   /** POST /api/query/range — relationship and path nodes between two endpoints. */
   queryRange(focusId: string, clickedId: string, budget?: number): Promise<RangeResult>;
 
   /** POST /api/query/grounds — per-id direct grounds, single hop. */
   queryGrounds(ids: readonly string[]): Promise<QueryGroup<NodeLite>[]>;
-
-  /** POST /api/query/siblings — per-id strong siblings by shared direct grounds. */
-  querySiblings(ids: readonly string[], limit?: number): Promise<QueryGroup<SiblingSet>[]>;
 
   /** GET /api/search — keyset-paginated id/summary search. `unreferenced`
    * restricts premises no constraint grounds on; `roots` to root
@@ -118,10 +126,10 @@ function post<T>(path: string, body: unknown): Promise<T> {
 export function createHttpClient(): RefinoClient {
   return {
     queryNeighbors: (ids, params) => post("/api/query/neighbors", { ids: [...ids], ...params }),
+    queryExpand: (ids, params) => post("/api/query/expand", { ids: [...ids], ...params }),
     queryRange: (focusId, clickedId, budget) =>
       post("/api/query/range", { focusId, clickedId, budget }),
     queryGrounds: (ids) => post("/api/query/grounds", { ids: [...ids] }),
-    querySiblings: (ids, limit) => post("/api/query/siblings", { ids: [...ids], limit }),
     search: (params) => {
       const query = new URLSearchParams();
       if (params.q) query.set("q", params.q);
