@@ -1,6 +1,6 @@
 {
   "name": "@refino/harness",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "private": false,
   "description": "Task delimitation layer and shared agent logic for Constraint Refinement Graphs (CRG): authorization contexts, frozen zones, boundary escalation, context rendering and incremental updates.",
   "type": "module",

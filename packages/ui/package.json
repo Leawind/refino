@@ -1,6 +1,7 @@
 {
   "name": "@refino/ui",
-  "version": "0.0.1",
+  "version": "0.0.2",
+  "private": false,
   "description": "Vue 3 visualization and editing components for Constraint Refinement Graphs (CRG), plus an embeddable editor application shell.",
   "type": "module",
   "repository": {
