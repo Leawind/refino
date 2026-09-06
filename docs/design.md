@@ -202,7 +202,7 @@ dsh 插件是深度集成宿主的完整形态；面向扩展能力受限的 har
 **命令面**（除 `init` 外均为模型面向）：
 
 - 已有：`show` / `grounds` / `ancestors` / `dependents` / `new` / `update` / `delete`（批量 + 部分成功语义）；
-- 通用接入形态：`init`（显式采用：创建 `.refino/` 骨架，已存在则拒绝）、`context`（渲染授权上下文，两级注入第一级；`--since` 取签发增量）、`search`（分页搜索，语义与 Web `GET /api/search` 对齐）、`guide`（完整协议与命令用法，写给模型读）、`skill`（输出技能内容与安装指引；`--output <dir>` 在 `<dir>/refino/` 下生成 SKILL.md，目录名固定与 `name` 一致）、`auth show` / `auth apply` / `auth reset`（对话内签发；`--dry-run` 预演、`--expect-revision` 乐观并发；编排者凭据生效时拒绝写入）。
+- 通用接入形态：`init`（显式采用：创建 `.refino/` 骨架，已存在则拒绝）、`context`（渲染授权上下文，两级注入第一级；`--since` 取签发增量）、`search`（分页搜索，语义与 Web `GET /api/search` 对齐）、`guide`（完整协议与命令用法，写给模型读）、`skill`（输出接入指引；`--output <dir>` 在 `<dir>/refino/` 下生成 SKILL.md，目录名固定与 `name` 一致）、`auth show` / `auth apply` / `auth reset`（对话内签发；`--dry-run` 预演、`--expect-revision` 乐观并发；编排者凭据生效时拒绝写入）。
 
 ## 命名约定
 
