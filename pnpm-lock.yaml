@@ -143,6 +143,9 @@ importers:
       '@vicons/ionicons5':
         specifier: ^0.13.0
         version: 0.13.0
+      d3-force:
+        specifier: ^3.0.0
+        version: 3.0.0
       katex:
         specifier: ^0.18.5
         version: 0.18.5
@@ -174,6 +177,9 @@ importers:
       '@shaderfrog/glsl-parser':
         specifier: ^7.0.1
         version: 7.0.1
+      '@types/d3-force':
+        specifier: ^3.0.10
+        version: 3.0.10
       '@vitejs/plugin-vue':
         specifier: ^6.0.0
         version: 6.0.8(vite@7.3.6(@types/node@24.13.3)(yaml@2.9.0))(vue@3.5.42(typescript@5.9.3))

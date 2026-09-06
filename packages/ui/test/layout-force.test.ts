@@ -101,4 +101,24 @@ describe("force session", () => {
     expect(session.step(1000)).toEqual(once);
     session.dispose();
   });
+
+  it("motion decays smoothly to a stop instead of rattle-then-cutoff", () => {
+    const session = forceStrategy.createSession(chain(40), { direction: "LR" });
+    let prev = session.positions();
+    const moves: number[] = [];
+    for (let i = 0; i < 2000 && session.animating; i++) {
+      const next = session.step(16);
+      moves.push(Math.max(...next.map((n, j) => Math.hypot(n.x - prev[j]!.x, n.y - prev[j]!.y))));
+      prev = next;
+    }
+    expect(session.animating).toBe(false);
+    // The alpha schedule shrinks every force geometrically, so per-tick
+    // motion collapses towards zero: the final quarter stays far below the
+    // opening phase, with no full-strength jitter surviving to the cutoff.
+    const opening = Math.max(...moves.slice(0, Math.floor(moves.length / 4)));
+    const tail = Math.max(...moves.slice(Math.floor((moves.length * 3) / 4)));
+    expect(tail).toBeLessThan(opening * 0.05);
+    expect(tail).toBeLessThan(5);
+    session.dispose();
+  });
 });
