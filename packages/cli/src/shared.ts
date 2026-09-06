@@ -40,6 +40,13 @@ export async function withStore(
     if (issues.length > 0) return reportBlockingIssues(io, opts, issues);
     return await query(store);
   } catch (error) {
+    if (error instanceof RefinoError && error.code === StorageIssueCode.RefinoDirNotFound) {
+      // Uninitialized repository: the fix is one command away, so say which.
+      io.stderr.write(
+        `error: ${error.message} — run "refino init" to adopt, or "refino new" to create the first node\n`,
+      );
+      return 1;
+    }
     return fail(io, error);
   } finally {
     store.close();

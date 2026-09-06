@@ -85,6 +85,8 @@ describe("refino cli", () => {
       const { code, err } = await run(["--root", emptyRoot, "list"]);
       expect(code).toBe(1);
       expect(err).toContain("No .refino directory found");
+      // The error is the bootstrap guidance: it names the recovery commands.
+      expect(err).toContain("refino init");
     } finally {
       await removeRefino(emptyRoot);
     }
