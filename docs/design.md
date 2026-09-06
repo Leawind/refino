@@ -228,6 +228,10 @@ vibe coding 工具插件统一命名为 `@refino/<tool>-plugin`，`<tool>` 为�
 
 组件库选用 Naive UI：Element Plus 生态最大、文档最全，但主题定制依赖 SCSS 且包体偏大；Naive UI TypeScript 支持与 tree-shaking 最好、主题用 JS 配置对象即可完成、包体小。本项目是 TS strict monorepo，优先类型体验与体积。前端所有资源以本地依赖打包，不使用 CDN，保持完全离线可用。
 
+### 服务启动与端口
+
+`refino web` 绑定 `--host`（默认 `127.0.0.1`）与 `--port`（默认 5649）。未显式指定端口时，服务从默认端口起向上顺延，跳过被占端口直至绑定成功，实际地址以启动输出为准；消费方（如 `@refino/ui` 的开发代理）经 `REFINO_WEB_PORT` 对齐实际端口。显式指定 `--port` 时被占即启动失败、不顺延：显式表达的地址必须精确生效，不得被静默替换。
+
 ### 后端 API 契约（v1，由 `@refino/cli` 的 web 服务实现，`@refino/ui` 消费）
 
 全量读写（保留，画布不再调用，仅适用于小规模图或兼容场景）：

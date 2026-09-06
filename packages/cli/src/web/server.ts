@@ -29,9 +29,17 @@ import {
 } from "./query-api.js";
 import { WebState } from "./web-state.js";
 
+/** Preferred port of `refino web`; auto picking bumps from here when taken. */
+export const DEFAULT_WEB_PORT = 5649;
+
 export interface WebServerOptions {
   host: string;
-  port: number;
+  /**
+   * Port to listen on. When omitted the server auto-picks: it starts from
+   * `DEFAULT_WEB_PORT` and bumps past occupied ports until one accepts. An
+   * explicit port fails on address-in-use instead of being bumped.
+   */
+  port?: number;
   refinoDir: string;
   /** Quiet period for external file-event debouncing; 500ms per design. */
   watchDebounceMs?: number;
@@ -263,17 +271,33 @@ function readIndexHtml(staticRoot: string): string {
 
 /** Start the HTTP server (with external-change watching inside the store); resolve only when the socket is accepting. */
 export function startWebServer(options: WebServerOptions): Promise<RunningWebServer> {
-  const { host, port } = options;
+  const { host } = options;
   const parts = createWeb({
     refinoDir: options.refinoDir,
     watchDebounceMs: options.watchDebounceMs,
   });
+  const auto = options.port === undefined;
+  let port = options.port ?? DEFAULT_WEB_PORT;
   return new Promise((resolve, reject) => {
-    const server = serve({ fetch: parts.app.fetch, hostname: host, port }, (info) => {
-      // The store's watcher keeps the event loop alive; release it with the server.
-      server.on("close", () => parts.web?.close());
-      resolve({ server, url: `http://${host}:${info.port}` });
-    });
-    server.on("error", reject);
+    const listen = (): void => {
+      const server = serve({ fetch: parts.app.fetch, hostname: host, port }, (info) => {
+        // The store's watcher keeps the event loop alive; release it with the server.
+        server.on("close", () => parts.web?.close());
+        resolve({ server, url: `http://${host}:${info.port}` });
+      });
+      server.on("error", (error) => {
+        if (auto && isAddrInUse(error) && port < 65535) {
+          port += 1;
+          listen();
+          return;
+        }
+        reject(error);
+      });
+    };
+    listen();
   });
+}
+
+function isAddrInUse(error: unknown): boolean {
+  return (error as NodeJS.ErrnoException | undefined)?.code === "EADDRINUSE";
 }

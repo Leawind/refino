@@ -38,7 +38,7 @@ import { createAuthCommand } from "./commands/auth.js";
 import { createGuideCommand, createSkillCommand } from "./commands/selfdoc.js";
 import { emit, fail, refinoDir, withStore, withStoreForWrite } from "./shared.js";
 import type { GlobalOptions } from "./shared.js";
-import { startWebServer } from "./web/server.js";
+import { DEFAULT_WEB_PORT, startWebServer } from "./web/server.js";
 
 /**
  * Entry point. Returns the process exit code instead of calling
@@ -564,14 +564,20 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
     .command("web")
     .description("start the web UI server")
     .option("--host <ip>", "IP address to bind", "127.0.0.1")
-    .option("--port <n>", "port to listen on", "5649")
+    .option(
+      "--port <n>",
+      `port to listen on (default: ${DEFAULT_WEB_PORT}; bumps to the next free port when taken)`,
+    )
     .action((_opts, cmd) =>
       run(cmd, async (opts) => {
-        const { host, port } = cmd.opts() as { host: string; port: string };
-        const portNumber = Number(port);
-        if (!Number.isInteger(portNumber) || portNumber < 0 || portNumber > 65535) {
-          io.stderr.write(`error: invalid port "${port}"\n`);
-          return 1;
+        const { host, port } = cmd.opts() as { host: string; port?: string };
+        let portNumber: number | undefined;
+        if (port !== undefined) {
+          portNumber = Number(port);
+          if (!Number.isInteger(portNumber) || portNumber < 0 || portNumber > 65535) {
+            io.stderr.write(`error: invalid port "${port}"\n`);
+            return 1;
+          }
         }
         const { server, url } = await startWebServer({
           host,
