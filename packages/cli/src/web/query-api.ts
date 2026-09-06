@@ -68,7 +68,7 @@ export async function postQueryExpand(c: Context, web: WebState): Promise<Respon
   try {
     const payload = await readPayload(c);
     const groups = query.expand(web.store.graph, readIds(payload), {
-      descendantDepth: readNonNegativeInt(payload, "descendantDepth"),
+      descendantDepth: readOptionalNonNegativeInt(payload, "descendantDepth"),
       showSiblings: payload.showSiblings !== false,
       siblingLimit: readOptionalNonNegativeInt(payload, "siblingLimit"),
       limit: readOptionalNonNegativeInt(payload, "limit"),

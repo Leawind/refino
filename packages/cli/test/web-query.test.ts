@@ -281,6 +281,25 @@ describe("POST /api/query/expand", () => {
     ]);
   });
 
+  it("walks the full descendant closure when descendantDepth is omitted", async () => {
+    const res = await post("/api/query/expand", { ids: [C1], showSiblings: false });
+    const groups = (await res.json()) as QueryGroup[];
+    const { results } = groups[0] as {
+      id: string;
+      results: Array<{ truncated: boolean; nodes: Array<{ id: string; depth: number }> }>;
+    };
+    // C3 sits two generations below C1 — beyond the default depth bound.
+    expect(results[0]!.truncated).toBe(false);
+    expect(results[0]!.nodes.map((n) => `${n.id}:${n.depth}`)).toEqual([
+      `${C1}:0`,
+      `${P1}:1`,
+      `${C2}:1`,
+      `${C4}:1`,
+      `${P2}:2`,
+      `${C3}:2`,
+    ]);
+  });
+
   it("truncates nearest-first and flags it", async () => {
     const res = await post("/api/query/expand", { ids: [C1], descendantDepth: 1, limit: 3 });
     const groups = (await res.json()) as QueryGroup[];

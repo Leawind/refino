@@ -93,11 +93,12 @@ export function grounds(graph: Graph, ids: readonly string[]): QueryGroup<NodeLi
 /**
  * Per-id expansion block: the unit the canvas working set grows by. The
  * anchor's full upstream closure, `descendantDepth` generations of
- * constraints downstream, strong siblings (undirected distance 2 via a
- * shared ground), and the upstream closure of every block constraint — so
- * each rendered edge has both ends on the canvas. Nearest-first; `limit`
- * truncates and caps traversal. The group's `results` array holds exactly
- * one expansion object.
+ * constraints downstream (unbounded when omitted — the canvas cold start
+ * walks down from the roots until the limit), strong siblings (undirected
+ * distance 2 via a shared ground), and the upstream closure of every block
+ * constraint — so each rendered edge has both ends on the canvas.
+ * Nearest-first; `limit` truncates and caps traversal. The group's
+ * `results` array holds exactly one expansion object.
  */
 export interface Expansion {
   truncated: boolean;
@@ -105,8 +106,10 @@ export interface Expansion {
 }
 
 export interface ExpandParams {
-  /** Descendant constraint generations per anchor. */
-  descendantDepth: number;
+  /**
+   * Descendant constraint generations per anchor; unbounded when omitted.
+   */
+  descendantDepth?: number;
   /** Whether strong siblings of the anchor join the block. */
   showSiblings: boolean;
   /** Sibling candidates kept per anchor (overlap-descending, id-ascending). */
@@ -127,8 +130,9 @@ function expandOne(graph: Graph, id: string, params: ExpandParams): Expansion {
   const depth = new Map<string, number>([[id, 0]]);
 
   // Downstream constraints (only constraints carry grounds), nearest-first
-  // min-depth merge.
-  for (const entry of getDependents(graph, id, { maxDepth: Math.max(0, params.descendantDepth) })) {
+  // min-depth merge. Omitted depth walks the full descendant closure.
+  const maxDepth = params.descendantDepth;
+  for (const entry of getDependents(graph, id, maxDepth === undefined ? {} : { maxDepth })) {
     const previous = depth.get(entry.node.id);
     if (previous === undefined || entry.depth < previous) depth.set(entry.node.id, entry.depth);
   }

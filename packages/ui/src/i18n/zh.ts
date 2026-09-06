@@ -25,12 +25,6 @@ export default {
     all: "全部",
     unreferenced: "未被引用的前提",
   },
-  overview: {
-    title: "项目概览",
-    roots: "根约束",
-    pick: "选择并展开邻域",
-    more: "还有 {count} 个根约束，可在侧栏查看",
-  },
   palette: {
     title: "命令面板",
     placeholder: "搜索节点或命令…",

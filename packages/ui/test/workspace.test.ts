@@ -160,6 +160,14 @@ function respond(
       },
     };
   }
+  if (method === "GET" && path.startsWith("/api/search")) {
+    // The cold-start seed queries root constraints; C1 stands in as the
+    // fixture's root regardless of its real grounds.
+    return {
+      status: 200,
+      json: { nodes: [{ id: C1, type: "constraint", summary: "C1。" }] },
+    };
+  }
   if (method === "GET" && path === "/api/validate") {
     return { status: 200, json: { ok: true, issues: [], revision: serverRevision } };
   }
@@ -316,6 +324,30 @@ describe("working set limit evicts least recently visited", () => {
     expect(workspace.state.selection).toEqual([]);
     expect(workspace.state.focusId).toBeNull();
     expect(new Set(displayedIds())).toEqual(new Set([C3, C2, C1, P2, P1]));
+  });
+});
+
+describe("cold start seeds from the roots", () => {
+  it("expands from the roots without a selection on start()", async () => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    workspace.start();
+    await vi.waitFor(() => expect(displayedIds().length).toBeGreaterThan(0));
+    const body = lastCall("/api/query/expand").body;
+    expect(body).toMatchObject({ ids: [C1], showSiblings: true, limit: 2000 });
+    // The seed walks down unbounded: no descendant depth is sent.
+    expect("descendantDepth" in (body as Record<string, unknown>)).toBe(false);
+    expect(workspace.state.selection).toEqual([]);
+    expect(new Set(displayedIds())).toEqual(new Set([C1, P1, C2, C4, P2, C3, C6]));
+  });
+
+  it("truncates the seed at the working set limit", async () => {
+    workspace.setConfig({ workingSetLimit: 3 });
+    workspace.start();
+    await vi.waitFor(() => expect(workspace.state.truncated).toBe(true));
+    await vi.waitFor(() => expect(workspace.state.loading).toBe(false));
+    // Nearest-first from the root: the limit is the server-side bound.
+    expect(new Set(displayedIds())).toEqual(new Set([C1, P1, C2]));
+    expect(workspace.state.selection).toEqual([]);
   });
 });
 

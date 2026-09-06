@@ -25,12 +25,6 @@ export default {
     all: "All",
     unreferenced: "Unreferenced premises",
   },
-  overview: {
-    title: "Project overview",
-    roots: "Root constraints",
-    pick: "Select and expand the neighborhood",
-    more: "{count} more root constraints — see the explorer",
-  },
   palette: {
     title: "Command palette",
     placeholder: "Search nodes or commands…",

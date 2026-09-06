@@ -85,6 +85,9 @@ const CONFIG_KEYS: Record<keyof CanvasConfig, string> = {
 /** Why the last range selection degraded to just the clicked node. */
 export type RangeNotice = "rangeDisconnected";
 
+/** Root candidates fetched for the cold-start seed (`/api/search` cap). */
+const ROOT_SEED_LIMIT = 500;
+
 interface WorkspaceState {
   /** False until the first successful expansion. */
   ready: boolean;
@@ -200,23 +203,23 @@ export function createWorkspace(client: RefinoClient) {
   }
 
   /**
-   * Expands every selected node and merges the blocks into the working set
+   * Expands the given anchors and merges their blocks into the working set
    * (accumulation: earlier content stays on the canvas). Over the working
    * set limit, least recently visited non-selected nodes are evicted.
+   * `token` guards the state commit: only the latest expansion may touch
+   * the state. `descendantDepth` is sent as-is: undefined means the
+   * unbounded walk down (the cold-start seed).
    */
-  async function refresh(): Promise<void> {
-    const token = ++refreshToken;
-    const anchors = dedupe(state.selection);
-    if (anchors.length === 0) {
-      // Accumulation: an empty selection keeps the canvas as it is.
-      state.ready = true;
-      return;
-    }
+  async function expandInto(
+    anchors: readonly string[],
+    token: number,
+    descendantDepth: number | undefined,
+  ): Promise<void> {
     state.loading = true;
     try {
       let truncated = false;
       const groups = await client.queryExpand(anchors, {
-        descendantDepth: state.config.descendantDepth,
+        descendantDepth,
         showSiblings: state.config.showSiblings,
         siblingLimit: state.config.siblingLimit,
         limit: state.config.workingSetLimit,
@@ -268,6 +271,38 @@ export function createWorkspace(client: RefinoClient) {
         state.error = error instanceof Error ? error.message : String(error);
     } finally {
       if (token === refreshToken) state.loading = false;
+    }
+  }
+
+  /** Expands the current selection into the working set; an empty selection
+   * keeps the canvas as it is (accumulation). */
+  async function refresh(): Promise<void> {
+    const token = ++refreshToken;
+    const anchors = dedupe(state.selection);
+    if (anchors.length === 0) {
+      state.ready = true;
+      return;
+    }
+    await expandInto(anchors, token, state.config.descendantDepth);
+  }
+
+  /**
+   * Cold start: expand from the root constraints down to the working set
+   * limit so the canvas opens on the whole inheritance structure instead of
+   * an empty state (README, "数据：按需工作集"). Downstream depth is
+   * unbounded here — the limit is the bound. Seed content is stamped as
+   * least recently visited, so user exploration evicts it first. Best
+   * effort: a failed seed leaves the canvas to selection-driven expansion.
+   */
+  async function seedFromRoots(): Promise<void> {
+    try {
+      const page = await client.search({ roots: true, limit: ROOT_SEED_LIMIT });
+      const roots = page.nodes.map((node) => node.id);
+      if (roots.length === 0) return;
+      // Unbounded downstream: the working-set limit is the only bound.
+      await expandInto(roots, ++refreshToken, undefined);
+    } catch {
+      // The user's first selection re-expands anyway.
     }
   }
 
@@ -457,13 +492,14 @@ export function createWorkspace(client: RefinoClient) {
     return () => changeListeners.delete(callback);
   }
 
-  /** Begin lifecycle: subscribe to the change feed and fetch issues. The
-   * canvas stays empty until the first selection. */
+  /** Begin lifecycle: seed the canvas from the roots, subscribe to the
+   * change feed and fetch issues. */
   function start(): void {
     if (stopEvents !== null) return;
     stopEvents = client.connectEvents(applyEvent, (connected) => {
       state.connected = connected;
     });
+    void seedFromRoots();
     void refreshIssues();
   }
 

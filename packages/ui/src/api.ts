@@ -27,11 +27,12 @@ export interface RefinoClient {
     params: { ancestorDepth: number; descendantDepth: number; limit?: number },
   ): Promise<QueryGroup<Neighborhood>[]>;
 
-  /** POST /api/query/expand — per-id working-set expansion blocks. */
+  /** POST /api/query/expand — per-id working-set expansion blocks. The
+   * descendant depth is unbounded when omitted (canvas cold-start seed). */
   queryExpand(
     ids: readonly string[],
     params: {
-      descendantDepth: number;
+      descendantDepth?: number;
       showSiblings: boolean;
       siblingLimit?: number;
       limit?: number;
@@ -61,15 +62,6 @@ export interface RefinoClient {
 
   /** GET /api/validate — the current issues and revision. */
   fetchIssues(): Promise<{ ok: boolean; issues: IssueRecord[]; revision: number }>;
-
-  /** GET /api/stats — counts for the project-overview cold start. */
-  fetchStats(): Promise<{
-    revision: number;
-    nodes: number;
-    constraints: number;
-    premises: number;
-    roots: number;
-  }>;
 
   /** GET /api/pending — constraints pending review since the last reload. */
   fetchPending(): Promise<{ revision: number; nodes: SearchNode[] }>;
@@ -143,7 +135,6 @@ export function createHttpClient(): RefinoClient {
     },
     fetchNode: (id) => request(`/api/nodes/${id}`),
     fetchIssues: () => request("/api/validate"),
-    fetchStats: () => request("/api/stats"),
     fetchPending: () => request("/api/pending"),
     reloadGraph: () => request("/api/reload", { method: "POST" }),
     createNode: (type, payload) => post(`/api/nodes/${type}`, payload),
