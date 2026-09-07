@@ -6,12 +6,10 @@ import { computed, inject, onBeforeUnmount, onMounted, ref, watchEffect } from "
 import { useI18n } from "vue-i18n";
 import {
   NAlert,
-  NButton,
   NConfigProvider,
   NGlobalStyle,
   NLayoutHeader,
   NMessageProvider,
-  NPopselect,
   darkTheme,
   zhCN,
   dateZhCN,
@@ -20,6 +18,7 @@ import {
 } from "naive-ui";
 import { injectRequired } from "./context";
 import { installAltTracking } from "./peek";
+import { renderCulled } from "./renderStatus";
 import { storeKey } from "./store";
 import { workspaceKey } from "./workspace";
 
@@ -29,6 +28,7 @@ import AppHeader from "./components/AppHeader.vue";
 import ResourceExplorer from "./components/ResourceExplorer.vue";
 import DecisionGraph from "./components/DecisionGraph.vue";
 import CanvasStyleSettings from "./components/CanvasStyleSettings.vue";
+import LayoutControls from "./components/LayoutControls.vue";
 import NodeSizeControl from "./components/NodeSizeControl.vue";
 import NodeDetailWindow from "./components/NodeDetailWindow.vue";
 import NodePeek from "./components/NodePeek.vue";
@@ -36,9 +36,9 @@ import GraphFloat from "./components/GraphFloat.vue";
 import CommandPalette from "./components/CommandPalette.vue";
 import ReviewDrawer from "./components/ReviewDrawer.vue";
 import SelectionList from "./components/SelectionList.vue";
+import StatusPill from "./components/StatusPill.vue";
 import WorkspaceToasts from "./components/WorkspaceToasts.vue";
 import type { LayoutDirection } from "./types";
-import type { LayoutMode } from "./graph/layout/types";
 
 const { t, locale } = useI18n();
 
@@ -47,48 +47,22 @@ watchEffect(() => {
   locale.value = store.state.locale;
 });
 
-const constraintCount = computed(
-  () => workspace.displayed.value.filter((n) => n.type === "constraint").length,
-);
-
-const renderCulled = ref(false);
+// The graph host reports per-frame render culling into the shared status
+// state; the status pill reads it from there.
+function onRenderCulled(value: boolean): void {
+  renderCulled.value = value;
+}
 
 const naiveTheme = computed(() => (store.state.theme === "dark" ? darkTheme : null));
 const naiveLocale = computed(() => (locale.value === "zh" ? zhCN : enUS));
 const naiveDateLocale = computed(() => (locale.value === "zh" ? dateZhCN : dateEnUS));
 
-// The display direction and the facts layer are canvas config values,
-// persisted like the rest of the config; writable computeds keep the
-// v-model wiring local.
+// The display direction is a canvas config value, persisted like the rest
+// of the config; a writable computed keeps the v-model wiring local.
 const direction = computed<LayoutDirection>({
   get: () => workspace.state.config.direction,
   set: (value) => workspace.setConfig({ direction: value }),
 });
-
-const showPremises = computed<boolean>({
-  get: () => workspace.state.config.showPremises,
-  set: (value) => workspace.setConfig({ showPremises: value }),
-});
-
-const directionOptions = [
-  { label: "→", value: "LR" },
-  { label: "↓", value: "TB" },
-  { label: "←", value: "RL" },
-  { label: "↑", value: "BT" },
-];
-
-// Layout selection and display direction live in the persisted canvas
-// config; both apply to every layout (the force layout's main axis is
-// signed by the direction).
-const layoutMode = computed(() => workspace.state.config.layoutMode);
-const layoutOptions = computed(() => [
-  { label: t("app.layoutLayered"), value: "layered" },
-  { label: t("app.layoutForce"), value: "force" },
-]);
-
-function setLayoutMode(mode: LayoutMode): void {
-  workspace.setConfig({ layoutMode: mode });
-}
 
 // Expose the theme on <html> so token definitions and naive portals
 // (which render outside .shell) follow the dark/light switch.
@@ -153,7 +127,7 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
                 <DecisionGraph
                   :direction="direction"
                   :layout-mode="workspace.state.config.layoutMode"
-                  @render-culled="renderCulled = $event"
+                  @render-culled="onRenderCulled"
                 />
                 <GraphFloat placement="top-right">
                   <SelectionList />
@@ -161,55 +135,10 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
                 <GraphFloat placement="bottom-right">
                   <CanvasStyleSettings />
                   <NodeSizeControl />
-                  <div class="layout-controls">
-                    <NPopselect
-                      :value="layoutMode"
-                      :options="layoutOptions"
-                      trigger="click"
-                      @update:value="setLayoutMode"
-                    >
-                      <NButton circle :title="t('app.layout')">
-                        <span v-if="layoutMode === 'layered'">≡</span>
-                        <span v-else>⚛</span>
-                      </NButton>
-                    </NPopselect>
-                    <NPopselect
-                      v-model:value="direction"
-                      :options="directionOptions"
-                      trigger="click"
-                    >
-                      <NButton circle :title="t('app.direction')">
-                        {{ direction }}
-                      </NButton>
-                    </NPopselect>
-                    <NButton
-                      circle
-                      :type="showPremises ? 'primary' : 'default'"
-                      :secondary="showPremises"
-                      :title="t('canvas.premises')"
-                      @click="showPremises = !showPremises"
-                    >
-                      ⌇
-                    </NButton>
-                  </div>
+                  <LayoutControls />
                 </GraphFloat>
                 <GraphFloat placement="bottom-left">
-                  <div class="status-pill">
-                    <span>{{ t("status.constraints") }}: {{ constraintCount }}</span>
-                    <span v-if="workspace.state.truncated" class="issues">
-                      {{ t("canvas.truncated") }}
-                    </span>
-                    <span v-if="renderCulled" class="issues">
-                      {{ t("canvas.renderCulled") }}
-                    </span>
-                    <span v-if="workspace.state.issues.length > 0" class="issues">
-                      {{ t("status.issues") }}: {{ workspace.state.issues.length }}
-                    </span>
-                    <span v-if="workspace.state.focusId !== null" class="mono">
-                      {{ t("status.selected") }}: {{ workspace.state.focusId }}
-                    </span>
-                    <span class="hint">{{ t("app.peekHint") }}</span>
-                  </div>
+                  <StatusPill />
                 </GraphFloat>
                 <NodePeek />
               </div>
@@ -271,31 +200,5 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
   flex: 1;
   min-height: 0;
   overflow: hidden;
-}
-
-.layout-controls {
-  display: flex;
-  gap: 8px;
-}
-
-.status-pill {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 4px 12px;
-  font-size: 12px;
-  border-radius: var(--refino-radius);
-  background: var(--refino-surface);
-  border: 1px solid var(--refino-border);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
-  opacity: 0.92;
-}
-
-.status-pill .issues {
-  color: #d03050;
-}
-
-.status-pill .mono {
-  font-family: monospace;
 }
 </style>
