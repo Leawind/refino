@@ -29,6 +29,10 @@ export type ExternalSyncListener = (outcome: SyncOutcome) => void;
 export interface SyncOutcome {
   /** Authorization-context change events (empty for context-preserving changes). */
   delta: DeltaEvent[];
+  /** Ids of externally changed nodes — the update notification's change source. */
+  changed: string[];
+  /** Ids of externally deleted nodes. */
+  deleted: string[];
   /** Direct dependents of the changed nodes, pending review (docs/crg.md 1.6). */
   pending: RefinoNode[];
 }
@@ -161,7 +165,12 @@ export class RefinoWorkspace {
     const prevZone = this.#zoneIds;
     this.#rebuildSession();
     const delta = contextDelta(prevAnchors, prevZone, this.#context, this.#zoneIds);
-    return { delta, pending: this.pendingOf(change) };
+    return {
+      delta,
+      changed: change.changed,
+      deleted: change.deleted,
+      pending: this.pendingOf(change),
+    };
   }
 
   #rebuildSession(): void {

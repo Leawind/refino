@@ -70,7 +70,10 @@ async function readEvent(
     const chunk = await Promise.race([
       reader.read(),
       new Promise<never>((_, reject) => {
-        const timer = setTimeout(() => reject(new Error("SSE read timeout")), 5000);
+        // Generous: under full-suite parallelism the machine-wide inotify
+        // instance budget can delay the store's watcher arming (retried in
+        // the background) well past the usual sub-second latency.
+        const timer = setTimeout(() => reject(new Error("SSE read timeout")), 12000);
         timer.unref?.();
       }),
     ]);
@@ -130,5 +133,5 @@ describe("external change sync", () => {
     expect(groups[0]!.results.map((n) => n.id)).toEqual([P1]);
 
     reader.cancel();
-  }, 15_000);
+  }, 30_000);
 });

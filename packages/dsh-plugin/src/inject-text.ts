@@ -39,7 +39,7 @@ export function initialContextText(
       "以下是与当前任务相关的 CRG（约束细化图）上下文。约束是项目已作出的、会限制后续实现选择空间的决策；前提是项目运作依赖的客观事实。",
       renderContext(graph, context),
       ownershipLine(origin),
-      "以上仅为摘要，初始上下文未列出全部节点。需要某个节点的完整内容、理由或上下游关系时，用 refino_show / refino_grounds / refino_ancestors / refino_dependents 查询；查询结果中冻结节点同样带 [冻结] 标注。需要调整冻结区时，先与用户商定划分，再用 refino_request_authorization 提议（须经用户批准）。",
+      "以上仅为摘要，初始上下文未列出全部节点。完整内容与上下游经 refino_* 查询工具按需获取；调整冻结区经 refino_request_authorization（须经用户批准）。",
     ].join("\n\n"),
   );
 }
@@ -97,16 +97,30 @@ export function orientationText(graph: Graph): string {
   return frame(lines.join("\n"));
 }
 
-/** One injected update: authorization-context delta events plus pending-review constraints. */
-export function updateText(delta: DeltaEvent[], pending: RefinoNode[]): string | undefined {
+/**
+ * One injected update: changed/deleted node ids, authorization-context delta
+ * events and pending-review ids — pure ids only; summaries live in the anchor
+ * block and full records ride `refino_show`, so re-sending them here is pure
+ * duplication. The rendered text is a pure function of its inputs, which the
+ * injection-side identical-text guard relies on.
+ */
+export function updateText(
+  delta: DeltaEvent[],
+  changed: string[],
+  deleted: string[],
+  pending: RefinoNode[],
+): string | undefined {
   const lines: string[] = [];
+  if (changed.length > 0) lines.push(`- 变更: ${changed.join(", ")}`);
+  if (deleted.length > 0) lines.push(`- 删除: ${deleted.join(", ")}`);
   for (const event of delta) {
     const label = DELTA_LABELS[event.type];
     if (label) lines.push(`- ${label}: ${event.id}`);
   }
   if (pending.length > 0) {
-    lines.push("以下约束直接依赖最近变化的节点，进入待审查状态，修改前应先复核：");
-    for (const node of pending) lines.push(`- ${node.id} [${node.type}] ${node.summary}`);
+    lines.push(
+      `- 待审查（直接依赖上述节点，修改前先复核）: ${pending.map((node) => node.id).join(", ")}`,
+    );
   }
   if (lines.length === 0) return undefined;
   return frame(["CRG 上下文更新：", ...lines].join("\n"));

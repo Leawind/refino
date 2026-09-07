@@ -179,8 +179,35 @@ describe("plugin mounting on a real Cordis context", () => {
     await vi.waitFor(() => expect(fake.injected.length).toBeGreaterThan(0), {
       timeout: SYNC_SETTLE_MS,
     });
-    expect(fake.injected.join("\n")).toContain("P2NEW");
+    const text = fake.injected.join("\n");
+    // Pure-id update: the change source rides along, the summary does not.
+    expect(text).toContain("- 变更: P2NEW");
+    expect(text).not.toContain("新前提");
   });
+
+  it(
+    "drops an identical update re-fired by an mtime-only rewrite",
+    { timeout: 15000 },
+    async () => {
+      const root = await fixtureWorkspace();
+      const ctx = mount();
+      const fake = startSession(ctx, root, "startup");
+      await vi.waitFor(() => expect(fake.injected.length).toBeGreaterThan(0));
+      fake.injected.length = 0;
+
+      // The incident repro: a rewrite wave (e.g. a formatter) fires one batch,
+      // then a second content-identical rewrite fires another beyond the
+      // coalescing window. Both render identically — only the first injects.
+      const { writeFile } = await import("node:fs/promises");
+      const premisePath = join(root, ".refino/nodes/P1/PREMISE-premise.md");
+      for (let i = 0; i < 2; i++) {
+        await writeFile(premisePath, "事实一\n", "utf8");
+        await new Promise((resolve) => setTimeout(resolve, SYNC_SETTLE_MS));
+      }
+      expect(fake.injected).toHaveLength(1);
+      expect(fake.injected[0]).toContain("P1PREMISE");
+    },
+  );
 
   it("stops syncing after the agent is disposed", async () => {
     const root = await fixtureWorkspace();

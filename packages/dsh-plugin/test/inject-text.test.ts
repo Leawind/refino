@@ -130,22 +130,28 @@ describe("orientationText", () => {
 });
 
 describe("updateText", () => {
-  it("renders delta events and pending constraints", () => {
+  it("renders changed/deleted ids, delta events and pending ids without summaries", () => {
     const graph = fixtureGraph();
     const text = updateText(
       [
         { type: "frozen_added", id: "R1ROOT" },
         { type: "anchor_removed", id: "P1PREMISE" },
       ],
+      ["C1CHILD", "C2GRAND"],
+      ["P1PREMISE"],
       [graph.nodes.get("C1CHILD")!],
     );
     expect(text).toContain("CRG 上下文更新");
+    expect(text).toContain("- 变更: C1CHILD, C2GRAND");
+    expect(text).toContain("- 删除: P1PREMISE");
     expect(text).toContain("- 新增冻结约束（只读）: R1ROOT");
     expect(text).toContain("- 移除作用域锚点: P1PREMISE");
-    expect(text).toContain("C1CHILD");
+    expect(text).toContain("- 待审查（直接依赖上述节点，修改前先复核）: C1CHILD");
+    // Pure ids only: the pending node's summary must not ride along.
+    expect(text).not.toContain(graph.nodes.get("C1CHILD")!.summary);
   });
 
   it("returns undefined when nothing changed", () => {
-    expect(updateText([], [])).toBeUndefined();
+    expect(updateText([], [], [], [])).toBeUndefined();
   });
 });

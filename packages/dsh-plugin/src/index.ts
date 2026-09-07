@@ -72,9 +72,23 @@ async function startSession(
   const refinoDir = await findRefinoDir(cwd);
   if (refinoDir === undefined) return;
 
-  const coalescer = new DeltaCoalescer(EXTERNAL_SYNC_INTERVAL_MS, (delta, pending) => {
-    inject(agent, updateText(delta, pending));
-  });
+  // Identical-text guard over injected updates (docs/design.md, delta 注入
+  // 降噪): the rendered update is a pure function of changed/deleted/delta/
+  // pending, so an identical text carries zero new information (e.g. an
+  // mtime-only rewrite re-firing the same batch) and is dropped. Shared by
+  // the external-sync and signing lanes so the two cannot duplicate either.
+  let lastUpdateText: string | undefined;
+  const injectUpdate = (text: string | undefined): void => {
+    if (text === undefined || text === lastUpdateText) return;
+    lastUpdateText = text;
+    inject(agent, text);
+  };
+  const coalescer = new DeltaCoalescer(
+    EXTERNAL_SYNC_INTERVAL_MS,
+    (delta, changed, deleted, pending) => {
+      injectUpdate(updateText(delta, changed, deleted, pending));
+    },
+  );
   const workspace = await RefinoWorkspace.open(refinoDir, (outcome) => coalescer.push(outcome));
   workspaces.set(agent, workspace);
   coalescers.set(agent, coalescer);
@@ -113,7 +127,7 @@ async function startSession(
   const signing = {
     get,
     requestApproval: (reason: string) => requestApproval(ctx, agent, reason),
-    inject: (text: string | undefined) => inject(agent, text),
+    inject: injectUpdate,
     origin: () => originRecord,
     setOrigin: (next: AuthorizationOrigin) => Object.assign(originRecord, next),
   };

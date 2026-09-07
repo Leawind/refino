@@ -7,7 +7,7 @@ refino 的 [DeepSeek Harness（dsh）](https://github.com/deepseek-ai/deepseek-h
 - **会话初始化**：会话启动时从会话工作目录向上定位 `.refino/`，经 `@refino/storage` 加载图；按解析出的授权上下文（编排者凭据 → 默认值：冻结区取全部根约束、前提全量注入、不超过 1024 节点时锚点取全图）构造任务上下文，以 `<system-reminder>` 框架注入初始上下文（摘要级，两级注入的第一级），并附授权状态一行（来源与 signedAt）。图超过自动锚点预算时注入极简引导，模型以搜索按需定位。resume 重挂工具并注入一行当前授权状态，不重放基线。
 - **模型侧 CRG 工具**：`refino_list` / `refino_search` / `refino_show` / `refino_grounds` / `refino_ancestors` / `refino_dependents` / `refino_siblings` / `refino_pending_review` / `refino_context` 只读查询，与 `refino_create_premise` / `refino_create_constraint` / `refino_update_node` / `refino_delete_node` 四个写入工具。查询均为批量、部分成功语义；写入在落盘前走引擎 grounds 校验与授权上下文边界校验，越界返回结构化升级报告（正常工具结果，非报错）。
 - **对话签发**：`refino_request_authorization` 承载冻结区签发——模型起草划分并在对话中向用户呈现草案，工具执行中经 dsh 原生审批服务（`ctx.approval.request()`）请求人的明确批准（fail-closed，仅显式允许生效），批准后签署并在会话内即时生效、以 delta 注入新冻结区；签发状态只存在于会话内存，插件不产生任何文件。编排者凭据生效时拒绝签发。
-- **外部变更同步**：监听 `nodes/` 分片目录，外部修改经重载产出上下文 delta 事件与待审查集并注入会话；模型自身的写入不经注入，其待审查集随工具结果返回。
+- **外部变更同步**：监听 `nodes/` 分片目录，外部修改经重载产出上下文 delta 事件与待审查集并注入会话；更新通知为纯 ID 形态（变更/删除节点 ID 与待审查 ID，不重发摘要），内容与上次注入相同时不注入。模型自身的写入不经注入，其待审查集随工具结果返回。
 
 ## v1 边界
 

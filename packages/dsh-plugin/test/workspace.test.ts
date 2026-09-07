@@ -86,6 +86,8 @@ describe("external changes", () => {
     await externalChange([id], async () => {});
     expect(outcomes).toHaveLength(1);
     expect(outcomes[0]!.delta).toContainEqual({ type: "anchor_added", id });
+    expect(outcomes[0]!.changed).toEqual([id]);
+    expect(outcomes[0]!.deleted).toEqual([]);
     expect(outcomes[0]!.pending.map((node) => node.id)).toEqual([]);
   });
 
@@ -97,6 +99,8 @@ describe("external changes", () => {
     });
     expect(outcomes).toHaveLength(1);
     expect(outcomes[0]!.delta).toEqual([{ type: "anchor_removed", id: "C1CHILD" }]);
+    expect(outcomes[0]!.changed).toEqual([]);
+    expect(outcomes[0]!.deleted).toEqual(["C1CHILD"]);
     expect(outcomes[0]!.pending.map((node) => node.id)).toEqual(["C2GRAND"]);
   });
 
@@ -195,16 +199,33 @@ describe("RefinoWorkspace.signContext", () => {
 describe("delta coalescing", () => {
   it("merges bursts into one emission after the interval", async () => {
     const { DeltaCoalescer } = await import("../src/coalesce.js");
-    const emitted: Array<{ delta: unknown[]; pending: string[] }> = [];
-    const coalescer = new DeltaCoalescer(20, (delta, pending) =>
-      emitted.push({ delta, pending: pending.map((node) => node.id) }),
+    const emitted: Array<{
+      delta: unknown[];
+      changed: string[];
+      deleted: string[];
+      pending: string[];
+    }> = [];
+    const coalescer = new DeltaCoalescer(20, (delta, changed, deleted, pending) =>
+      emitted.push({ delta, changed, deleted, pending: pending.map((node) => node.id) }),
     );
     const pendingNode = { id: "C2GRAND" } as never; // the coalescer only reads id
-    coalescer.push({ delta: [{ type: "anchor_added", id: "A" }], pending: [] });
-    coalescer.push({ delta: [{ type: "anchor_removed", id: "A" }], pending: [pendingNode] });
+    coalescer.push({
+      delta: [{ type: "anchor_added", id: "A" }],
+      changed: ["A"],
+      deleted: [],
+      pending: [],
+    });
+    coalescer.push({
+      delta: [{ type: "anchor_removed", id: "A" }],
+      changed: ["B", "A2GONE"],
+      deleted: ["A2GONE"], // changed-then-deleted within the window reports as deleted only
+      pending: [pendingNode],
+    });
     await new Promise((resolve) => setTimeout(resolve, 60));
     expect(emitted).toHaveLength(1);
     expect(emitted[0]!.delta).toHaveLength(2);
+    expect(emitted[0]!.changed).toEqual(["A", "B"]);
+    expect(emitted[0]!.deleted).toEqual(["A2GONE"]);
     expect(emitted[0]!.pending).toEqual(["C2GRAND"]);
     coalescer.dispose();
   });
@@ -213,7 +234,12 @@ describe("delta coalescing", () => {
     const { DeltaCoalescer } = await import("../src/coalesce.js");
     const emitted: unknown[] = [];
     const coalescer = new DeltaCoalescer(10, () => emitted.push(1));
-    coalescer.push({ delta: [{ type: "anchor_added", id: "A" }], pending: [] });
+    coalescer.push({
+      delta: [{ type: "anchor_added", id: "A" }],
+      changed: ["A"],
+      deleted: [],
+      pending: [],
+    });
     coalescer.dispose();
     await new Promise((resolve) => setTimeout(resolve, 30));
     expect(emitted).toHaveLength(0);

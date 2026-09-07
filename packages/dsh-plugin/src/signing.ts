@@ -109,7 +109,7 @@ function requestAuthorizationTool(deps: SigningDeps): ToolDefinition {
         anchors: ws.authorizationContext.anchors,
         frozen: doc.frozenFrontier,
       });
-      deps.inject(updateText(delta, []));
+      deps.inject(updateText(delta, [], [], []));
       deps.setOrigin({ source: "session", signedAt: doc.signedAt });
 
       return {
