@@ -32,6 +32,9 @@ export type LayoutMode = "layered" | "force";
  * (direction matters for layered, is ignored by force-directed). */
 export interface LayoutOptions {
   direction: LayoutDirection;
+  /** Shared node card geometry in virtual units; every strategy spaces and
+   * stamps its output with it. Absent means the reference card size. */
+  nodeSize?: { width: number; height: number };
   /** Coordinates of the previous session's nodes, offered as a seed. The
    * layered strategy ignores it (always lays out from scratch); the
    * force-directed strategy carries known nodes over and reheats gently,

@@ -72,6 +72,31 @@ describe("force session", () => {
     session.dispose();
   });
 
+  it("packs and stamps the configured card size", () => {
+    const size = { width: 300, height: 100 };
+    const session = forceStrategy.createSession(chain(8), { direction: "LR", nodeSize: size });
+    const final = settled(session);
+    session.dispose();
+    for (const node of final) {
+      expect(node.width).toBe(size.width);
+      expect(node.height).toBe(size.height);
+    }
+    // No card overlaps at the configured footprint: any overlap would put
+    // the centers closer than the card diagonal, below the packed radius.
+    for (let i = 0; i < final.length; i++) {
+      for (let j = i + 1; j < final.length; j++) {
+        const a = final[i]!;
+        const b = final[j]!;
+        const separated =
+          a.x + size.width <= b.x ||
+          b.x + size.width <= a.x ||
+          a.y + size.height <= b.y ||
+          b.y + size.height <= a.y;
+        expect(separated).toBe(true);
+      }
+    }
+  });
+
   it("is deterministic for the same node set", () => {
     const run = (): Array<[string, number, number]> => {
       const session = forceStrategy.createSession(chain(10), { direction: "LR" });

@@ -14,6 +14,7 @@ import {
   COST_SHAPE_NODE,
   COST_TEXT_NODE,
   cullByBudget,
+  REFERENCE_NODE_AREA,
   TEXT_LOD_SCREEN_H,
   type AdaptiveBudget,
   type CullEntry,
@@ -233,6 +234,8 @@ export class GraphRenderer {
   #maxScale = 4;
   /** Text size multiplier on top of the camera scale (style settings). */
   #textScale = 1;
+  /** Current node card footprint for the budget estimate. */
+  #nodeArea = REFERENCE_NODE_AREA;
   #zoomAnchor: "cursor" | "center" = "cursor";
   #cssWidth = 0;
   #cssHeight = 0;
@@ -513,6 +516,13 @@ export class GraphRenderer {
     this.#schedule();
   }
 
+  /** Updates the reference node footprint for the budget estimate (the
+   * card size is configurable); reestimates against the current viewport. */
+  setNodeArea(area: number): void {
+    this.#nodeArea = area;
+    this.#budget.reestimate(this.#viewport(), area);
+  }
+
   #viewport(): Viewport {
     return { width: this.#cssWidth, height: this.#cssHeight };
   }
@@ -731,7 +741,7 @@ export class GraphRenderer {
       this.#canvas.width = deviceWidth;
       this.#canvas.height = deviceHeight;
     }
-    this.#budget.reestimate({ width, height });
+    this.#budget.reestimate({ width, height }, this.#nodeArea);
     const box = this.#contentBox();
     if (box !== null) {
       this.#camera = clampCamera(this.#camera, box, this.#viewport());
@@ -812,7 +822,13 @@ export class GraphRenderer {
     const gl = this.#gl;
     const budget = this.#budget.current();
     const scale = this.#camera.scale;
-    const lowLod = 44 * scale < TEXT_LOD_SCREEN_H;
+    // Edge simplification keys off the smallest card on screen (the card
+    // size is configurable), not a hardcoded reference height.
+    let minHeight = Infinity;
+    for (const entry of this.#entries.values()) {
+      minHeight = Math.min(minHeight, entry.node.height);
+    }
+    const lowLod = minHeight * scale < TEXT_LOD_SCREEN_H;
 
     const cullEntries: CullEntry[] = [];
     const textShown = new Map<string, boolean>();

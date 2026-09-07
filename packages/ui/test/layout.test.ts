@@ -195,3 +195,40 @@ describe("direction mapping", () => {
     expect(byId(bt, C1).y).toBeLessThan(byId(bt, P1).y);
   });
 });
+
+describe("card size", () => {
+  const chain = [premise(P1), constraint(C1, [P1]), constraint(C2, [C1])];
+  const family = [premise(P1), constraint(C1, [P1]), constraint(C2, [P1])];
+
+  it("spaces and stamps nodes with the configured card size", () => {
+    const size = { width: 300, height: 88 };
+    const laid = layeredLayout(chain, "LR", size);
+    for (const node of laid) {
+      expect(node.width).toBe(size.width);
+      expect(node.height).toBe(size.height);
+    }
+    const pitch = byId(laid, C1).x - byId(laid, P1).x;
+    expect(pitch).toBeGreaterThan(size.width);
+    // The same set at the reference size keeps the reference pitch.
+    const reference = layeredLayout(chain, "LR");
+    expect(reference.every((n) => n.width === 150 && n.height === 44)).toBe(true);
+    expect(pitch).toBeGreaterThan(byId(reference, C1).x - byId(reference, P1).x);
+  });
+
+  it("grows row spacing with the card height", () => {
+    const rows = (size?: { width: number; height: number }) => {
+      const laid = layeredLayout(family, "LR", size);
+      return Math.abs(byId(laid, C1).y - byId(laid, C2).y);
+    };
+    expect(rows({ width: 150, height: 88 })).toBeGreaterThan(rows());
+  });
+
+  it("stays deterministic and order-independent at a custom size", () => {
+    const input = [premise(P1), premise(P2), constraint(C1, [P1]), constraint(C2, [C1, P2])];
+    const size = { width: 220, height: 60 };
+    expect(layeredLayout(input, "LR", size)).toEqual(layeredLayout(input, "LR", size));
+    expect(layeredLayout([...input].reverse(), "LR", size)).toEqual(
+      layeredLayout(input, "LR", size),
+    );
+  });
+});

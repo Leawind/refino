@@ -28,6 +28,14 @@ describe("budget estimation", () => {
     expect(estimateBudget({ width: 0, height: 0 }, 1)).toBe(MIN_BUDGET);
   });
 
+  it("scales the slot estimate with the node footprint", () => {
+    const viewport = { width: 800, height: 600 };
+    const reference = estimateBudget(viewport, 1);
+    // Explicit reference area matches the default; bigger cards mean fewer slots.
+    expect(estimateBudget(viewport, 1, 150 * 44)).toBe(reference);
+    expect(estimateBudget(viewport, 1, 300 * 88)).toBeLessThan(reference);
+  });
+
   it("maps logical cores onto a bounded factor", () => {
     expect(hardwareFactor(16)).toBeGreaterThan(hardwareFactor(4));
     expect(hardwareFactor(256)).toBeLessThanOrEqual(3);

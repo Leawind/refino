@@ -12,7 +12,7 @@ import {
 } from "d3-force";
 import { assignLayers } from "refino";
 import type { LayoutDirection } from "../../types";
-import { layeredLayout, NODE_HEIGHT, NODE_WIDTH } from "./engine";
+import { layeredLayout, resolveNodeSize } from "./engine";
 import type {
   LaidOutNode,
   LayoutNode,
@@ -45,7 +45,7 @@ import type {
 const EDGE_LENGTH = 240;
 /** Pair repulsion strength: d3 manyBody applies strength/d, so this is the
  * k in k/d — order-of-magnitude the d3 default (-30), a bit firmer for
- * 150-px-wide cards. */
+ * reference-size cards. */
 const REPULSION = -100;
 /** Inverse-square floor: below this center distance the push stops growing,
  * keeping near-contact motion orderly instead of divergent. */
@@ -60,11 +60,11 @@ const GRAVITY = 0.002;
  * to keep the upstream→downstream flow readable, loose enough that springs
  * and packing own the cross axis and spacing. */
 const MAIN_AXIS_STRENGTH = 0.08;
-/** Circle-packing radius that guarantees non-overlapping cards: a center
- * distance of twice this value separates any two card rectangles. The
- * small slack lets the iterative packing fully resolve, leaving no
- * residual overlaps. */
-const COLLIDE_RADIUS = Math.hypot(NODE_WIDTH, NODE_HEIGHT) / 2 + 2;
+/** Circle-packing slack beyond half the card diagonal: a center distance of
+ * twice the packed radius separates any two card rectangles. The small
+ * slack lets the iterative packing fully resolve, leaving no residual
+ * overlaps. */
+const COLLIDE_SLACK = 2;
 /** Velocity kept after each tick; the rest bleeds off as friction. */
 const VELOCITY_DECAY = 0.4;
 /** Exponential cooling: forces scale by alpha, which decays per tick until
@@ -99,6 +99,8 @@ class ForceSession implements LayoutSession {
   readonly #bodies: Body[];
   readonly #byId = new Map<string, Body>();
   readonly #sim: Simulation<Body, SimulationLinkDatum<Body>>;
+  /** The shared card geometry this session spaces and stamps. */
+  readonly #size: { width: number; height: number };
   #ticks = 0;
   #animating = true;
   /** True while a node is pinned to the pointer: the relaxation keeps
@@ -106,10 +108,11 @@ class ForceSession implements LayoutSession {
   #dragging = false;
 
   constructor(nodes: readonly LayoutNode[], options: LayoutOptions) {
+    this.#size = resolveNodeSize(options);
     // Fallback seed: layered positions are deterministic and a natural
     // starting shape, so the first force session starts from a readable
     // layout. A carried-over seed (previous session) wins per node.
-    const layered = new Map(layeredLayout(nodes, "LR").map((n) => [n.id, n] as const));
+    const layered = new Map(layeredLayout(nodes, "LR", this.#size).map((n) => [n.id, n] as const));
     const carried = options.seed;
     // Main axis: grounds longest-path depth (the same layering the layered
     // layout uses) sets each node's target coordinate along the display
@@ -181,7 +184,12 @@ class ForceSession implements LayoutSession {
           .distance(EDGE_LENGTH),
       )
       .force("charge", forceManyBody<Body>().strength(REPULSION).distanceMin(REPULSION_FLOOR))
-      .force("collide", forceCollide<Body>(COLLIDE_RADIUS).iterations(3))
+      .force(
+        "collide",
+        forceCollide<Body>(
+          Math.hypot(this.#size.width, this.#size.height) / 2 + COLLIDE_SLACK,
+        ).iterations(3),
+      )
       .force("axis", axis)
       .force("cross", crossGravity)
       .force("center", forceCenter<Body>(0, 0))
@@ -202,8 +210,8 @@ class ForceSession implements LayoutSession {
       id: body.id,
       x: body.x ?? 0,
       y: body.y ?? 0,
-      width: NODE_WIDTH,
-      height: NODE_HEIGHT,
+      width: this.#size.width,
+      height: this.#size.height,
     }));
   }
 

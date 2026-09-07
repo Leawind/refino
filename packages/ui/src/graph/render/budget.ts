@@ -28,8 +28,9 @@ export const COST_EDGE = 1;
  * threshold must stay well below the reference node height (44px). */
 export const TEXT_LOD_SCREEN_H = 16;
 
-/** Reference node footprint translating viewport area into slots. */
-const REFERENCE_NODE_AREA = 150 * 44;
+/** Reference node footprint translating viewport area into slots; also the
+ * default node area for estimates (the actual footprint is configurable). */
+export const REFERENCE_NODE_AREA = 150 * 44;
 /** Cost units budgeted per reference slot in the initial estimate. */
 const ESTIMATE_UNITS_PER_SLOT = 24;
 export const MIN_BUDGET = 64;
@@ -53,10 +54,16 @@ export function hardwareFactor(hardwareConcurrency: number | undefined): number 
 }
 
 /** Initial cost-unit budget: reference nodes fitting the viewport, with
- * headroom for edges, scaled by the hardware factor. */
-export function estimateBudget(viewport: Size, factor: number): number {
+ * headroom for edges, scaled by the hardware factor. `nodeArea` is the
+ * actual card footprint in virtual units; it defaults to the reference
+ * card for callers without configurable node sizes. */
+export function estimateBudget(
+  viewport: Size,
+  factor: number,
+  nodeArea: number = REFERENCE_NODE_AREA,
+): number {
   if (viewport.width <= 0 || viewport.height <= 0) return MIN_BUDGET;
-  const slots = (viewport.width * viewport.height) / REFERENCE_NODE_AREA;
+  const slots = (viewport.width * viewport.height) / nodeArea;
   return Math.round(
     Math.min(MAX_BUDGET, Math.max(MIN_BUDGET, slots * ESTIMATE_UNITS_PER_SLOT * factor)),
   );
@@ -81,17 +88,20 @@ export interface AdaptiveBudget {
   setOptions(options: BudgetOptions): void;
   /** Feed one continuously-rendered frame's duration in ms. */
   reportFrame(deltaMs: number): void;
-  /** Re-estimate from a new viewport size (e.g. after a resize). */
-  reestimate(viewport: Size): void;
+  /** Re-estimate from a new viewport size (e.g. after a resize) and node
+   * footprint (the card size is configurable). */
+  reestimate(viewport: Size, nodeArea?: number): void;
 }
 
 export function createAdaptiveBudget(
   options: BudgetOptions,
   viewport: Size,
   factor: number,
+  nodeArea: number = REFERENCE_NODE_AREA,
 ): AdaptiveBudget {
   let current = { ...options };
-  let estimate = estimateBudget(viewport, factor);
+  let area = nodeArea;
+  let estimate = estimateBudget(viewport, factor, area);
   let multiplier = 1;
   let ema = 1000 / 60;
   let frames = 0;
@@ -121,8 +131,9 @@ export function createAdaptiveBudget(
         lastAdjustAt = frames;
       }
     },
-    reestimate(viewport: Size): void {
-      estimate = estimateBudget(viewport, factor);
+    reestimate(viewport: Size, nodeArea?: number): void {
+      if (nodeArea !== undefined) area = nodeArea;
+      estimate = estimateBudget(viewport, factor, area);
     },
   };
 }

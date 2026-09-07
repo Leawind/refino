@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHttpClient } from "../src/api";
-import { createWorkspace, type Workspace } from "../src/workspace";
+import { createWorkspace, NODE_SIZE_MAX, NODE_SIZE_MIN, type Workspace } from "../src/workspace";
 import type { ChangeEvent, NodeLite } from "../src/types";
 
 let workspace: Workspace;
@@ -497,5 +497,32 @@ describe("premise facts layer", () => {
     // refetch: they already live in the working set.
     workspace.setConfig({ showPremises: true });
     expect(new Set(displayedIds())).toEqual(new Set([C3, C2, C1, P2, P1]));
+  });
+});
+
+describe("node card size config", () => {
+  it("clamps the persisted size into bounds on load", () => {
+    localStorage.setItem("refino.canvas.nodeWidth", "9999");
+    localStorage.setItem("refino.canvas.nodeHeight", "1");
+    const loaded = createWorkspace(createHttpClient());
+    expect(loaded.state.config.nodeWidth).toBe(NODE_SIZE_MAX.width);
+    expect(loaded.state.config.nodeHeight).toBe(NODE_SIZE_MIN.height);
+    loaded.stop();
+  });
+
+  it("persists size changes through setConfig", () => {
+    workspace.setConfig({ nodeWidth: 320, nodeHeight: 96 });
+    expect(workspace.state.config.nodeWidth).toBe(320);
+    expect(workspace.state.config.nodeHeight).toBe(96);
+    expect(localStorage.getItem("refino.canvas.nodeWidth")).toBe("320");
+    expect(localStorage.getItem("refino.canvas.nodeHeight")).toBe("96");
+  });
+
+  it("keeps size changes out of the working-set refresh", async () => {
+    await select(C1);
+    const expansions = (): number => calls.filter((c) => c.path === "/api/query/expand").length;
+    const before = expansions();
+    workspace.setConfig({ nodeWidth: 220, nodeHeight: 64 });
+    await vi.waitFor(() => expect(expansions()).toBe(before));
   });
 });

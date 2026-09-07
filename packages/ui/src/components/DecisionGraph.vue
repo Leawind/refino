@@ -54,13 +54,15 @@ const layout = ref<LaidOutNode[]>([]);
 let session: LayoutSession | null = null;
 let rafId = 0;
 let lastFrame = 0;
-/** Structure of the live session: displayed ids + grounds edges, mode and
- * direction. A selection change that alters none of them must not restart
- * (and wobble) the session. */
+/** Structure of the live session: displayed ids + grounds edges, mode,
+ * direction and card size. A selection change that alters none of them
+ * must not restart (and wobble) the session. */
 let lastStructure: {
   signature: string;
   mode: LayoutMode;
   direction: LayoutDirection;
+  nodeWidth: number;
+  nodeHeight: number;
 } | null = null;
 
 function stopSession(): void {
@@ -77,14 +79,22 @@ function startSession(): void {
   const direction = props.direction;
   const displayed = workspace.displayed.value;
   const signature = structureSignature(displayed);
+  const nodeWidth = workspace.state.config.nodeWidth;
+  const nodeHeight = workspace.state.config.nodeHeight;
   const sameOrientation =
     session !== null &&
     lastStructure !== null &&
     lastStructure.mode === mode &&
     lastStructure.direction === direction;
-  // A selection change that alters neither the node set nor the edges
-  // keeps the settled session: restarting it would only wobble.
-  if (sameOrientation && lastStructure!.signature === signature) return;
+  // A selection change that alters neither the node set, the edges nor the
+  // card size keeps the settled session: restarting it would only wobble.
+  if (
+    sameOrientation &&
+    lastStructure!.signature === signature &&
+    lastStructure!.nodeWidth === nodeWidth &&
+    lastStructure!.nodeHeight === nodeHeight
+  )
+    return;
   // Hand the outgoing session's coordinates to the next one before
   // disposing it, but only when mode and direction are unchanged: the
   // force strategy carries known nodes over and reheats gently (a
@@ -92,10 +102,11 @@ function startSession(): void {
   // direction switch means a fundamentally different layout and gets a
   // full relaxation. The layered strategy ignores the seed either way.
   const seed = session !== null && sameOrientation ? session.positions() : undefined;
-  lastStructure = { signature, mode, direction };
+  lastStructure = { signature, mode, direction, nodeWidth, nodeHeight };
   stopSession();
   session = createLayoutSession(mode, displayed, {
     direction,
+    nodeSize: { width: nodeWidth, height: nodeHeight },
     seed: seed ? new Map(seed.map((n) => [n.id, { x: n.x, y: n.y }] as const)) : undefined,
   });
   layout.value = [...session.positions()];
@@ -131,16 +142,20 @@ const scene = computed<SceneInput>(() => {
   const { selection, focusId, hoveredId } = workspace.state;
   const selectionSet = new Set(selection);
   const positions = new Map(layout.value.map((n) => [n.id, n] as const));
-  const distanceToSelection = (node: { x: number; y: number; width: number; height: number }) => {
-    const cx = node.x + node.width / 2;
-    const cy = node.y + node.height / 2;
+  // The card size is a canvas config: the scene reads it directly so a
+  // resize takes effect immediately, without waiting for a layout restart.
+  const cardWidth = workspace.state.config.nodeWidth;
+  const cardHeight = workspace.state.config.nodeHeight;
+  const distanceToSelection = (node: { x: number; y: number }) => {
+    const cx = node.x + cardWidth / 2;
+    const cy = node.y + cardHeight / 2;
     let best = Infinity;
     for (const id of selectionSet) {
       const center = positions.get(id);
       if (center === undefined) continue;
       best = Math.min(
         best,
-        Math.hypot(cx - (center.x + center.width / 2), cy - (center.y + center.height / 2)),
+        Math.hypot(cx - (center.x + cardWidth / 2), cy - (center.y + cardHeight / 2)),
       );
     }
     return best;
@@ -156,8 +171,8 @@ const scene = computed<SceneInput>(() => {
       id: lite.id,
       x: node.x,
       y: node.y,
-      width: node.width,
-      height: node.height,
+      width: cardWidth,
+      height: cardHeight,
       label: lite.summary === "" ? t("node.untitled") : lite.summary,
       selected: selectionSet.has(lite.id),
       focus: lite.id === focusId,
@@ -227,6 +242,7 @@ function ensureRenderer(): void {
     },
     { width: canvas.clientWidth, height: canvas.clientHeight },
     hardwareFactor(navigator.hardwareConcurrency),
+    workspace.state.config.nodeWidth * workspace.state.config.nodeHeight,
   );
   renderer = GraphRenderer.create(canvas, budget);
   if (renderer === null) {
@@ -237,6 +253,7 @@ function ensureRenderer(): void {
   renderer.setZoomAnchor(workspace.state.config.zoomAnchor);
   renderer.setMaxScale(workspace.state.config.zoomMax);
   renderer.setTextScale(workspace.state.config.textScale);
+  renderer.setNodeArea(workspace.state.config.nodeWidth * workspace.state.config.nodeHeight);
   renderer.setTheme(readThemeColors());
   renderer.setNodeDragHandler(props.layoutMode === "force" ? dragNode : null);
   renderer.setScene(scene.value);
@@ -270,6 +287,21 @@ watch(
   () => workspace.state.config.textScale,
   (scale) => renderer?.setTextScale(scale),
 );
+// A card-size change shows up in the scene immediately (nodes resize in
+// place); the layout only needs one restart once the resize settles, so
+// spacing and collision catch up without re-swimming on every tick.
+let sizeRestart: ReturnType<typeof setTimeout> | undefined;
+watch(
+  () => [workspace.state.config.nodeWidth, workspace.state.config.nodeHeight] as const,
+  ([width, height]) => {
+    renderer?.setNodeArea(width * height);
+    if (sizeRestart !== undefined) clearTimeout(sizeRestart);
+    sizeRestart = setTimeout(() => {
+      sizeRestart = undefined;
+      startSession();
+    }, 200);
+  },
+);
 watch(
   () => store.state.theme,
   () => renderer?.setTheme(readThemeColors()),
@@ -280,6 +312,7 @@ watch(
 );
 
 onBeforeUnmount(() => {
+  if (sizeRestart !== undefined) clearTimeout(sizeRestart);
   stopSession();
   renderer?.dispose();
   renderer = null;

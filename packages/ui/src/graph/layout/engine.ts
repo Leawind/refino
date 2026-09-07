@@ -9,7 +9,7 @@ import type {
 } from "./types";
 
 /**
- * Stateless layered layout (ui README, "布局：分层").
+ * Stateless layered layout (ui DESIGN.md, "布局").
  *
  * Every call computes the layout of exactly the given subgraph from
  * scratch: the whole working set is laid out as if drawn anew, so relative
@@ -22,22 +22,33 @@ import type {
  * layer each node takes the row nearest to the average of its grounds'
  * rows, so a family spreads symmetrically around its ground instead of
  * drifting to one side. Disjoint groups are laid out as independent
- * components stacked in row ranges (README: 无重叠则作为独立分量排布).
+ * components stacked in row ranges (DESIGN.md: 无重叠则作为独立分量排布).
  *
- * The result is a pure function of the input node set (ties ordered by
- * id): the same set always yields the same layout, in any input order.
+ * The result is a pure function of the input node set and the card size
+ * (ties ordered by id): the same set always yields the same layout, in any
+ * input order.
  */
 
 /** Mapped node geometry in virtual space. */
 export type { LaidOutNode, LayoutNode } from "./types";
 
-/** Shared node geometry: every layout maps to the same virtual card size. */
+/** Reference node geometry: every layout maps to one shared card size,
+ * configurable per canvas (LayoutOptions.nodeSize). */
 export const NODE_WIDTH = 150;
 export const NODE_HEIGHT = 44;
 const LAYER_GAP = 90;
 const CROSS_GAP = 32;
 /** Empty rows between consecutive independent components. */
 const COMPONENT_GAP = 4;
+
+/** The card geometry a session lays out with: the configured size or the
+ * reference card. */
+export function resolveNodeSize(options: LayoutOptions): {
+  width: number;
+  height: number;
+} {
+  return options.nodeSize ?? { width: NODE_WIDTH, height: NODE_HEIGHT };
+}
 
 interface Placement {
   layer: number;
@@ -48,7 +59,9 @@ interface Placement {
 export function layeredLayout(
   nodes: readonly LayoutNode[],
   direction: LayoutDirection,
+  size = { width: NODE_WIDTH, height: NODE_HEIGHT },
 ): LaidOutNode[] {
+  const { width, height } = size;
   const graph = new Map(nodes.map((node) => [node.id, node] as const));
   const ids = [...graph.keys()].sort();
 
@@ -87,17 +100,17 @@ export function layeredLayout(
   const result: LaidOutNode[] = [];
   for (const id of ids) {
     const placement = placed.get(id)!;
-    const main = placement.layer * (horizontal ? NODE_WIDTH + LAYER_GAP : NODE_HEIGHT + LAYER_GAP);
-    const cross = placement.order * (horizontal ? NODE_HEIGHT + CROSS_GAP : NODE_WIDTH + CROSS_GAP);
+    const main = placement.layer * (horizontal ? width + LAYER_GAP : height + LAYER_GAP);
+    const cross = placement.order * (horizontal ? height + CROSS_GAP : width + CROSS_GAP);
     const [x, y] =
       direction === "LR"
         ? [main, cross]
         : direction === "RL"
-          ? [-main - NODE_WIDTH, cross]
+          ? [-main - width, cross]
           : direction === "TB"
             ? [cross, main]
-            : [cross, -main - NODE_HEIGHT];
-    result.push({ id, x, y, width: NODE_WIDTH, height: NODE_HEIGHT });
+            : [cross, -main - height];
+    result.push({ id, x, y, width, height });
   }
   return result;
 }
@@ -107,7 +120,7 @@ export function layeredLayout(
 export const layeredStrategy: LayoutStrategy = {
   id: "layered",
   createSession(nodes: readonly LayoutNode[], options: LayoutOptions): LayoutSession {
-    const result = layeredLayout(nodes, options.direction);
+    const result = layeredLayout(nodes, options.direction, resolveNodeSize(options));
     return {
       animating: false,
       step: () => result,

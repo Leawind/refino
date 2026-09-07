@@ -46,11 +46,19 @@ export interface CanvasConfig {
   zoomMax: number;
   /** Canvas text size multiplier (style settings panel). */
   textScale: number;
+  /** Shared node card size in virtual units (node size control). */
+  nodeWidth: number;
+  nodeHeight: number;
   /** Canvas layout algorithm. */
   layoutMode: LayoutMode;
   /** Display direction for directional layouts (force ignores it). */
   direction: LayoutDirection;
 }
+
+/** Bounds of the node card size, in virtual units. The minimum fits one
+ * text line plus padding; the maximum keeps cards from dwarfing the view. */
+export const NODE_SIZE_MIN = { width: 100, height: 36 };
+export const NODE_SIZE_MAX = { width: 480, height: 280 };
 
 const DEFAULT_CONFIG: CanvasConfig = {
   descendantDepth: 2,
@@ -63,6 +71,8 @@ const DEFAULT_CONFIG: CanvasConfig = {
   zoomAnchor: "cursor",
   zoomMax: 4,
   textScale: 1,
+  nodeWidth: 150,
+  nodeHeight: 44,
   layoutMode: "layered",
   direction: "LR",
 };
@@ -78,6 +88,8 @@ const CONFIG_KEYS: Record<keyof CanvasConfig, string> = {
   zoomAnchor: "refino.canvas.zoomAnchor",
   zoomMax: "refino.canvas.zoomMax",
   textScale: "refino.canvas.textScale",
+  nodeWidth: "refino.canvas.nodeWidth",
+  nodeHeight: "refino.canvas.nodeHeight",
   layoutMode: "refino.canvas.layoutMode",
   direction: "refino.canvas.direction",
 };
@@ -141,6 +153,16 @@ function loadConfig(): CanvasConfig {
         readNumberPreference(CONFIG_KEYS.textScale, DEFAULT_CONFIG.textScale),
       ),
     ),
+    nodeWidth: clamp(
+      readNumberPreference(CONFIG_KEYS.nodeWidth, DEFAULT_CONFIG.nodeWidth),
+      NODE_SIZE_MIN.width,
+      NODE_SIZE_MAX.width,
+    ),
+    nodeHeight: clamp(
+      readNumberPreference(CONFIG_KEYS.nodeHeight, DEFAULT_CONFIG.nodeHeight),
+      NODE_SIZE_MIN.height,
+      NODE_SIZE_MAX.height,
+    ),
     layoutMode:
       readPreference(CONFIG_KEYS.layoutMode, DEFAULT_CONFIG.layoutMode) === "force"
         ? "force"
@@ -152,6 +174,10 @@ function loadConfig(): CanvasConfig {
 /** Anything but the four spelled-out directions falls back to "LR". */
 function parseDirection(raw: string): LayoutDirection {
   return raw === "TB" || raw === "RL" || raw === "BT" ? raw : "LR";
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
 }
 
 /** One workspace instance: working-set state, selection and change
@@ -528,6 +554,8 @@ export function createWorkspace(client: RefinoClient) {
   const VIEW_ONLY_CONFIG_KEYS: ReadonlySet<keyof CanvasConfig> = new Set([
     "budgetManual",
     "budgetMode",
+    "nodeHeight",
+    "nodeWidth",
     "textScale",
     "zoomAnchor",
     "zoomMax",
