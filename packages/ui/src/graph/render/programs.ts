@@ -5,8 +5,11 @@ import nodeVertex from "./glsl/node.vert?raw";
 import textFragment from "./glsl/text.frag?raw";
 import textVertex from "./glsl/text.vert?raw";
 
-/** Edge quad: x along the segment, y across it (two triangles). */
-export const EDGE_QUAD = new Float32Array([0, -0.5, 1, -0.5, 0, 0.5, 0, -0.5, 1, 0.5, 1, -0.5]);
+/** Edge quad: x along the segment, y across it. The two triangles share the
+ * A→D diagonal — sharing the A→B edge instead would double-cover the lower
+ * half of the quad, so the translucent edge blends twice there and the
+ * shaft visibly darkens/notches at exactly half of its length. */
+export const EDGE_QUAD = new Float32Array([0, -0.5, 1, -0.5, 1, 0.5, 0, -0.5, 1, 0.5, 0, 0.5]);
 
 /** Unit square for nodes and glyphs (two triangles covering it exactly). */
 export const UNIT_QUAD = new Float32Array([0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1]);
