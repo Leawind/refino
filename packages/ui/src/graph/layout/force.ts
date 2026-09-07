@@ -22,9 +22,12 @@ import type {
 /**
  * Force-directed layout (ui DESIGN.md, "布局"), powered by d3-force.
  *
- * Seeded from the layered layout (deterministic, already readable), then
- * relaxed by a d3 simulation: springs on grounds edges, Barnes-Hut pair
- * repulsion, circle packing against card overlap, and slight gravity
+ * First entry relaxes from the layered layout; later sessions carry the
+ * previous session's coordinates over (options.seed) and only reheat
+ * gently, so working-set changes nudge the layout instead of re-swimming
+ * it. Nodes unknown to the seed join near the centroid of their grounds.
+ * A d3 simulation relaxes the graph: springs on grounds edges, Barnes-Hut
+ * pair repulsion, circle packing against card overlap, and slight gravity
  * toward the viewport center. d3's alpha schedule scales every force and
  * decays it exponentially, so motion shrinks smoothly to a stop instead of
  * rattling at full strength until a hard cutoff.
@@ -58,6 +61,14 @@ const VELOCITY_DECAY = 0.4;
  * ALPHA_MIN — motion shrinks smoothly to zero (no hard cutoff). */
 const ALPHA_DECAY = 0.0228;
 const ALPHA_MIN = 0.001;
+/** A carried-over seed only needs a partial reheat: known coordinates are
+ * already balanced, so a shorter, gentler relaxation suffices. */
+const REHEAT_ALPHA = 0.4;
+const REHEAT_ALPHA_DECAY = 0.06;
+/** Offset that separates a new node from the exact centroid of its grounds
+ * so coincident starts never happen; derived from the id's rank, hence
+ * deterministic. */
+const JOIN_OFFSET = 12;
 /** Hard tick budget: converging layouts must still terminate. */
 const MAX_TICKS = 900;
 /** Fixed-interval physics: one tick per this many ms of frame budget, so
@@ -78,23 +89,58 @@ class ForceSession implements LayoutSession {
   #animating = true;
 
   constructor(nodes: readonly LayoutNode[], options: LayoutOptions) {
-    void options;
-    // Layered positions as the seed: deterministic and a natural starting
-    // shape, so switching layouts mid-session reads as a small relaxation.
-    const seed = new Map(layeredLayout(nodes, "LR").map((n) => [n.id, n] as const));
+    // Fallback seed: layered positions are deterministic and a natural
+    // starting shape, so the first force session starts from a readable
+    // layout. A carried-over seed (previous session) wins per node.
+    const layered = new Map(layeredLayout(nodes, "LR").map((n) => [n.id, n] as const));
+    const carried = options.seed;
     // Id-sorted array order: d3 iterates nodes in array order, and the
     // layout must not depend on the input order (ui DESIGN, "布局").
-    this.#bodies = [...seed.keys()].sort().map((id) => ({
-      id,
-      x: seed.get(id)!.x,
-      y: seed.get(id)!.y,
-    }));
+    const ids = [...layered.keys()].sort();
     const grounds = new Map(nodes.map((n) => [n.id, n.grounds ?? []] as const));
+    // Known nodes keep their coordinates; new nodes start near the
+    // centroid of their (already placed) grounds, falling back to the
+    // layered position. Placing in id order makes each lookup deterministic.
+    const start = new Map<string, { x: number; y: number }>();
+    let carriedCount = 0;
+    ids.forEach((id, rank) => {
+      const known = carried?.get(id);
+      if (known !== undefined) {
+        carriedCount += 1;
+        start.set(id, { x: known.x, y: known.y });
+        return;
+      }
+      const anchorIds = (grounds.get(id) ?? []).filter((g) => start.has(g));
+      if (anchorIds.length === 0) {
+        const fallback = layered.get(id)!;
+        start.set(id, { x: fallback.x, y: fallback.y });
+        return;
+      }
+      let ax = 0;
+      let ay = 0;
+      for (const g of anchorIds) {
+        ax += start.get(g)!.x;
+        ay += start.get(g)!.y;
+      }
+      // Join beside the family centroid, offset circling by rank so nodes
+      // never start exactly on top of each other.
+      const angle = (rank % 8) * (Math.PI / 4);
+      start.set(id, {
+        x: ax / anchorIds.length + Math.cos(angle) * JOIN_OFFSET,
+        y: ay / anchorIds.length + Math.sin(angle) * JOIN_OFFSET,
+      });
+    });
+    this.#bodies = ids.map((id) => ({
+      id,
+      x: start.get(id)!.x,
+      y: start.get(id)!.y,
+    }));
     const links: SimulationLinkDatum<Body>[] = this.#bodies.flatMap((body) =>
       (grounds.get(body.id) ?? [])
-        .filter((g) => seed.has(g))
+        .filter((g) => start.has(g))
         .map((g) => ({ source: g, target: body.id })),
     );
+    const reheated = carried !== undefined && carriedCount > 0;
     this.#sim = forceSimulation<Body>(this.#bodies)
       .force(
         "link",
@@ -107,7 +153,8 @@ class ForceSession implements LayoutSession {
       .force("x", forceX<Body>(0).strength(GRAVITY))
       .force("y", forceY<Body>(0).strength(GRAVITY))
       .force("center", forceCenter<Body>(0, 0))
-      .alphaDecay(ALPHA_DECAY)
+      .alpha(reheated ? REHEAT_ALPHA : 1)
+      .alphaDecay(reheated ? REHEAT_ALPHA_DECAY : ALPHA_DECAY)
       .velocityDecay(VELOCITY_DECAY)
       .stop(); // no internal timer: the canvas drives ticks via step()
     // Nothing to relax with at most one body.

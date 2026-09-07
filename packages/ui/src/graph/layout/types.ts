@@ -32,6 +32,11 @@ export type LayoutMode = "layered" | "force";
  * (direction matters for layered, is ignored by force-directed). */
 export interface LayoutOptions {
   direction: LayoutDirection;
+  /** Coordinates of the previous session's nodes, offered as a seed. The
+   * layered strategy ignores it (always lays out from scratch); the
+   * force-directed strategy carries known nodes over and reheats gently,
+   * so working-set changes nudge the layout instead of re-swimming it. */
+  seed?: ReadonlyMap<string, { x: number; y: number }>;
 }
 
 /** One live layout of a fixed node set, advanced per animation frame. */

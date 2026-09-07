@@ -64,9 +64,15 @@ function stopSession(): void {
 }
 
 function startSession(): void {
+  // Hand the outgoing session's coordinates to the next one before
+  // disposing it: the force strategy carries known nodes over and only
+  // reheats gently (a working-set change must not re-swim the graph); the
+  // layered strategy ignores the seed and lays out from scratch.
+  const seed = session?.positions();
   stopSession();
   session = createLayoutSession(props.layoutMode, workspace.displayed.value, {
     direction: props.direction,
+    seed: seed ? new Map(seed.map((n) => [n.id, { x: n.x, y: n.y }] as const)) : undefined,
   });
   layout.value = [...session.positions()];
   if (!session.animating) return;

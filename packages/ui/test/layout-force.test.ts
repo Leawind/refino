@@ -121,4 +121,42 @@ describe("force session", () => {
     expect(tail).toBeLessThan(5);
     session.dispose();
   });
+
+  it("a carried seed reheats gently instead of re-swimming", () => {
+    const first = forceStrategy.createSession(chain(20), { direction: "LR" });
+    const settledFirst = settled(first);
+    first.dispose();
+    const seed = new Map(settledFirst.map((n) => [n.id, { x: n.x, y: n.y }] as const));
+
+    // The same node set re-seeded from its own settled coordinates needs
+    // far fewer ticks than a fresh full relaxation.
+    const again = forceStrategy.createSession(chain(20), { direction: "LR", seed });
+    let ticks = 0;
+    while (again.animating && ticks < 2000) {
+      again.step(16);
+      ticks += 1;
+    }
+    expect(ticks).toBeLessThan(150);
+    const after = new Map(settled(again).map((n) => [n.id, n] as const));
+    again.dispose();
+    for (const [id, p] of seed) {
+      const q = after.get(id)!;
+      expect(Math.hypot(q.x - p.x, q.y - p.y)).toBeLessThan(60);
+    }
+
+    // A node added later joins near its ground and the link settles at a
+    // sane length without disturbing the carried coordinates.
+    const grown: LayoutNode[] = [...chain(20), { id: "n20", grounds: ["n19"] }];
+    const grownSession = forceStrategy.createSession(grown, { direction: "LR", seed });
+    const positions = new Map(settled(grownSession).map((n) => [n.id, n] as const));
+    grownSession.dispose();
+    const a = positions.get("n19")!;
+    const b = positions.get("n20")!;
+    expect(Math.hypot(b.x - a.x, b.y - a.y)).toBeGreaterThan(NODE_WIDTH);
+    expect(Math.hypot(b.x - a.x, b.y - a.y)).toBeLessThan(600);
+    const seedN19 = seed.get("n19")!;
+    // The ground absorbs the newcomer with a local adjustment, not a
+    // full-graph re-swim.
+    expect(Math.hypot(a.x - seedN19.x, a.y - seedN19.y)).toBeLessThan(100);
+  });
 });
