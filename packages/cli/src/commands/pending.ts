@@ -5,16 +5,20 @@ import { nodeIdFromRelativeFile } from "@refino/storage";
 import { emit, withStore } from "../shared.js";
 import type { GlobalOptions, RunFn } from "../shared.js";
 import type { CliIo } from "../format.js";
+import { readLedger } from "../review-state.js";
 import { git, isGitUnavailable } from "../git.js";
 import type { GitError } from "../git.js";
 
 /**
- * `refino pending` — the pending-review set (docs/crg.md 1.6) derived from
- * git: nodes changed since a baseline, plus the downstream constraints their
- * change potentially invalidates. The path→id mapping is the storage layer's
- * (`nodeIdFromRelativeFile`), so the storage layout never leaks into the
- * command's contract. Deleted nodes have no file anymore but their dependents
- * still deserve review, so they participate through a graph scan.
+ * `refino pending` — the pending-review set (docs/crg.md 1.6) from two
+ * sources: nodes changed since a git baseline plus the downstream constraints
+ * their change potentially invalidates, and the workspace review ledger —
+ * obligations recorded by write commands that survive the commit landing the
+ * change, resolved only by `refino review ack`. The path→id mapping is the
+ * storage layer's (`nodeIdFromRelativeFile`), so the storage layout never
+ * leaks into the command's contract. Deleted nodes have no file anymore but
+ * their dependents still deserve review, so they participate through a graph
+ * scan.
  */
 export function createPendingCommand(io: CliIo, run: RunFn): Command {
   return new Command("pending")
@@ -62,6 +66,13 @@ async function pendingCommand(
     .sort()
     .map((id) => id!);
   const pending = pendingClosure(graph, modified);
+  const shownPending = new Set(pending.map((entry) => entry.node.id));
+  const ledger = await readLedger(opts.root, graph);
+  // Ledger entries are themselves the awaiting set (one hop downstream of a
+  // past change); cascading further would pre-flag reviews that belong to the
+  // reviewer's own future modifications. Text output skips ids the git-derived
+  // section already lists; JSON carries the ledger verbatim.
+  const ledgerOnly = ledger.pending.filter((entry) => !shownPending.has(entry.id));
 
   if (opts.json) {
     emit(io, {
@@ -73,6 +84,7 @@ async function pendingCommand(
         summary: entry.node.summary,
         depth: entry.depth,
       })),
+      ledger: ledger.pending,
     });
     return 0;
   }
@@ -88,6 +100,14 @@ async function pendingCommand(
     for (const entry of pending) {
       lines.push(
         `- ${entry.node.id} [${entry.node.type}] depth ${entry.depth} ${entry.node.summary}`,
+      );
+    }
+  }
+  if (ledgerOnly.length > 0) {
+    lines.push('台账待审查（变更已提交后仍待确认，经 "refino review ack" 清除）：');
+    for (const entry of ledgerOnly) {
+      lines.push(
+        `- ${entry.id}（因 ${entry.source} ${entry.kind === "delete" ? "删除" : "更新"}于 ${entry.addedAt}）`,
       );
     }
   }

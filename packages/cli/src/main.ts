@@ -6,6 +6,7 @@ import {
   isValidConfirmed,
   nodeRelativeFile,
   type NodeContent,
+  type WriteOutcome,
 } from "@refino/storage";
 import { CommanderError, Command, Option } from "commander";
 import {
@@ -26,7 +27,9 @@ import { createInitCommand } from "./commands/init.js";
 import { createContextCommand } from "./commands/context.js";
 import { createSearchCommand } from "./commands/search.js";
 import { createPendingCommand } from "./commands/pending.js";
+import { createReviewCommand } from "./commands/review.js";
 import { createGuideCommand, createSkillCommand } from "./commands/selfdoc.js";
+import { recordWriteOutcome } from "./review-state.js";
 import { emit, fail, refinoDir, withStore, withStoreForWrite } from "./shared.js";
 import type { GlobalOptions } from "./shared.js";
 import { DEFAULT_WEB_PORT, startWebServer } from "./web/server.js";
@@ -383,12 +386,13 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
           // attributes and silently ignored (docs/design.md, "存储格式容错").
           const summary =
             o.summary !== undefined ? o.summary : entry.summaryExplicit ? node.summary : undefined;
+          let outcome: WriteOutcome;
           if (node.type === "premise") {
             if (o.now === true && o.confirmed !== undefined) {
               io.stderr.write("error: --now and --confirmed are mutually exclusive\n");
               return 1;
             }
-            await store.updatePremise(id, {
+            outcome = await store.updatePremise(id, {
               body: o.body ?? content.body,
               summary,
               confirmed:
@@ -414,14 +418,21 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
               }
             }
             // Grounds validation runs inside the store's write method.
-            await store.updateConstraint(id, {
+            outcome = await store.updateConstraint(id, {
               body: o.body ?? content.body,
               summary,
               rationale: o.rationale ?? content.rationale,
               grounds: grounds ?? node.grounds,
             });
           }
-          emitWritten(io, opts, id, node.type, "updated");
+          const affected = await recordWriteOutcome(
+            io,
+            opts.root,
+            id,
+            "update",
+            outcome.change?.affected,
+          );
+          emitWritten(io, opts, id, node.type, "updated", affected);
           return 0;
         });
       }),
@@ -436,7 +447,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
       run(cmd, async (opts) => {
         const { force } = cmd.opts() as { force?: boolean };
         return withStoreForWrite(io, opts, async (store) => {
-          const results: Array<{ id: string; error?: string }> = [];
+          const results: Array<{ id: string; error?: string; pendingReview?: string[] }> = [];
           let failure = false;
           for (const id of ids) {
             const node = store.graph.nodes.get(id);
@@ -458,8 +469,15 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
               io.stderr.write(`warning: deleted "${id}" is still ${detail}\n`);
             }
             try {
-              await store.deleteNode(id);
-              results.push({ id });
+              const outcome = await store.deleteNode(id);
+              const affected = await recordWriteOutcome(
+                io,
+                opts.root,
+                id,
+                "delete",
+                outcome.change?.affected,
+              );
+              results.push(affected.length > 0 ? { id, pendingReview: affected } : { id });
             } catch (error) {
               results.push({
                 id,
@@ -472,7 +490,16 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
           else {
             io.stdout.write(
               `${results
-                .map((r) => (r.error === undefined ? `deleted ${r.id}` : `error: ${r.error}`))
+                .flatMap((r) => {
+                  if (r.error !== undefined) return [`error: ${r.error}`];
+                  const lines = [`deleted ${r.id}`];
+                  if (r.pendingReview !== undefined && r.pendingReview.length > 0) {
+                    lines.push(
+                      `待审查（下游受影响，已记入审核台账）：${r.pendingReview.join(", ")}`,
+                    );
+                  }
+                  return lines;
+                })
                 .join("\n")}\n`,
             );
           }
@@ -520,6 +547,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
   program.addCommand(createContextCommand(io, run));
   program.addCommand(createSearchCommand(io, run));
   program.addCommand(createPendingCommand(io, run));
+  program.addCommand(createReviewCommand(io, run));
   program.addCommand(createGuideCommand(io, run));
   program.addCommand(createSkillCommand(io, run));
 
@@ -549,10 +577,21 @@ function emitWritten(
   id: string,
   type: "premise" | "constraint",
   verb: "created" | "updated",
+  affected?: string[],
 ): void {
   const file = nodeRelativeFile(type, id);
-  if (opts.json) emit(io, { id, file });
-  else io.stdout.write(`${verb} ${id} (${join(".refino", file)})\n`);
+  if (opts.json) {
+    emit(io, {
+      id,
+      file,
+      ...(affected !== undefined && affected.length > 0 && { pendingReview: affected }),
+    });
+    return;
+  }
+  io.stdout.write(`${verb} ${id} (${join(".refino", file)})\n`);
+  if (affected !== undefined && affected.length > 0) {
+    io.stdout.write(`待审查（下游受影响，已记入审核台账）：${affected.join(", ")}\n`);
+  }
 }
 
 function emitNodes(io: CliIo, opts: GlobalOptions, nodes: RefinoNode[]): void {

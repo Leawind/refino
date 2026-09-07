@@ -160,6 +160,7 @@ describe("refino guide and skill", () => {
     expect(out).toContain("Git 流程审核");
     expect(out).toContain("refino context");
     expect(out).toContain("refino pending");
+    expect(out).toContain("refino review ack");
     expect(out).not.toContain("auth apply");
   });
 

@@ -29,6 +29,7 @@ Commands:
   context                    render the project overview (the task's opening context)
   search [options] [query]   paginated search over id prefixes and summaries
   pending [options]          nodes changed since a git baseline and their downstream pending-review constraints
+  review [command]           the pending-review ledger: list entries, or acknowledge them (a human action)
   guide                      print the full working protocol (written for models)
   skill [options]            print the SKILL.md content with install guidance
   help [command]             display help for command
