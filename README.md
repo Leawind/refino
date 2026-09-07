@@ -12,5 +12,6 @@
 请为当前环境安装 refino：
 
 1. 若当前环境是 DeepSeek Harness：安装 @refino/cordis-plugin-refino 插件。
-2. 否则：运行 npx -y @refino/cli skill --output <dir> 生成技能目录，将 <dir> 替换为适合你的环境的路径，SKILL.md将位于 <dir>/refino/SKILL.md。
+2. 若当前环境是 ZCode 或 Claude Code（或兼容 Claude Code 插件规范的 harness）：将 refino 仓库添加为插件 marketplace，安装 refino 插件（从源码安装需先构建：pnpm --filter @refino/cc-plugin build）。
+3. 否则：运行 npx -y @refino/cli skill --output <dir> 生成技能目录，将 <dir> 替换为适合你的环境的路径，SKILL.md将位于 <dir>/refino/SKILL.md。
 ```

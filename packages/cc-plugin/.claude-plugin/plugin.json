@@ -1,0 +1,10 @@
+{
+  "name": "refino",
+  "version": "0.0.1",
+  "description": "refino: CRG (Constraint Refinement Graph) task delimitation for coding agents — session context injection via hooks and model-facing CRG tools via a plugin MCP server. For hosts supporting the Claude Code plugin spec (first target: ZCode).",
+  "author": {
+    "name": "Leawind"
+  },
+  "license": "MIT",
+  "skills": "skills"
+}

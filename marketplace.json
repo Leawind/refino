@@ -1,0 +1,11 @@
+{
+  "name": "refino",
+  "description": "refino plugins: CRG (Constraint Refinement Graph) task delimitation for coding agents.",
+  "plugins": [
+    {
+      "name": "refino",
+      "description": "CRG task delimitation via the Claude Code plugin spec (hooks + MCP server + skill); first target host: ZCode. Requires the package's dist/ to be built (pnpm --filter @refino/cc-plugin build).",
+      "source": "./packages/cc-plugin"
+    }
+  ]
+}

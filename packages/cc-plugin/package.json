@@ -1,0 +1,24 @@
+{
+  "name": "@refino/cc-plugin",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Claude Code plugin form of refino: session-start context injection via hooks, model-facing CRG tools via a plugin MCP server, distributed through plugin marketplaces. First target host: ZCode.",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs && tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "clean": "node -e \"fs.rmSync('dist',{recursive:true,force:true})\""
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@refino/harness": "workspace:*",
+    "@refino/storage": "workspace:*",
+    "@refino/testkit": "workspace:*",
+    "esbuild": "^0.28.2",
+    "refino": "workspace:*"
+  }
+}

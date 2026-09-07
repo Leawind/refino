@@ -39,6 +39,7 @@ export {
   authorizationStatusText,
   initialContextText,
   orientationText,
+  reminderFrame,
   updateText,
 } from "./inject-text.js";
 export type { AuthorizationOrigin } from "./inject-text.js";

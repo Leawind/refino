@@ -19,6 +19,15 @@ export interface AuthorizationOrigin {
   signedAt: string;
 }
 
+/**
+ * Wrap text in the plugin-owned `<system-reminder>` frame; exported for
+ * host-specific texts that share the frame (e.g. the cc plugin's neutral
+ * resume line).
+ */
+export function reminderFrame(body: string): string {
+  return frame(body);
+}
+
 /** Wrap rendered context in the plugin-owned `<system-reminder>` frame. */
 function frame(body: string): string {
   return `<system-reminder>\n${sanitize(body)}\n</system-reminder>`;
