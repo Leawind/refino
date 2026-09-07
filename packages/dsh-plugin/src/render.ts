@@ -145,14 +145,13 @@ function renderIssue(issue: IssueLite): string {
 
 const ORIGIN_LABEL: Record<string, string> = {
   orchestrator: "编排者凭据",
-  workspace: "工作区签发",
+  session: "本会话内签发",
   default: "默认（未签发；全部根约束及其祖先被冻结）",
 } as const;
 
 /** Model-facing rendering of `refino_request_authorization` results. */
 export function renderSign(result: {
   ok: boolean;
-  revision?: number;
   frontier?: string[];
   frozen_constraints?: number;
   frozen_premises?: number;
@@ -172,7 +171,7 @@ export function renderSign(result: {
       .join("\n");
   }
   const lines = [
-    `已签发 revision ${result.revision}，写入用户级授权状态并即时生效。`,
+    "已签发，会话内即时生效（不落文件；resume 后回落，需要延续时重新签发）。",
     `- 冻结区：${result.frozen_constraints} 个约束、${result.frozen_premises} 个前提`,
     `- frontier：${result.frontier && result.frontier.length > 0 ? result.frontier.join(", ") : "（空，全部解冻）"}`,
   ];
@@ -190,28 +189,23 @@ export function renderSign(result: {
 /** Model-facing rendering of `refino_context` results. */
 export function renderContextStatus(result: {
   source: string;
-  revision: number;
   signed_at: string;
-  state_path?: string;
   frontier: string[];
   frozen_constraints: number;
   frozen_premises: number;
   anchors_complete: boolean;
   orchestrator_credential: boolean;
 }): string {
-  const origin =
-    result.source === "workspace"
-      ? `工作区签发（${result.state_path ?? "用户级状态"}）`
-      : (ORIGIN_LABEL[result.source] ?? result.source);
+  const label = ORIGIN_LABEL[result.source] ?? result.source;
+  const origin = result.source === "default" ? label : `${label}（signedAt ${result.signed_at}）`;
   const lines = [
     `授权来源：${origin}`,
-    `revision：${result.revision}（signedAt ${result.signed_at}）`,
     `冻结 frontier：${result.frontier.length > 0 ? result.frontier.join(", ") : "（空，全部解冻）"}`,
     `生效冻结区：${result.frozen_constraints} 个约束、${result.frozen_premises} 个前提`,
     `锚点注入策略：${result.anchors_complete ? "全图摘要" : "图超预算，概览加搜索按需定位"}`,
     result.orchestrator_credential
       ? "编排者凭据生效：签发被拒绝，调整冻结区须回到签发者。"
-      : "调整冻结区：refino_request_authorization（提议后须经用户批准）。",
+      : "调整冻结区：refino_request_authorization（提议后经用户批准，会话内生效）。",
   ];
   return lines.join("\n");
 }

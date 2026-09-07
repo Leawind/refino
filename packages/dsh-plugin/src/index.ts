@@ -5,10 +5,15 @@ import type {} from "@deepseek-ai/dsh-agent";
 import type { Agent, SessionStartSource } from "@deepseek-ai/dsh-agent";
 import type { ApprovalOutcome } from "@deepseek-ai/dsh-user-approval";
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
-import { authorizationContextOf, defaultAuthorizationContext } from "@refino/harness";
-import { resolveAuthorization } from "@refino/harness/state";
+import {
+  authorizationContextOf,
+  convergeAuthorization,
+  defaultAuthorizationContext,
+} from "@refino/harness";
+import { orchestratorCredential, readAuthorizationDocument } from "@refino/harness/state";
 import { DeltaCoalescer } from "./coalesce.js";
 import {
+  authorizationStatusText,
   initialContextText,
   orientationText,
   updateText,
@@ -22,14 +27,14 @@ import { RefinoWorkspace } from "./workspace.js";
 /**
  * refino plugin for the DeepSeek Harness (docs/design.md, dsh 插件落地形态):
  * at session start it locates the `.refino` directory for the session cwd,
- * loads the CRG under the effective authorization context — the shared
- * user-level state lane (orchestrator credential, then signed workspace
- * state, then the defaults) — registers the model-facing CRG tools on the
- * agent scope, and injects the initial task context as a durable
- * plugin-sourced message. Graphs above the auto-anchor budget get a minimal
- * orientation instead of silence. External `.refino` changes are watched and
- * delivered as coalesced delta updates; dialogue signing persists through
- * the state lane and survives resume.
+ * loads the CRG under the effective authorization context — an orchestrator
+ * credential when the environment provides one, the derived defaults
+ * otherwise — registers the model-facing CRG tools on the agent scope, and
+ * injects the initial task context as a durable plugin-sourced message.
+ * Graphs above the auto-anchor budget get a minimal orientation instead of
+ * silence. External `.refino` changes are watched and delivered as coalesced
+ * delta updates; dialogue signing lives in session memory only — the plugin
+ * writes no state files anywhere.
  */
 
 /** Cordis plugin name used by loader diagnostics. */
@@ -81,25 +86,26 @@ async function startSession(
     );
   }
 
-  // Resolve the effective authorization from the shared state lane; an
-  // unreadable lane falls back to the defaults rather than blocking the
-  // session (the write path still enforces whatever context ends up active).
-  const origin: AuthorizationOrigin = { source: "default", revision: 0, signedAt: "" };
-  try {
-    const resolved = await resolveAuthorization(workspace.graph, {
-      root: workspace.workspaceRoot,
-    });
-    origin.source = resolved.source;
-    origin.revision = resolved.doc.revision;
-    origin.signedAt = resolved.doc.signedAt;
-    origin.statePath = resolved.statePath;
-    if (resolved.source !== "default") {
-      // Adopt the signed document as session state; its delta is irrelevant
-      // here — the baseline injection below already reflects it.
-      workspace.signContext(authorizationContextOf(workspace.graph, resolved.doc));
+  // Resolve the effective authorization: an orchestrator credential when the
+  // environment provides one, the derived defaults otherwise. There is no
+  // persisted signing lane on the plugin side — in-session signings die with
+  // the process, and resume re-states the effective status in one line.
+  const origin: AuthorizationOrigin = { source: "default", signedAt: "" };
+  const credential = orchestratorCredential({}, process.env);
+  if (credential !== undefined) {
+    try {
+      const doc = convergeAuthorization(
+        workspace.graph,
+        await readAuthorizationDocument(credential),
+      );
+      // Adopt the credential as session state; its delta is irrelevant here —
+      // the baseline injection below already reflects it.
+      workspace.signContext(authorizationContextOf(workspace.graph, doc));
+      origin.source = "orchestrator";
+      origin.signedAt = doc.signedAt;
+    } catch (error) {
+      ctx.logger.warn("refino: orchestrator credential unreadable, using defaults: %o", error);
     }
-  } catch (error) {
-    ctx.logger.warn("refino: authorization state unreadable, using defaults: %o", error);
   }
 
   const originRecord = { ...origin };
@@ -115,10 +121,11 @@ async function startSession(
     agent.ctx.tools.register(tool);
   }
 
-  // Fresh sessions get the initial context; resumes re-register the tools but
-  // skip re-injection (the baseline is already in the session log). Sessions
-  // above the auto-anchor budget get a minimal orientation so the model can
-  // search instead of working blind.
+  // Fresh sessions get the initial context; resumes skip the baseline (it is
+  // already in the session log) but re-state the effective authorization, so
+  // the model never acts on a signing that fell back with the old process.
+  // Sessions above the auto-anchor budget get a minimal orientation so the
+  // model can search instead of working blind.
   if (source === "startup" || source === "clear") {
     if (defaultAuthorizationContext(workspace.graph).complete) {
       inject(
@@ -128,6 +135,8 @@ async function startSession(
     } else {
       inject(agent, orientationText(workspace.graph));
     }
+  } else if (source === "resume") {
+    inject(agent, authorizationStatusText(originRecord));
   }
 }
 

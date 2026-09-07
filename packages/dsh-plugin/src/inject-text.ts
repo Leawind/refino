@@ -47,11 +47,25 @@ export function initialContextText(
 /** Signing-ownership check: sequential tasks must notice a foreign signing. */
 function ownershipLine(origin: AuthorizationOrigin | undefined): string | undefined {
   if (origin === undefined) return undefined;
-  if (origin.source === "default") {
-    return "授权：默认上下文（revision 0，未签发）。";
+  if (origin.source === "default") return "授权：默认上下文（未签发）。";
+  if (origin.source === "session") {
+    return `授权：本会话内签发（signedAt ${origin.signedAt}）。`;
   }
-  const source = origin.source === "workspace" ? "用户级签发" : "编排者凭据（任务内不可自我扩张）";
-  return `授权：revision ${origin.revision}（signedAt ${origin.signedAt}，${source}）。若该签发不属于当前任务，请与用户确认后重新签发。`;
+  return `授权：编排者凭据（signedAt ${origin.signedAt}，任务内不可自我扩张）。若该签发不属于当前任务，请与用户确认后重新签发。`;
+}
+
+/**
+ * One-line status for resume: session signings died with the old process, so
+ * the model must never act on a grant it remembers from the session log.
+ */
+export function authorizationStatusText(origin: AuthorizationOrigin): string {
+  const body =
+    origin.source === "orchestrator"
+      ? `当前授权来自编排者凭据（signedAt ${origin.signedAt}），任务内不可自我扩张。`
+      : origin.source === "session"
+        ? `当前授权为本会话内签发（signedAt ${origin.signedAt}）。`
+        : "当前授权为默认上下文（未签发）；会话内签发不跨 resume，需要调整冻结区时经 refino_request_authorization 重新提议。";
+  return frame(`refino：会话已恢复。${body}`);
 }
 
 const ORIENTATION_ROOTS = 8;

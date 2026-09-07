@@ -94,13 +94,19 @@ export function orchestratorCredential(
   return req.authorization ?? env.REFINO_AUTHORIZATION;
 }
 
-async function readAuthorizationFile(path: string, what: string): Promise<SignedAuthorization> {
+/**
+ * Read and parse an orchestrator credential file. Shared by every
+ * integration form: the credential is the one authorization artifact the
+ * plugin consumes (never produces), so the tool side stays file-free while
+ * orchestrated tasks still receive their per-task context.
+ */
+export async function readAuthorizationDocument(path: string): Promise<SignedAuthorization> {
   let raw: string;
   try {
     raw = await readFile(path, "utf8");
   } catch (error) {
     throw new Error(
-      `cannot read ${what} at ${path}: ${error instanceof Error ? error.message : String(error)}`,
+      `cannot read authorization document at ${path}: ${error instanceof Error ? error.message : String(error)}`,
       { cause: error },
     );
   }
@@ -108,7 +114,7 @@ async function readAuthorizationFile(path: string, what: string): Promise<Signed
     return parseSignedAuthorization(JSON.parse(raw));
   } catch (error) {
     throw new Error(
-      `invalid ${what} at ${path}: ${error instanceof Error ? error.message : String(error)}`,
+      `invalid authorization document at ${path}: ${error instanceof Error ? error.message : String(error)}`,
       { cause: error },
     );
   }
@@ -196,7 +202,7 @@ export async function resolveAuthorization(
 ): Promise<ResolvedAuthorization> {
   const credential = orchestratorCredential(req, env);
   if (credential !== undefined) {
-    const signed = await readAuthorizationFile(credential, "authorization document");
+    const signed = await readAuthorizationDocument(credential);
     const doc = convergeAuthorization(graph, signed);
     return { signed, doc, source: "orchestrator" };
   }

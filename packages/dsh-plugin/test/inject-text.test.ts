@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { buildGraph } from "refino";
 import type { Graph, RefinoNode } from "refino";
-import { initialContextText, orientationText, updateText } from "../src/inject-text.js";
+import {
+  initialContextText,
+  authorizationStatusText,
+  orientationText,
+  updateText,
+} from "../src/inject-text.js";
 import { defaultAuthorizationContext } from "@refino/harness";
 
 function node(id: string, type: "premise" | "constraint", grounds?: string[]): RefinoNode {
@@ -53,35 +58,53 @@ describe("initialContextText", () => {
     expect(text.lastIndexOf("</system-reminder>")).toBe(text.length - "</system-reminder>".length);
   });
 
-  it("carries the signing-ownership line and the signing path", () => {
-    const graph = fixtureGraph();
-    const text = initialContextText(graph, defaultAuthorizationContext(graph).context, {
-      source: "workspace",
-      revision: 3,
-      signedAt: "2026-09-07T00:00:00.000Z",
-      statePath: "/h/w.json",
-    });
-    expect(text).toContain("revision 3（signedAt 2026-09-07T00:00:00.000Z，用户级签发）");
-    expect(text).toContain("若该签发不属于当前任务");
-    expect(text).toContain("refino_request_authorization");
-  });
-
-  it("marks an orchestrator credential as non-self-serviceable and omits the line when absent", () => {
+  it("carries the signing-ownership line for session and orchestrator origins", () => {
     const graph = fixtureGraph();
     const context = defaultAuthorizationContext(graph).context;
-    const orchestrated = initialContextText(graph, context, {
-      source: "orchestrator",
-      revision: 5,
+    const session = initialContextText(graph, context, {
+      source: "session",
       signedAt: "2026-09-07T00:00:00.000Z",
     });
-    expect(orchestrated).toContain("编排者凭据（任务内不可自我扩张）");
+    expect(session).toContain("授权：本会话内签发（signedAt 2026-09-07T00:00:00.000Z）");
+    expect(session).toContain("refino_request_authorization");
+    const orchestrated = initialContextText(graph, context, {
+      source: "orchestrator",
+      signedAt: "2026-09-07T00:00:00.000Z",
+    });
+    expect(orchestrated).toContain(
+      "编排者凭据（signedAt 2026-09-07T00:00:00.000Z，任务内不可自我扩张）",
+    );
+    expect(orchestrated).toContain("若该签发不属于当前任务");
+  });
+
+  it("marks the default origin and omits the line when absent", () => {
+    const graph = fixtureGraph();
+    const context = defaultAuthorizationContext(graph).context;
     expect(initialContextText(graph, context)).not.toContain("授权：");
     const defaulted = initialContextText(graph, context, {
       source: "default",
-      revision: 0,
       signedAt: "",
     });
-    expect(defaulted).toContain("授权：默认上下文（revision 0，未签发）");
+    expect(defaulted).toContain("授权：默认上下文（未签发）");
+  });
+
+  it("restating after resume tells the model the effective authorization in one line", () => {
+    const defaulted = authorizationStatusText({ source: "default", signedAt: "" });
+    expect(defaulted).toContain("会话已恢复");
+    expect(defaulted).toContain("默认上下文（未签发）");
+    expect(defaulted).toContain("会话内签发不跨 resume");
+    expect(defaulted).toContain("refino_request_authorization");
+    const orchestrated = authorizationStatusText({
+      source: "orchestrator",
+      signedAt: "2026-09-07T00:00:00.000Z",
+    });
+    expect(orchestrated).toContain("编排者凭据（signedAt 2026-09-07T00:00:00.000Z");
+    expect(orchestrated).toContain("不可自我扩张");
+    const session = authorizationStatusText({
+      source: "session",
+      signedAt: "2026-09-07T00:00:00.000Z",
+    });
+    expect(session).toContain("本会话内签发");
   });
 });
 

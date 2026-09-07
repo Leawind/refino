@@ -8,7 +8,6 @@ import {
   type DeltaEvent,
 } from "@refino/harness";
 import { RefinoStore, type StoreChange, type StoreIssue } from "@refino/storage";
-import { dirname } from "node:path";
 import type { Graph, RefinoNode } from "refino";
 
 /**
@@ -81,11 +80,6 @@ export class RefinoWorkspace {
 
   get refinoDir(): string {
     return this.#store.refinoDir;
-  }
-
-  /** The project root containing `.refino/`; keys the user-level state lane. */
-  get workspaceRoot(): string {
-    return dirname(this.#store.refinoDir);
   }
 
   get store(): RefinoStore {

@@ -5,18 +5,10 @@ import {
   defaultAuthorizationContext,
   frozenZone,
   HarnessError,
-  materializeDefaultAuthorization,
   type ApplyPreview,
   type SignedAuthorization,
 } from "@refino/harness";
-import {
-  HISTORY_LIMIT,
-  orchestratorCredential,
-  readWorkspaceState,
-  workspaceStatePath,
-  writeWorkspaceState,
-  type ResolvedAuthorization,
-} from "@refino/harness/state";
+import { orchestratorCredential } from "@refino/harness/state";
 import { renderContextStatus, renderSign } from "./render.js";
 import { updateText } from "./inject-text.js";
 import { requireWorkspace } from "./internal.js";
@@ -27,18 +19,20 @@ import type { RefinoWorkspace } from "./workspace.js";
  * model drafts a frozen-zone split, presents it in conversation, and the
  * tool asks the host's approval surface for an explicit human allow before
  * anything takes effect — fail-closed, and refused outright while an
- * orchestrator credential is active. An approved signing persists to the
- * shared user-level state lane (same file `refino auth apply` writes), so it
- * survives resume and is visible to the CLI.
+ * orchestrator credential is active. An approved signing applies to the
+ * session and goes out as one delta injection; it lives in process memory
+ * only — the plugin writes no state files anywhere (docs/design.md,
+ * 「授权状态的作用域」: the plugin form's conversation lane is the session).
  */
 
-/** Where and when the effective authorization came from; surfaced by refino_context. */
+/**
+ * Where the effective authorization came from; surfaced by refino_context
+ * and the injected status lines. Session signings carry the moment they were
+ * approved; nothing else persists.
+ */
 export interface AuthorizationOrigin {
-  source: ResolvedAuthorization["source"];
-  revision: number;
+  source: "default" | "orchestrator" | "session";
   signedAt: string;
-  /** Workspace state file path; absent for orchestrator and default origins. */
-  statePath?: string;
 }
 
 export interface SigningDeps {
@@ -60,10 +54,13 @@ export function createSigningTools(deps: SigningDeps): ToolDefinition[] {
 
 function requestAuthorizationTool(deps: SigningDeps): ToolDefinition {
   const env = deps.env ?? process.env;
+  // Session-local signing counter; purely cosmetic (nothing consumes it),
+  // it gives each in-session signing a distinct document revision.
+  let sessionRevision = 0;
   return defineTool({
     name: "refino_request_authorization",
     description:
-      "提议新的冻结区划分并请求用户批准（对话签发，frontier 整体替换）。调用前必须先在对话中向用户呈现完整的划分草案与理由。用户批准后立即生效并持久化；拒绝、取消或审批面不可用时授权维持现状。编排者凭据生效时本工具拒绝执行——任务内授权不可自我扩张。",
+      "提议新的冻结区划分并请求用户批准（对话签发，frontier 整体替换）。调用前必须先在对话中向用户呈现完整的划分草案与理由。用户批准后在会话内立即生效（不落文件，resume 后回落）；拒绝、取消或审批面不可用时授权维持现状。编排者凭据生效时本工具拒绝执行——任务内授权不可自我扩张。",
     parameters: {
       frozen_frontier: {
         type: "array",
@@ -85,14 +82,6 @@ function requestAuthorizationTool(deps: SigningDeps): ToolDefinition {
             "编排者凭据（REFINO_AUTHORIZATION）生效：任务内授权不可自我扩张，调整冻结区须回到签发者。",
         };
       }
-      const statePath = workspaceStatePath(ws.workspaceRoot, env);
-      let state: Awaited<ReturnType<typeof readWorkspaceState>>;
-      try {
-        state = await readWorkspaceState(statePath);
-      } catch (error) {
-        return { ok: false, error: `读取授权状态失败：${message(error)}` };
-      }
-      const baseRevision = state?.current.revision ?? 0;
 
       let doc: SignedAuthorization;
       let preview: ApplyPreview;
@@ -100,38 +89,18 @@ function requestAuthorizationTool(deps: SigningDeps): ToolDefinition {
         ({ doc, preview } = applyAuthorization(
           graph,
           { frozenFrontier: args.frozen_frontier },
-          { revision: baseRevision + 1 },
+          { revision: sessionRevision + 1 },
         ));
       } catch (error) {
         if (error instanceof HarnessError) return { ok: false, error: error.message };
         throw error;
       }
+      sessionRevision += 1;
 
       const outcome = await deps.requestApproval(approvalReason(args.rationale, doc, preview));
       if (outcome !== "allowed-once") {
         return { ok: false, outcome, error: OUTCOME_TEXT[outcome] ?? "未获批准，授权维持现状。" };
       }
-
-      // The human took time to decide; the lane may have moved meanwhile.
-      const latest = await readWorkspaceState(statePath);
-      const currentRevision = latest?.current.revision ?? 0;
-      if (currentRevision !== baseRevision) {
-        return {
-          ok: false,
-          error: `签发冲突：授权状态已在他处变化（期望 revision ${baseRevision}，当前 ${currentRevision}）；请重新运行 refino_context 后再次提议。`,
-        };
-      }
-
-      const history =
-        latest !== undefined
-          ? [latest.current, ...latest.history]
-          : // First signing: seed the history with the implicit default so
-            // the next task can diff its signing against what was in effect.
-            [materializeDefaultAuthorization(graph)];
-      await writeWorkspaceState(statePath, {
-        current: doc,
-        history: history.slice(0, HISTORY_LIMIT),
-      });
 
       // Apply to the live session and push the delta: the signed list is the
       // same object shape as the session context's frozen list, and anchors
@@ -141,16 +110,10 @@ function requestAuthorizationTool(deps: SigningDeps): ToolDefinition {
         frozen: doc.frozenFrontier,
       });
       deps.inject(updateText(delta, []));
-      deps.setOrigin({
-        source: "workspace",
-        revision: doc.revision,
-        signedAt: doc.signedAt,
-        statePath,
-      });
+      deps.setOrigin({ source: "session", signedAt: doc.signedAt });
 
       return {
         ok: true,
-        revision: doc.revision,
         frontier: doc.frozenFrontier,
         frozen_constraints: preview.frozenConstraints,
         frozen_premises: preview.frozenPremises,
@@ -169,7 +132,7 @@ function contextStatusTool(deps: SigningDeps): ToolDefinition {
   return defineTool({
     name: "refino_context",
     description:
-      "重述当前生效的授权：来源、revision 与签发时间、冻结 frontier、冻结区计数、锚点注入策略，以及编排者凭据是否生效（生效时签发被拒绝）。",
+      "重述当前生效的授权：来源与签发时间、冻结 frontier、冻结区计数、锚点注入策略，以及编排者凭据是否生效（生效时签发被拒绝）。",
     parameters: {},
     output: { schema: contextStatusSchema(), render: renderContextStatusValue },
     async execute() {
@@ -179,9 +142,7 @@ function contextStatusTool(deps: SigningDeps): ToolDefinition {
       const origin = deps.origin();
       return {
         source: origin.source,
-        revision: origin.revision,
         signed_at: origin.signedAt,
-        ...(origin.statePath !== undefined && { state_path: origin.statePath }),
         frontier: [...ws.authorizationContext.frozen],
         frozen_constraints: zone.filter((n) => n.type === "constraint").length,
         frozen_premises: zone.filter((n) => n.type === "premise").length,
@@ -198,9 +159,9 @@ function approvalReason(
   preview: ApplyPreview,
 ): string {
   return [
-    "refino 冻结区签发请求（对话签发）：",
+    "refino 冻结区签发请求（对话签发，会话内生效）：",
     rationale !== undefined && rationale.length > 0 ? `理由：${rationale}` : "理由：（模型未提供）",
-    `新冻结区：${preview.frozenConstraints} 个约束、${preview.frozenPremises} 个前提；revision 将为 ${doc.revision}`,
+    `新冻结区：${preview.frozenConstraints} 个约束、${preview.frozenPremises} 个前提`,
     `frontier：${doc.frozenFrontier.length > 0 ? doc.frozenFrontier.join(", ") : "（空，全部解冻）"}`,
     ...(preview.redundantFrontier.length > 0
       ? [`frontier 归约：${preview.redundantFrontier.join(", ")} 被其他 frontier 约束覆盖`]
@@ -208,7 +169,7 @@ function approvalReason(
     ...(preview.unfrozenRoots.length > 0
       ? [`警告：以下根约束将解冻，需要项目最高级别的授权：${preview.unfrozenRoots.join(", ")}`]
       : []),
-    "批准后立即生效并写入用户级授权状态；拒绝则维持当前授权。",
+    "批准后在会话内立即生效；拒绝则维持当前授权。",
   ].join("\n");
 }
 
@@ -219,10 +180,6 @@ const OUTCOME_TEXT: Record<ApprovalOutcome, string> = {
   cancelled: "签发请求已取消；授权维持现状。",
   unavailable: "宿主审批面不可用（无应答者或处于免审批策略）：无法获得人的明确批准，签发未生效。",
 };
-
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 /** Render adapter over the schema-loose value the tool schema hands back. */
 function renderSignValue(_args: unknown, value: unknown) {
@@ -235,7 +192,6 @@ function renderContextStatusValue(_args: unknown, value: unknown) {
 
 interface SignResultValue {
   ok: boolean;
-  revision?: number;
   frontier?: string[];
   frozen_constraints?: number;
   frozen_premises?: number;
@@ -251,7 +207,6 @@ function signResultSchema() {
     additionalProperties: false,
     properties: {
       ok: { type: "boolean", required: true },
-      revision: { type: "integer" },
       frontier: { type: "array", items: { type: "string" } },
       frozen_constraints: { type: "integer" },
       frozen_premises: { type: "integer" },
@@ -265,9 +220,7 @@ function signResultSchema() {
 
 interface ContextStatusValue {
   source: string;
-  revision: number;
   signed_at: string;
-  state_path?: string;
   frontier: string[];
   frozen_constraints: number;
   frozen_premises: number;
@@ -281,9 +234,7 @@ function contextStatusSchema() {
     additionalProperties: false,
     properties: {
       source: { type: "string", required: true },
-      revision: { type: "integer", required: true },
       signed_at: { type: "string", required: true },
-      state_path: { type: "string" },
       frontier: { type: "array", items: { type: "string" }, required: true },
       frozen_constraints: { type: "integer", required: true },
       frozen_premises: { type: "integer", required: true },
