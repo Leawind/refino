@@ -18,9 +18,23 @@ refino 的 [DeepSeek Harness（dsh）](https://github.com/deepseek-ai/deepseek-h
 
 ## 安装
 
-```
+从 npm 安装：
+
+```sh
 dsh plugin --profile <profile> add @refino/dsh-plugin
 ```
+
+从源码安装：
+
+```sh
+pnpm --filter @refino/dsh-plugin build
+
+dsh plugin --profile <profile> add /path/to/refino/packages/dsh-plugin
+```
+
+安装后可用 `dsh --profile <profile> --dump-config` 确认合成配置中出现 `@refino/dsh-plugin` 的补丁层。
+
+`link:` 安装是活的，但 dsh 加载的是 `dist`：修改本插件或其 workspace 依赖（`refino`、`@refino/storage`、`@refino/harness`）的源码后，需重建对应包的 `dist` 并重启 dsh，否则运行的仍是旧代码。
 
 依赖的 `@deepseek-ai/*` 包以精确版本锁定（dsh 处于 developer preview，接口可能有破坏性变更）；对 dsh 的依赖为薄封装，仅使用 Cordis 上下文、工具定义助手与消息构造助手。
 
