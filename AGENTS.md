@@ -27,6 +27,16 @@
   - 提交前必须执行 `pnpm format && pnpm check` 格式化并检查，通过后才能提交
 - 若踩到值得记录的坑，可在任务完成后报告
 
+## 提交规范
+
+采用 Conventional Commits，格式为 `type(scope): subject`，scope 可省略。
+
+- type 取值：`feat`、`fix`、`docs`、`refactor`、`chore`、`build`、`ci`、`test`、`style`
+- scope 取值：包名（`ui`、`cli`、`storage`、`refino`、`harness`、`dsh-plugin`、`testkit`）或流程/文档名（`design`、`crg`、`agents`、`release`、`npm`）；多包联动用逗号并列，如 `refactor(harness,cli)!:`
+- 破坏性变更：在 `:` 前加 `!`，并在 body 末尾附 `BREAKING CHANGE:` 脚注说明破坏内容
+- subject 用英语，小写开头（专有名词、包名除外），祈使或一般现在时，结尾不加句号；多个要点可用分号或破折号串联
+- body 约 72 字符折行，先动机后行为，可用 `-` 列表
+
 ## 踩坑记录
 
 实现中踩过并确认的坑，供后续任务避让；条目应写清现象与结论，不罗列排查过程。
