@@ -1,8 +1,9 @@
 <script setup lang="ts">
 // Review drawer (README, "审阅抽屉"): the bell accumulates changes since the
 // last look; the drawer lists them with their write origin and the server's
-// pending-review queue with per-node acknowledgements. Acknowledgements are
-// client preferences — the graph is never touched.
+// review ledger with per-node acknowledgements. Acknowledgements persist in
+// the workspace ledger (shared with `refino review ack`) — the graph is
+// never touched.
 import { useI18n } from "vue-i18n";
 import { NBadge, NButton, NDrawer, NDrawerContent, NEmpty, NTag } from "naive-ui";
 import { NotificationsOutline } from "@vicons/ionicons5";
@@ -47,14 +48,14 @@ function labelOf(id: string): string {
   >
     <NDrawerContent :title="t('review.title')" closable>
       <section class="section">
-        <h3>{{ t("review.pending") }} ({{ review.pendingVisible.value.length }})</h3>
+        <h3>{{ t("review.pending") }} ({{ review.pending.value.length }})</h3>
         <NEmpty
-          v-if="review.pendingVisible.value.length === 0"
+          v-if="review.pending.value.length === 0"
           :description="t('review.none')"
           size="small"
         />
         <ul v-else class="entries">
-          <li v-for="node in review.pendingVisible.value" :key="node.id" class="entry">
+          <li v-for="node in review.pending.value" :key="node.id" class="entry">
             <div class="texts">
               <span class="summary">
                 {{ node.summary === "" ? t("node.untitled") : node.summary }}

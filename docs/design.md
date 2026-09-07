@@ -272,7 +272,7 @@ Web 层只保留 HTTP 语义：
 
 - **revision 与乐观并发**：Store 的全局 revision 与 per-node revision 驱动 SSE 推送与 PUT 的 409 判定；纯 body 编辑对常驻字段不可见，mtime 保证这类修改同样递增 revision 并经 SSE 推送，使乐观并发覆盖正文级外部修改。
 - **变更来源**：SSE 事件的 `origin: "api" | "file"` 标注变更入口（界面/API 写入或外部文件事件），供变更审阅标注来源，不承诺区分具体客户端。
-- **待审查集合**：自最近一次 `POST /api/reload`（或服务启动）起累积 Store 变更事件的 `affected`；被删除的变更节点以其旧图下游计入。确认状态存于客户端偏好（按 id+revision 键，节点再变更自动重新挂起），不进图数据（派生态不持久化）。
+- **待审查集合**：审核台账（见“通用接入形态”）——API 写入在响应前把变更批的 `affected` 记入台账，外部文件事件经同一索引入口尽力记录；被删除的变更节点以其旧图下游计入。确认经 `POST /api/pending/ack` 写入台账（与 CLI 的 `refino review ack` 共享同一状态），跨重载与服务重启持久，不进图数据。
 
 当前 `@refino/storage` 的全量目录扫描只适合小规模图；大规模索引的方案（持久化索引等）是后续设计课题，落地前以 Store 的常驻内存投影为 v1 实现。
 
@@ -290,7 +290,8 @@ Web 层只保留 HTTP 语义：
     返回的节点序列只含约束节点与两个端点自身（端点为前提时保留）。
 - `GET /api/search`：资源浏览器、命令面板与依据选择器的分页搜索，`?q=&type=&limit=&cursor=&roots=`，轻量返回（id、类型、摘要）；`roots` 过滤仅返回 grounds 为空的约束，供画布冷启动种子。
 - `GET /api/stats`：项目计数（节点总数、约束数、前提数、根约束数），常驻索引直接聚合。
-- `GET /api/pending`：待审查约束清单。服务端在变更批处理入口以 harness `pendingReview` 相同的派生逻辑维护“自最近一次 `POST /api/reload`（或服务启动）以来直接依赖过变更节点的约束”；被删除的变更节点以其旧图下游计入。确认状态存于客户端偏好（按 id+revision 键，节点再变更自动重新挂起），不进图数据（派生态不持久化）。
+- `GET /api/pending`：待审查清单，即审核台账（派生入账、持久于 `.refino/state/`，见“通用接入形态”）中收敛后的条目，轻量返回（id、类型、摘要、致因与入账时间）。
+- `POST /api/pending/ack`：`{ ids }` 确认条目并从台账移除（人的动作，与 CLI 的 `refino review ack` 同一状态）。
 
 资源浏览器与命令面板不得全量渲染，须经 `/api/search` 分页。
 

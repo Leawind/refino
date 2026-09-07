@@ -63,8 +63,12 @@ export interface RefinoClient {
   /** GET /api/validate — the current issues and revision. */
   fetchIssues(): Promise<{ ok: boolean; issues: IssueRecord[]; revision: number }>;
 
-  /** GET /api/pending — constraints pending review since the last reload. */
+  /** GET /api/pending — review-ledger entries awaiting human review. */
   fetchPending(): Promise<{ revision: number; nodes: SearchNode[] }>;
+
+  /** POST /api/pending/ack — acknowledge reviewed entries (a human action);
+   * persists in the workspace review ledger shared with `refino review`. */
+  ackPending(ids: readonly string[]): Promise<{ ok: boolean }>;
 
   /** POST /api/reload — authoritative full rescan. */
   reloadGraph(): Promise<ChangeEvent>;
@@ -136,6 +140,7 @@ export function createHttpClient(): RefinoClient {
     fetchNode: (id) => request(`/api/nodes/${id}`),
     fetchIssues: () => request("/api/validate"),
     fetchPending: () => request("/api/pending"),
+    ackPending: (ids) => post("/api/pending/ack", { ids: [...ids] }),
     reloadGraph: () => request("/api/reload", { method: "POST" }),
     createNode: (type, payload) => post(`/api/nodes/${type}`, payload),
     updateNode: (id, payload, revision) =>

@@ -22,6 +22,7 @@ import {
   getSearch,
   getStats,
   getPending,
+  postPendingAck,
   postQueryExpand,
   postQueryGrounds,
   postQueryNeighbors,
@@ -108,6 +109,7 @@ function createWeb(options: WebAppOptions): WebParts {
           RefinoStore.open(options.refinoDir, {
             watch: { debounceMs: options.watchDebounceMs ?? 500 },
           }),
+          options.refinoDir,
         )
       : undefined;
 
@@ -189,6 +191,10 @@ function createWeb(options: WebAppOptions): WebParts {
   app.get(
     "/api/pending",
     api((c, web) => getPending(c, web)),
+  );
+  app.post(
+    "/api/pending/ack",
+    api((c, web) => postPendingAck(c, web)),
   );
 
   // SSE change feed: an initial snapshot event, then one event per applied

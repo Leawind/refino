@@ -7,9 +7,9 @@ import type { SearchNode } from "./types";
 /**
  * Review flow state (README, "审阅抽屉"): changes arriving over SSE
  * accumulate as entries since the drawer was last looked at, and the
- * server's pending-review set (docs/crg.md 1.6) renders alongside them.
- * Acknowledgements are client preferences keyed by the global revision the
- * node last changed at — a node that changes again re-pends automatically.
+ * server's review ledger (docs/crg.md 1.6) renders alongside them.
+ * Acknowledgements persist in the workspace ledger via POST /api/pending/ack
+ * — they survive reloads and are shared with the CLI's `refino review ack`.
  * The derived states never touch the graph.
  */
 
@@ -20,19 +20,7 @@ export interface ChangeEntry {
   deleted: boolean;
 }
 
-const ACK_KEY = "refino.review.acked";
 const MAX_ENTRIES = 200;
-
-function loadAcked(): Record<string, number> {
-  try {
-    const raw = localStorage.getItem(ACK_KEY);
-    if (raw === null) return {};
-    const parsed: unknown = JSON.parse(raw);
-    return typeof parsed === "object" && parsed !== null ? (parsed as Record<string, number>) : {};
-  } catch {
-    return {};
-  }
-}
 
 export function createReview(client: RefinoClient, workspace: Workspace) {
   const state = reactive({
@@ -42,12 +30,8 @@ export function createReview(client: RefinoClient, workspace: Workspace) {
     entries: [] as ChangeEntry[],
     /** Entries at or below this revision count as seen. */
     lastSeenRevision: 0,
-    /** The server's pending-review set, refreshed when the drawer opens. */
+    /** The server's review ledger, refreshed when the drawer opens or acks. */
     pending: [] as SearchNode[],
-    /** id -> global revision the node was last seen changing at. */
-    changedAt: new Map<string, number>(),
-    /** id -> global revision at which the user marked it reviewed. */
-    acked: loadAcked() as Record<string, number>,
   });
 
   function record(
@@ -56,7 +40,6 @@ export function createReview(client: RefinoClient, workspace: Workspace) {
     origin: "api" | "file" | undefined,
     revision: number,
   ): void {
-    state.changedAt.set(id, revision);
     const existing = state.entries.find((entry) => entry.id === id);
     if (existing !== undefined) {
       existing.revision = revision;
@@ -76,6 +59,9 @@ export function createReview(client: RefinoClient, workspace: Workspace) {
     if (event.reload === true) return;
     for (const id of event.changed) record(id, false, event.origin, event.revision);
     for (const id of event.deleted) record(id, true, event.origin, event.revision);
+    // A change may have pulled new entries into the review ledger; keep an
+    // open drawer current.
+    if (state.open) void refreshPending();
   });
 
   /** Changes the user has not looked at yet. */
@@ -83,30 +69,12 @@ export function createReview(client: RefinoClient, workspace: Workspace) {
     state.entries.filter((entry) => entry.revision > state.lastSeenRevision),
   );
 
-  /** Pending constraints not acknowledged since their last change. */
-  const pendingVisible = computed(() =>
-    state.pending.filter(
-      (node) => (state.acked[node.id] ?? 0) < (state.changedAt.get(node.id) ?? 0),
-    ),
-  );
-
-  function saveAcked(): void {
-    try {
-      localStorage.setItem(ACK_KEY, JSON.stringify(state.acked));
-    } catch {
-      // Preferences are best-effort.
-    }
-  }
+  /** The server's review-ledger entries awaiting acknowledgement. */
+  const pending = computed(() => state.pending);
 
   async function refreshPending(): Promise<void> {
     try {
-      const result = await client.fetchPending();
-      // Pending ids the client never saw change (page opened later) anchor
-      // at the current revision so they can be acknowledged meaningfully.
-      for (const node of result.nodes) {
-        if (!state.changedAt.has(node.id)) state.changedAt.set(node.id, workspace.state.revision);
-      }
-      state.pending = result.nodes;
+      state.pending = (await client.fetchPending()).nodes;
     } catch {
       // The pending queue is advisory; keep the previous one.
     }
@@ -122,15 +90,19 @@ export function createReview(client: RefinoClient, workspace: Workspace) {
     state.open = false;
   }
 
-  function ack(id: string): void {
-    state.acked[id] = state.changedAt.get(id) ?? workspace.state.revision;
-    saveAcked();
+  async function ack(id: string): Promise<void> {
+    try {
+      await client.ackPending([id]);
+      await refreshPending();
+    } catch {
+      // Best-effort alongside the CLI; the entry simply stays pending.
+    }
   }
 
   return {
     state: readonly(state),
     unseen,
-    pendingVisible,
+    pending,
     openDrawer,
     closeDrawer,
     ack,

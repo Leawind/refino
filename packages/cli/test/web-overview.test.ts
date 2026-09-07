@@ -90,11 +90,20 @@ describe("GET /api/search unreferenced filter", () => {
 });
 
 describe("GET /api/pending", () => {
-  // Each test gets one app for all its requests: the pending set lives in
-  // the index's memory and must not be recreated between calls.
+  // All tests share one fixture repository, hence one review ledger; each
+  // starts by acknowledging leftovers so assertions see a known state.
   const newApp = (): ReturnType<typeof createWebApp> => createWebApp({ refinoDir });
 
-  it("starts empty and accumulates the direct dependents of changed nodes", async () => {
+  async function ack(ids: string[]): Promise<void> {
+    const res = await app().request("/api/pending/ack", {
+      method: "POST",
+      body: JSON.stringify({ ids }),
+    });
+    expect(res.status).toBe(200);
+  }
+
+  it("records the direct dependents of API writes into the ledger", async () => {
+    await ack([C1]);
     const target = newApp();
     const initial = await target.request("/api/pending");
     expect(((await initial.json()) as { nodes: unknown[] }).nodes).toEqual([]);
@@ -106,12 +115,16 @@ describe("GET /api/pending", () => {
     expect(updated.status).toBe(200);
 
     const pending = await target.request("/api/pending");
-    const body = (await pending.json()) as { revision: number; nodes: Array<{ id: string }> };
+    const body = (await pending.json()) as {
+      revision: number;
+      nodes: Array<{ id: string; type: string; source: string; kind: string }>;
+    };
     expect(body.nodes.map((n) => n.id)).toEqual([C1]);
-    expect(body.nodes[0]).toMatchObject({ type: "constraint" });
+    expect(body.nodes[0]).toMatchObject({ type: "constraint", source: R1, kind: "update" });
   });
 
-  it("restarts the accumulation window on POST /api/reload", async () => {
+  it("persists across reloads; acknowledgement clears entries", async () => {
+    await ack([C1]);
     const target = newApp();
     const touched = await target.request(`/api/nodes/${R1}`, {
       method: "PUT",
@@ -121,11 +134,18 @@ describe("GET /api/pending", () => {
     const before = (await (await target.request("/api/pending")).json()) as {
       nodes: Array<{ id: string }>;
     };
-    expect(before.nodes.length).toBeGreaterThan(0);
+    expect(before.nodes.map((n) => n.id)).toEqual([C1]);
 
+    // Review obligations survive reloads — they resolve by acknowledgement,
+    // not by restarting the accumulation window.
     const reloaded = await target.request("/api/reload", { method: "POST" });
     expect(reloaded.status).toBe(200);
+    const afterReload = (await (await target.request("/api/pending")).json()) as {
+      nodes: Array<{ id: string }>;
+    };
+    expect(afterReload.nodes.map((n) => n.id)).toEqual([C1]);
 
+    await ack([C1]);
     const pending = await target.request("/api/pending");
     expect(((await pending.json()) as { nodes: unknown[] }).nodes).toEqual([]);
   });
@@ -133,19 +153,22 @@ describe("GET /api/pending", () => {
 
 describe("pending derivation for externally deleted nodes", () => {
   it("adds the pre-mutation dependents of a deleted change target", async () => {
-    // A fresh web state over the same directory starts with an empty window.
+    // A fresh web state over the same directory shares the ledger.
     const store = RefinoStore.open(refinoDir);
-    const web = new WebState(store);
+    const web = new WebState(store, refinoDir);
     try {
       await store.ready();
-      expect(web.pending()).toHaveLength(0);
+      await web.ack([C1]);
+      expect(await web.pending()).toHaveLength(0);
 
       // Deleting P1 externally leaves C1 (its dependent, captured pre-mutation)
       // reviewing the removal.
       await rm(join(refinoDir, "nodes", "1A", "2B3C4D-premise.md"));
       const event = await store.applyChange({ deleted: [P1], origin: "file" });
       expect(event?.deleted).toEqual([P1]);
-      expect(web.pending().map((n) => n.id)).toEqual([C1]);
+      const pending = await web.pending();
+      expect(pending.map((n) => n.id)).toEqual([C1]);
+      expect(pending[0]).toMatchObject({ source: P1, kind: "delete" });
     } finally {
       web.close();
       store.close();
