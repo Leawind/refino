@@ -1,5 +1,5 @@
-# The @refino/dsh-plugin bundle patch: one row mounting the refino plugin.
-# Installed into a profile via `dsh plugin --profile <name> add @refino/dsh-plugin`.
+# The @refino/cordis-plugin-refino bundle patch: one row mounting the refino plugin.
+# Installed into a profile via `dsh plugin --profile <name> add @refino/cordis-plugin-refino`.
 - insert:
     - id: refino
-      name: "@refino/dsh-plugin"
+      name: "@refino/cordis-plugin-refino"

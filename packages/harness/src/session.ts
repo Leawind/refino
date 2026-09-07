@@ -17,7 +17,7 @@ import type { AuthorizationContext, ContextBlock, DeltaEvent, ModificationCheck 
 
 /**
  * Host adapter interface (docs/design.md, "harness 与工具插件的分工"). Tool
- * plugins (e.g. `@refino/dsh-plugin`) register the session's capabilities
+ * plugins (e.g. `@refino/cordis-plugin-refino`) register the session's capabilities
  * with their host and deliver context updates through it; the host decides
  * how context blocks and delta events reach the model.
  */

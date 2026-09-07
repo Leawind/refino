@@ -97,7 +97,7 @@ refino 在\`.refino/\` 目录中维护的约束细化图（CRG），记录项目
 export function skillText(): string {
   return `## 为 Harness 接入 refino
 
-1. 若当前环境是 DeepSeek Harness：安装 @refino/dsh-plugin 插件。
+1. 若当前环境是 DeepSeek Harness：安装 @refino/cordis-plugin-refino 插件。
 2. 否则：运行 npx -y @refino/cli skill --output <dir> 生成技能目录，将 <dir> 替换为适合你的环境的路径，SKILL.md将位于 <dir>/refino/SKILL.md。
 `;
 }

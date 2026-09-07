@@ -1,4 +1,4 @@
-# @refino/dsh-plugin
+# @refino/cordis-plugin-refino
 
 refino 的 [DeepSeek Harness（dsh）](https://github.com/deepseek-ai/deepseek-harness)适配插件：把 CRG 的任务界定层接入 dsh 会话，让 agent 在授权范围内读写约束细化图。以 Cordis 插件形式接入，以 dsh bundle（npm 包）形式分发（见 docs/design.md「harness 与工具插件的分工」）。
 
@@ -21,18 +21,18 @@ refino 的 [DeepSeek Harness（dsh）](https://github.com/deepseek-ai/deepseek-h
 从 npm 安装：
 
 ```sh
-dsh plugin --profile <profile> add @refino/dsh-plugin
+dsh plugin --profile <profile> add @refino/cordis-plugin-refino
 ```
 
 从源码安装：
 
 ```sh
-pnpm --filter @refino/dsh-plugin build
+pnpm --filter @refino/cordis-plugin-refino build
 
 dsh plugin --profile <profile> add /path/to/refino/packages/dsh-plugin
 ```
 
-安装后可用 `dsh --profile <profile> --dump-config` 确认合成配置中出现 `@refino/dsh-plugin` 的补丁层。
+安装后可用 `dsh --profile <profile> --dump-config` 确认合成配置中出现 `@refino/cordis-plugin-refino` 的补丁层。
 
 `link:` 安装是活的，但 dsh 加载的是 `dist`：修改本插件或其 workspace 依赖（`refino`、`@refino/storage`、`@refino/harness`）的源码后，需重建对应包的 `dist` 并重启 dsh，否则运行的仍是旧代码。
 

@@ -1,5 +1,5 @@
 {
-  "name": "@refino/dsh-plugin",
+  "name": "@refino/cordis-plugin-refino",
   "version": "0.0.1",
   "private": true,
   "description": "DeepSeek Harness (dsh) adapter: mounts the CRG task-delimitation layer as a Cordis plugin — session-scoped context injection and model-facing CRG access tools. Distributed as a dsh bundle.",
