@@ -127,6 +127,7 @@ describe("focus follow", () => {
       rect: rect(10, 10),
       viewport,
       camera,
+      mode: "pin",
       ...overrides,
     });
 
@@ -158,5 +159,18 @@ describe("focus follow", () => {
 
   it("does nothing when the focus is cleared", () => {
     expect(follow({ currentId: null })).toEqual({ action: "none" });
+  });
+
+  it("none mode never reacts to the focus at all", () => {
+    // A converging layout moves the nodes itself; the camera stays put no
+    // matter what the focus does.
+    expect(follow({ mode: "none", rect: rect(10, 10) })).toEqual({ action: "none" });
+    expect(follow({ mode: "none", currentId: "b", rect: rect(2000, 10) })).toEqual({
+      action: "none",
+    });
+    expect(follow({ mode: "none", currentId: "b", rect: null })).toEqual({ action: "none" });
+    expect(follow({ mode: "none", previousCenter: null, rect: rect(10, 10) })).toEqual({
+      action: "none",
+    });
   });
 });

@@ -31,10 +31,10 @@ import { createProgram, EDGE_QUAD, type Program, UNIT_QUAD } from "./programs";
  * continuously. The viewport owns a current/target camera pair: inputs
  * (wheel zoom, left-drag pan) set clamped targets,
  * and the current camera glides towards them. The camera follows the focus
- * (camera.ts focusFollow): an off-screen focus is flown to the center and a
- * relayout displacing the focus is compensated by panning, so a canvas
- * click never moves the clicked node. At rest the camera always satisfies
- * the bounding-box constraints (README, "视口").
+ * (camera.ts focusFollow) per the scene's policy: snapshot layouts
+ * compensate relayout displacement so a clicked node stays put, while
+ * converging layouts leave the viewport entirely to the user. At rest the
+ * camera always satisfies the bounding-box constraints (README, "视口").
  */
 
 export type RGBA = [number, number, number, number];
@@ -81,6 +81,10 @@ export interface SceneInput {
   edges: RenderEdgeInput[];
   /** The focus node (last of the selection); the camera follows it. */
   focusId: string | null;
+  /** Focus camera policy: snapshot layouts ("pin") compensate relayout
+   * displacement so the focus never moves on screen; converging layouts
+   * ("none") leave the viewport entirely to the user. */
+  focusFollow: "pin" | "none";
 }
 
 export interface RenderInfo {
@@ -412,6 +416,7 @@ export class GraphRenderer {
             },
       viewport: this.#viewport(),
       camera: this.#camera,
+      mode: scene.focusFollow,
     });
     if (follow.action === "fly") this.#flyTo(scene.focusId);
     else if (follow.action === "compensate") this.#compensateFocus(follow.dx, follow.dy);

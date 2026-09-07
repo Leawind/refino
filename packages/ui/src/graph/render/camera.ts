@@ -164,14 +164,17 @@ function onScreen(
   return x1 < viewport.width && y1 < viewport.height && x2 > 0 && y2 > 0;
 }
 
-/** How the camera should follow the focus across a scene update (ui README,
+/** How the camera should follow the focus across a scene update (ui DESIGN.md,
  * "视口：相机随焦点"):
  *
- * - a focus that is already on screen stays exactly where it is — a canvas
- *   click selects a visible node and must not displace it;
- * - an off-screen or not-yet-in-scene focus is flown to the viewport center;
- * - an unchanged focus displaced by a relayout is compensated by panning,
- *   keeping the node's screen position stable.
+ * - "pin" (snapshot layouts): a focus that is already on screen stays exactly
+ *   where it is — a canvas click selects a visible node and must not
+ *   displace it — and a focus displaced by a relayout is compensated by
+ *   panning, keeping its screen position stable;
+ * - "none" (converging layouts): the camera never reacts to the focus; the
+ *   viewport is purely under the user's control;
+ * - in "pin" mode, an off-screen or not-yet-in-scene focus is flown to the
+ *   viewport center.
  *
  * The renderer applies the returned action: "fly" centers the focus (a no-op
  * while it is not in the scene), "compensate" pans both cameras by the given
@@ -188,7 +191,10 @@ export function focusFollow(input: {
   rect: { x: number; y: number; width: number; height: number } | null;
   viewport: Viewport;
   camera: Camera;
+  /** Snapshot layouts pin ("pin"), converging layouts don't follow ("none"). */
+  mode: "pin" | "none";
 }): { action: "none" } | { action: "fly" } | { action: "compensate"; dx: number; dy: number } {
+  if (input.mode === "none") return { action: "none" };
   const visible = input.rect !== null && onScreen(input.rect, input.viewport, input.camera);
   if (input.currentId !== input.previousId) {
     // The new focus is a canvas-picked visible node (stays put) or was

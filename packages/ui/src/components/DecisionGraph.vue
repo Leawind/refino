@@ -151,7 +151,16 @@ const scene = computed<SceneInput>(() => {
       });
     }
   }
-  return { nodes, edges, focusId };
+  return {
+    nodes,
+    edges,
+    focusId,
+    // Snapshot layouts pin the focus through relayouts; a converging
+    // (force) layout leaves the viewport entirely to the user — the layout
+    // itself moves the nodes, and camera reactions would only add noise
+    // (ui DESIGN.md, "视口").
+    focusFollow: props.layoutMode === "force" ? ("none" as const) : ("pin" as const),
+  };
 });
 
 function syncBudget(): void {
