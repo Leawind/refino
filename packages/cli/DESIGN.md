@@ -17,7 +17,7 @@
 - 授权解析与签发（`auth` 命令组、`--authorization` / `REFINO_AUTHORIZATION` / 工作区状态 `.refino/state/`）：签发文档的解析、读取侧收敛与原子写入；单 schema 定义在 `@refino/harness`
 - JSON 输出模式（`--json`，始终紧凑格式）
 - 自定义项目根目录（`--root`）
-- `refino web` 的 HTTP 服务：进程内常驻索引（轻量索引常驻、body 按需读取并 LRU 缓存）、画布按需查询、分页搜索、文件监听与 SSE 变更推送（`/api/events`）、权威重建（`/api/reload`）。API 契约与索引架构见 [docs/design.md](../../docs/design.md) 的「Web 界面」一节
+- `refino web` 的 HTTP 服务：进程内常驻索引（轻量索引常驻、body 按需读取并 LRU 缓存）、画布按需查询、分页搜索、文件监听与 SSE 变更推送（`/api/events`）、权威重建（`/api/reload`）。API 契约与索引架构见 [docs/design.md](../../docs/design.md) 的“Web 界面”一节
 
 本包不提供：
 

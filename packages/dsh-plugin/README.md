@@ -1,6 +1,6 @@
 # @refino/cordis-plugin-refino
 
-refino 的 [DeepSeek Harness（dsh）](https://github.com/deepseek-ai/deepseek-harness)适配插件：把 CRG 的任务界定层接入 dsh 会话，让 agent 在授权范围内读写约束细化图。以 Cordis 插件形式接入，以 dsh bundle（npm 包）形式分发（见 docs/design.md「harness 与工具插件的分工」）。
+refino 的 [DeepSeek Harness（dsh）](https://github.com/deepseek-ai/deepseek-harness)适配插件：把 CRG 的任务界定层接入 dsh 会话，让 agent 在授权范围内读写约束细化图。以 Cordis 插件形式接入，以 dsh bundle（npm 包）形式分发（见 docs/design.md“harness 与工具插件的分工”）。
 
 ## 提供什么
 

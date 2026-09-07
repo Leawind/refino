@@ -4,7 +4,7 @@ import type { SyncOutcome } from "./workspace.js";
 
 /**
  * Trailing-edge throttle over external sync outcomes (docs/design.md, dsh
- * 插件落地形态「delta 注入降噪」): watcher batches arriving within the
+ * 插件落地形态“delta 注入降噪”): watcher batches arriving within the
  * interval merge into one injection instead of waking the model per batch.
  * Merging is plain concatenation — each outcome's delta is already the
  * correct increment against the context state at its own sync.

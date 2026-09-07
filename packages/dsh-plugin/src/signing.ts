@@ -15,14 +15,14 @@ import { requireWorkspace } from "./internal.js";
 import type { RefinoWorkspace } from "./workspace.js";
 
 /**
- * Dialogue signing tools (docs/design.md, 「冻结区签发（对话签发）」): the
+ * Dialogue signing tools (docs/design.md, “冻结区签发（对话签发）”): the
  * model drafts a frozen-zone split, presents it in conversation, and the
  * tool asks the host's approval surface for an explicit human allow before
  * anything takes effect — fail-closed, and refused outright while an
  * orchestrator credential is active. An approved signing applies to the
  * session and goes out as one delta injection; it lives in process memory
  * only — the plugin writes no state files anywhere (docs/design.md,
- * 「授权状态的作用域」: the plugin form's conversation lane is the session).
+ * “授权状态的作用域”: the plugin form's conversation lane is the session).
  */
 
 /**
