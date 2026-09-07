@@ -99,7 +99,13 @@ function startSession(): void {
     seed: seed ? new Map(seed.map((n) => [n.id, { x: n.x, y: n.y }] as const)) : undefined,
   });
   layout.value = [...session.positions()];
-  if (!session.animating) return;
+  runSession();
+}
+
+/** Drives a session's relaxation from the rAF loop; a drag on a settled
+ * session revives it through here. */
+function runSession(): void {
+  if (session === null || rafId !== 0 || !session.animating) return;
   lastFrame = performance.now();
   const tick = (now: number): void => {
     const current = session;
@@ -201,6 +207,16 @@ function syncBudget(): void {
   renderer?.requestRender();
 }
 
+/** Node dragging (force layouts): the dragged node is pinned to the
+ * pointer while the neighbourhood relaxes around it, and released back to
+ * the forces on drop. */
+function dragNode(id: string, x: number, y: number, phase: "drag" | "end"): void {
+  if (phase === "drag") session?.fix?.(id, x, y);
+  else session?.release?.(id);
+  // A drag revives a settled session: make sure its frame loop runs.
+  runSession();
+}
+
 function ensureRenderer(): void {
   const canvas = canvasEl.value;
   if (canvas === null || renderer !== null) return;
@@ -222,8 +238,16 @@ function ensureRenderer(): void {
   renderer.setMaxScale(workspace.state.config.zoomMax);
   renderer.setTextScale(workspace.state.config.textScale);
   renderer.setTheme(readThemeColors());
+  renderer.setNodeDragHandler(props.layoutMode === "force" ? dragNode : null);
   renderer.setScene(scene.value);
 }
+
+// Node dragging follows the layout mode: only the converging layout has
+// nodes that react to being moved.
+watch(
+  () => props.layoutMode,
+  (mode) => renderer?.setNodeDragHandler(mode === "force" ? dragNode : null),
+);
 
 onMounted(ensureRenderer);
 

@@ -49,6 +49,11 @@ export interface LayoutSession {
   /** Current geometry without advancing. */
   positions(): readonly LaidOutNode[];
   dispose(): void;
+  /** Pointer-drag support (converging layouts): pins the node at the given
+   * virtual position while dragged — the node follows the pointer and its
+   * neighbourhood keeps relaxing — and releases it back to the forces. */
+  fix?(id: string, x: number, y: number): void;
+  release?(id: string): void;
 }
 
 /** A layout algorithm behind a `LayoutMode`. */

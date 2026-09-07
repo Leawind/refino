@@ -243,6 +243,18 @@ export class GraphRenderer {
   } | null = null;
   #clickSuppressed = false;
   #lastFocusId: string | null = null;
+  /** Node-drag gesture (force layouts): non-null while a left press on a
+   * node is dragging it instead of panning. The offsets keep the node at
+   * its grab position relative to the pointer for the whole gesture. */
+  #nodeDrag: {
+    id: string;
+    startX: number;
+    startY: number;
+    offsetX: number;
+    offsetY: number;
+  } | null = null;
+  #nodeDragHandler: ((id: string, x: number, y: number, phase: "drag" | "end") => void) | null =
+    null;
 
   #edgeProgram!: Program;
   #nodeProgram!: Program;
@@ -266,6 +278,16 @@ export class GraphRenderer {
   /** Called after every rendered frame. */
   set onFrameEnd(handler: ((info: RenderInfo) => void) | null) {
     this.#frameEnd = handler;
+  }
+
+  /** Sets the node-drag handler: when present, a left press on a node
+   * drags the node (phase "drag" carries its virtual position; "end"
+   * signals release) instead of panning. Pass null to restore pan
+   * everywhere. */
+  setNodeDragHandler(
+    handler: ((id: string, x: number, y: number, phase: "drag" | "end") => void) | null,
+  ): void {
+    this.#nodeDragHandler = handler;
   }
 
   static create(canvas: HTMLCanvasElement, budget: AdaptiveBudget): GraphRenderer | null {
@@ -532,6 +554,31 @@ export class GraphRenderer {
     }
     if (event.button !== 0) return;
     event.preventDefault();
+    // A press on a node starts a node drag (force layouts); a press on
+    // empty space pans the viewport. The grab offset (pointer minus node
+    // corner, in virtual units) is remembered so the node keeps its exact
+    // position relative to the pointer for the whole gesture.
+    if (this.#nodeDragHandler !== null) {
+      const rect = this.#canvas.getBoundingClientRect();
+      const px = event.clientX - rect.left;
+      const py = event.clientY - rect.top;
+      const id = this.pick(px, py);
+      if (id !== null) {
+        const entry = this.#entries.get(id)!;
+        const vx = (px - this.#camera.tx) / this.#camera.scale;
+        const vy = (py - this.#camera.ty) / this.#camera.scale;
+        this.#nodeDrag = {
+          id,
+          startX: event.clientX,
+          startY: event.clientY,
+          offsetX: vx - entry.node.x,
+          offsetY: vy - entry.node.y,
+        };
+        this.#clickSuppressed = false;
+        this.#canvas.style.cursor = "grabbing";
+        return;
+      }
+    }
     this.#clickSuppressed = false;
     this.#gesture = {
       startX: event.clientX,
@@ -544,6 +591,20 @@ export class GraphRenderer {
   };
 
   #onMouseMove = (event: MouseEvent): void => {
+    const drag = this.#nodeDrag;
+    if (drag !== null) {
+      // The pointer carries the node 1:1 in virtual coordinates, keeping
+      // the grab offset; moving beyond the click slop makes the gesture a
+      // drag, not a selection.
+      if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) > CLICK_SLOP_PX) {
+        this.#clickSuppressed = true;
+      }
+      const rect = this.#canvas.getBoundingClientRect();
+      const vx = (event.clientX - rect.left - this.#camera.tx) / this.#camera.scale;
+      const vy = (event.clientY - rect.top - this.#camera.ty) / this.#camera.scale;
+      this.#nodeDragHandler?.(drag.id, vx - drag.offsetX, vy - drag.offsetY, "drag");
+      return;
+    }
     const gesture = this.#gesture;
     if (gesture === null) return;
     const box = this.#contentBox();
@@ -567,7 +628,20 @@ export class GraphRenderer {
   };
 
   #onMouseUp = (event: MouseEvent): void => {
-    if (event.button !== 0 || this.#gesture === null) return;
+    if (event.button !== 0) return;
+    if (this.#nodeDrag !== null) {
+      const drag = this.#nodeDrag;
+      this.#nodeDrag = null;
+      this.#canvas.style.cursor = "default";
+      // Only a real drag ends in a release; a plain click passes through
+      // to the selection handler untouched.
+      if (this.#clickSuppressed) {
+        this.#nodeDragHandler?.(drag.id, 0, 0, "end");
+        this.#clickSuppressed = false;
+      }
+      return;
+    }
+    if (this.#gesture === null) return;
     this.#gesture = null;
     this.#canvas.style.cursor = "default";
   };

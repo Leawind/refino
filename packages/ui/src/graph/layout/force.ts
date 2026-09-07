@@ -75,6 +75,9 @@ const ALPHA_MIN = 0.001;
  * already balanced, so a shorter, gentler relaxation suffices. */
 const REHEAT_ALPHA = 0.4;
 const REHEAT_ALPHA_DECAY = 0.06;
+/** Alpha floor while a node drag is in progress: the neighbourhood keeps
+ * relaxing around the pinned node for the whole gesture. */
+const DRAG_ALPHA = 0.3;
 /** Offset that separates a new node from the exact centroid of its grounds
  * so coincident starts never happen; derived from the id's rank, hence
  * deterministic. */
@@ -94,9 +97,13 @@ interface Body extends SimulationNodeDatum {
 /** Relaxing session of a fixed node set; steps until alpha decays out. */
 class ForceSession implements LayoutSession {
   readonly #bodies: Body[];
+  readonly #byId = new Map<string, Body>();
   readonly #sim: Simulation<Body, SimulationLinkDatum<Body>>;
   #ticks = 0;
   #animating = true;
+  /** True while a node is pinned to the pointer: the relaxation keeps
+   * running (and neighbors keep reacting) no matter how quiet it is. */
+  #dragging = false;
 
   constructor(nodes: readonly LayoutNode[], options: LayoutOptions) {
     // Fallback seed: layered positions are deterministic and a natural
@@ -153,6 +160,7 @@ class ForceSession implements LayoutSession {
       x: start.get(id)!.x,
       y: start.get(id)!.y,
     }));
+    for (const body of this.#bodies) this.#byId.set(body.id, body);
     const links: SimulationLinkDatum<Body>[] = this.#bodies.flatMap((body) =>
       (grounds.get(body.id) ?? [])
         .filter((g) => start.has(g))
@@ -208,11 +216,42 @@ class ForceSession implements LayoutSession {
       this.#sim.tick();
       this.#ticks += 1;
       budget -= TICK_MS;
-      if (this.#sim.alpha() < ALPHA_MIN || this.#ticks >= MAX_TICKS) {
+      // A pinned node holds the relaxation open: the drag decides when it
+      // ends, not the alpha schedule.
+      if (!this.#dragging && (this.#sim.alpha() < ALPHA_MIN || this.#ticks >= MAX_TICKS)) {
         this.#animating = false;
       }
     }
     return this.positions();
+  }
+
+  /** Pins the node at the pointer position and keeps the neighbourhood
+   * relaxing: the alpha floor holds the simulation warm for the whole
+   * drag, and neighbors react through their springs. */
+  fix(id: string, x: number, y: number): void {
+    const body = this.#byId.get(id);
+    if (body === undefined) return;
+    body.fx = x;
+    body.fy = y;
+    this.#dragging = true;
+    this.#animating = true;
+    this.#ticks = 0;
+    this.#sim.alphaTarget(DRAG_ALPHA);
+    this.#sim.alpha(Math.max(this.#sim.alpha(), DRAG_ALPHA));
+  }
+
+  /** Releases the node from the pointer: the forces take it back and the
+   * session settles gently. */
+  release(id: string): void {
+    const body = this.#byId.get(id);
+    if (body !== undefined) {
+      body.fx = undefined;
+      body.fy = undefined;
+    }
+    this.#dragging = false;
+    this.#animating = true;
+    this.#ticks = 0;
+    this.#sim.alphaTarget(0);
   }
 
   dispose(): void {

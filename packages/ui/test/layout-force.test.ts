@@ -183,4 +183,29 @@ describe("force session", () => {
     // a card slot along the main axis), not a full-graph re-swim.
     expect(Math.hypot(a.x - seedN19.x, a.y - seedN19.y)).toBeLessThan(150);
   });
+
+  it("pins a dragged node at the pointer and releases it back", () => {
+    const session = forceStrategy.createSession(chain(8), { direction: "LR" });
+    settled(session);
+    // Fixing a settled session revives it: the drag owns the lifecycle.
+    session.fix?.("n5", -1000, -1000);
+    expect(session.animating).toBe(true);
+    session.step(16);
+    session.step(16);
+    const pinned = session.positions().find((n) => n.id === "n5")!;
+    expect(pinned.x).toBeCloseTo(-1000, 6);
+    expect(pinned.y).toBeCloseTo(-1000, 6);
+    // Releasing frees the node: it relaxes back toward its neighbourhood
+    // and the session settles again.
+    session.release?.("n5");
+    expect(session.animating).toBe(true);
+    const final = settled(session);
+    const free = final.find((n) => n.id === "n5")!;
+    expect(free.x).toBeGreaterThan(-1000);
+    // Its grounds link recovers a sane length.
+    const n4 = final.find((n) => n.id === "n4")!;
+    expect(Math.hypot(free.x - n4.x, free.y - n4.y)).toBeGreaterThan(NODE_WIDTH);
+    expect(Math.hypot(free.x - n4.x, free.y - n4.y)).toBeLessThan(600);
+    session.dispose();
+  });
 });
