@@ -16,7 +16,7 @@ layout(location = 3) in float a_radius;  // virtual units
 layout(location = 4) in float a_borderWidth;  // virtual units
 layout(location = 5) in vec4 a_fill;
 layout(location = 6) in vec4 a_border;
-layout(location = 7) in vec2 a_flags;    // x: badge, y: alpha
+layout(location = 7) in float a_alpha;
 uniform float u_scale;                   // virtual units → CSS px
 uniform vec2 u_offset;                   // camera translation, CSS px
 uniform float u_dpr;
@@ -27,7 +27,7 @@ out float v_radius;
 out float v_borderWidth;
 out vec4 v_fill;
 out vec4 v_border;
-out vec2 v_flags;
+out float v_alpha;
 
 vec2 toClip(vec2 virtualPoint) {
   vec2 px = (virtualPoint * u_scale + u_offset) * u_dpr;
@@ -43,5 +43,5 @@ void main() {
   v_borderWidth = a_borderWidth;
   v_fill = a_fill;
   v_border = a_border;
-  v_flags = a_flags;
+  v_alpha = a_alpha;
 }

@@ -1,7 +1,8 @@
 #version 300 es
-// Node program, fragment stage: rounded-rectangle card via an SDF, border
-// ring, and the selection badge disc. All geometry is in virtual units —
-// border widths and the badge scale with the viewport; only the
+// Node program, fragment stage: rounded-rectangle card via an SDF plus a
+// border ring — the ordinary, hovered and selected states differ only in
+// the border (width and color decided by the component). All geometry is in
+// virtual units — border widths scale with the viewport; only the
 // anti-aliasing feather is screen-space (a fixed pixel width divided by the
 // camera scale).
 
@@ -13,8 +14,7 @@ in float v_radius;
 in float v_borderWidth;
 in vec4 v_fill;
 in vec4 v_border;
-in vec2 v_flags;   // x: badge, y: alpha
-uniform vec4 u_primary;
+in float v_alpha;
 uniform float u_scale;   // virtual units → CSS px
 out vec4 outColor;
 
@@ -41,16 +41,6 @@ void main() {
     border.rgb * border.a + fill.rgb * fill.a * (1.0 - border.a),
     border.a + fill.a * (1.0 - border.a)
   );
-  if (v_flags.x > 0.5) {
-    // Selection badge: a small disc just inside the top-right corner so
-    // the quad bounds never clip it into a quarter blob.
-    vec2 badgeCenter = vec2(v_size.x - 10.0, 10.0);
-    float badge = 1.0 - smoothstep(3.5, 4.5, length(v_local - badgeCenter));
-    color = vec4(
-      u_primary.rgb * badge + color.rgb * (1.0 - badge),
-      badge + color.a * (1.0 - badge)
-    );
-  }
-  float alpha = color.a * v_flags.y;
+  float alpha = color.a * v_alpha;
   outColor = vec4(color.rgb * alpha, alpha);
 }

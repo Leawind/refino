@@ -4,6 +4,13 @@
  * as a texture. White bitmaps only — color comes from the shader. When the
  * atlas runs out of cells it resets wholesale and refills on subsequent
  * frames.
+ *
+ * The rasterization font size follows the on-screen zoom in quantized tiers
+ * (quantizeRasterScale): glyphs are re-rasterized at roughly the size they
+ * appear on screen, so magnifying the viewport keeps label edges sharp
+ * instead of smearing a fixed-size bitmap. A tier switch invalidates the
+ * whole atlas; at large zooms the budget cull keeps the visible character
+ * set small, so the refill stays well within the atlas capacity.
  */
 
 export interface Glyph {
@@ -21,11 +28,26 @@ export interface Glyph {
 }
 
 const ATLAS_SIZE = 2048;
-const CELL = 32;
+const BASE_CELL = 32;
+const BASE_FONT_PX = 24;
 const CELL_PAD = 2;
-/** Atlas rasterization font; label quads scale this down to LABEL_FONT_PX. */
-export const ATLAS_FONT_PX = 24;
-const FONT = `${ATLAS_FONT_PX}px system-ui, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif`;
+/** Atlas rasterization font at tier 1; label quads scale this down to
+ * LABEL_FONT_PX. */
+export const ATLAS_FONT_PX = BASE_FONT_PX;
+/** Rasterization tiers, each ~1.5× the previous: any on-screen zoom lands
+ * within ~1.22× of its tier's bitmap, the most LINEAR sampling smears. */
+const RASTER_TIERS = [1, 1.5, 2.25, 3.375, 5] as const;
+
+/** The rasterization tier for an on-screen zoom factor: the first tier
+ * whose bitmap needs no more than ~1.22× magnification, or the last one. */
+export function quantizeRasterScale(zoom: number): number {
+  for (const tier of RASTER_TIERS) {
+    if (zoom <= tier * 1.22) return tier;
+  }
+  return RASTER_TIERS[RASTER_TIERS.length - 1] ?? 1;
+}
+
+const FONT_FAMILY = `system-ui, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif`;
 
 export class GlyphAtlas {
   readonly canvas: HTMLCanvasElement;
@@ -33,15 +55,38 @@ export class GlyphAtlas {
   #glyphs = new Map<string, Glyph>();
   #nextCell = 0;
   #version = 0;
+  /** Current rasterization tier; 1 keeps the original 24px bitmaps. */
+  #tier = 1;
 
   constructor() {
     this.canvas = document.createElement("canvas");
     this.canvas.width = ATLAS_SIZE;
     this.canvas.height = ATLAS_SIZE;
     this.#ctx = this.canvas.getContext("2d")!;
-    this.#ctx.font = FONT;
     this.#ctx.textBaseline = "alphabetic";
     this.#ctx.fillStyle = "#ffffff";
+    this.#applyFont();
+  }
+
+  /** Rasterization font size in atlas pixels at the current tier. */
+  get fontPx(): number {
+    return BASE_FONT_PX * this.#tier;
+  }
+
+  get cell(): number {
+    return BASE_CELL * this.#tier;
+  }
+
+  #applyFont(): void {
+    this.#ctx.font = `${this.fontPx}px ${FONT_FAMILY}`;
+  }
+
+  /** Switches the rasterization tier when it changed; the atlas resets so
+   * the next frame refills every glyph at the new size. */
+  setRasterScale(tier: number): void {
+    if (tier === this.#tier) return;
+    this.#tier = tier;
+    this.reset();
   }
 
   /** Bumped on every rasterization; the renderer re-uploads when it changes. */
@@ -50,12 +95,12 @@ export class GlyphAtlas {
   }
 
   get full(): boolean {
-    return this.#nextCell >= (ATLAS_SIZE / CELL) ** 2;
+    return this.#nextCell >= (ATLAS_SIZE / this.cell) ** 2;
   }
 
-  /** Text advance width in atlas pixels at the atlas font size. */
+  /** Text advance width in atlas pixels at the rasterization font size. */
   measure(text: string): number {
-    this.#ctx.font = FONT;
+    this.#applyFont();
     return this.#ctx.measureText(text).width;
   }
 
@@ -80,18 +125,20 @@ export class GlyphAtlas {
     }
     if (this.full) return undefined;
 
-    this.#ctx.font = FONT;
+    this.#applyFont();
+    const cell = this.cell;
     const metrics = this.#ctx.measureText(ch);
-    const width = Math.min(CELL - CELL_PAD * 2, Math.ceil(metrics.width));
-    const ascent = Math.min(CELL - CELL_PAD * 2, Math.ceil(metrics.actualBoundingBoxAscent));
+    const width = Math.min(cell - CELL_PAD * 2, Math.ceil(metrics.width));
+    const ascent = Math.min(cell - CELL_PAD * 2, Math.ceil(metrics.actualBoundingBoxAscent));
     const height = Math.min(
-      CELL - CELL_PAD * 2,
+      cell - CELL_PAD * 2,
       ascent + Math.ceil(metrics.actualBoundingBoxDescent),
     );
-    const cellX = (this.#nextCell % (ATLAS_SIZE / CELL)) * CELL;
-    const cellY = Math.floor(this.#nextCell / (ATLAS_SIZE / CELL)) * CELL;
+    const perRow = ATLAS_SIZE / cell;
+    const cellX = (this.#nextCell % perRow) * cell;
+    const cellY = Math.floor(this.#nextCell / perRow) * cell;
     this.#nextCell++;
-    this.#ctx.clearRect(cellX, cellY, CELL, CELL);
+    this.#ctx.clearRect(cellX, cellY, cell, cell);
     this.#ctx.fillText(ch, cellX + CELL_PAD, cellY + CELL_PAD + ascent);
     this.#version++;
 

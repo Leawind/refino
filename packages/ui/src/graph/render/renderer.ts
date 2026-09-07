@@ -1,4 +1,4 @@
-import { GlyphAtlas, wrapEllipsized } from "./atlas";
+import { GlyphAtlas, quantizeRasterScale, wrapEllipsized } from "./atlas";
 import {
   centeredCamera,
   fitCamera,
@@ -101,8 +101,8 @@ const FIT_MARGIN = 24;
 /** Zoom factor per wheel notch unit; wheel zoom is multiplicative. */
 const ZOOM_WHEEL_FACTOR = 0.0015;
 /** Bounds of the text size multiplier (canvas style settings). */
-export const TEXT_SCALE_MIN = 0.5;
-export const TEXT_SCALE_MAX = 4;
+export const TEXT_SCALE_MIN = 0.1;
+export const TEXT_SCALE_MAX = 3;
 /** Left-press movement beyond which the gesture is a pan, not a click. */
 const CLICK_SLOP_PX = 2;
 /** Camera smoothing: time constant of the exponential approach. */
@@ -180,23 +180,56 @@ interface Entry {
   target: number;
 }
 
-/** The point where the segment c -> t exits the axis-aligned rect centered
- * at c with the given half sizes; c itself when the segment is degenerate. */
-function borderPoint(
+/** The point where the segment c -> t exits the rounded rect centered at c
+ * with the given half sizes and corner radius; c itself when the segment is
+ * degenerate. Rays from the center cross the straight-edge midsections
+ * exactly where they would cross the sharp-cornered rect; only directions
+ * through a corner square hit the corner arc instead, so shaft ends and
+ * arrow tips hug the rounded outline (capsules, in particular). */
+export function borderPoint(
   cx: number,
   cy: number,
   tx: number,
   ty: number,
   hw: number,
   hh: number,
+  radius: number,
 ): [number, number] {
   const dx = tx - cx;
   const dy = ty - cy;
-  const sx = dx !== 0 ? hw / Math.abs(dx) : Number.POSITIVE_INFINITY;
-  const sy = dy !== 0 ? hh / Math.abs(dy) : Number.POSITIVE_INFINITY;
-  const s = Math.min(sx, sy);
-  if (!Number.isFinite(s)) return [cx, cy];
-  return [cx + dx * s, cy + dy * s];
+  if (dx === 0 && dy === 0) return [cx, cy];
+  const ax = Math.abs(dx);
+  const ay = Math.abs(dy);
+  const r = Math.min(radius, hw, hh);
+  // Axial directions hit a straight midsection head-on.
+  if (r <= 0 || ax === 0 || ay === 0) {
+    const sx = ax !== 0 ? hw / ax : Number.POSITIVE_INFINITY;
+    const sy = ay !== 0 ? hh / ay : Number.POSITIVE_INFINITY;
+    const s = Math.min(sx, sy);
+    if (!Number.isFinite(s)) return [cx, cy];
+    return [cx + dx * s, cy + dy * s];
+  }
+  const cw = hw - r; // straight-edge zone half sizes ("core" rect)
+  const ch = hh - r;
+  // The sharp-cornered intersection lands on a real straight-edge midsection
+  // unless its off-axis coordinate reaches into a corner square.
+  const sEdge = Math.min(hw / ax, hh / ay);
+  const exitsXFirst = hw / ax <= hh / ay;
+  const onStraight = exitsXFirst ? ay * sEdge <= ch : ax * sEdge <= cw;
+  if (onStraight) return [cx + dx * sEdge, cy + dy * sEdge];
+  // Corner direction: intersect the ray with the corner arc, the circle of
+  // radius r around the core corner in the ray's quadrant. The ray starts
+  // inside that circle (the corner square), so the exit is the far root.
+  const len = Math.hypot(dx, dy);
+  const nx = dx / len;
+  const ny = dy / len;
+  const ox = Math.sign(dx) * cw;
+  const oy = Math.sign(dy) * ch;
+  const b = nx * ox + ny * oy; // unit ray · circle-center offset
+  const disc = b * b - (cw * cw + ch * ch - r * r);
+  if (disc < 0) return [cx + dx * sEdge, cy + dy * sEdge]; // numerically unreachable
+  const t = b + Math.sqrt(disc);
+  return [cx + nx * t, cy + ny * t];
 }
 
 function grow(source: Float32Array): Float32Array<ArrayBuffer> {
@@ -273,7 +306,7 @@ export class GraphRenderer {
   #nodeInstances!: WebGLBuffer;
   #textInstances!: WebGLBuffer;
   #edgeData = new Float32Array(9 * 64);
-  #nodeData = new Float32Array(16 * 64);
+  #nodeData = new Float32Array(15 * 64);
   #textData = new Float32Array(9 * 256);
 
   #raf = 0;
@@ -372,7 +405,7 @@ export class GraphRenderer {
       [1, 5],
       [4, 6],
       [4, 10],
-      [2, 14],
+      [1, 14],
     ]);
     this.#nodeVao = nodeDraw.vao;
     this.#nodeInstances = nodeDraw.buffer;
@@ -879,14 +912,25 @@ export class GraphRenderer {
       const baseColor = edge.emphasized ? this.#theme.primary : this.#theme.edge;
       const color = edge.weak ? premix(baseColor, this.#theme.canvasBg, 0.4) : baseColor;
       const base = count * 9;
-      // Trim both ends to the node borders: the shaft must not run under the
-      // opaque cards, and the arrow tip lands on the downstream border.
+      // Trim both ends to the node outlines: the shaft must not run under
+      // the opaque cards, and the arrow tip lands on the downstream border
+      // (rounded corners and capsule shapes included).
       const fx = from.node.x + from.node.width / 2;
       const fy = from.node.y + from.node.height / 2;
       const sx = to.node.x + to.node.width / 2;
       const sy = to.node.y + to.node.height / 2;
-      const [x1, y1] = borderPoint(fx, fy, sx, sy, from.node.width / 2, from.node.height / 2);
-      const [x2, y2] = borderPoint(sx, sy, fx, fy, to.node.width / 2, to.node.height / 2);
+      const fromRadius = from.node.premise ? from.node.height / 2 : CORNER_RADIUS;
+      const toRadius = to.node.premise ? to.node.height / 2 : CORNER_RADIUS;
+      const [x1, y1] = borderPoint(
+        fx,
+        fy,
+        sx,
+        sy,
+        from.node.width / 2,
+        from.node.height / 2,
+        fromRadius,
+      );
+      const [x2, y2] = borderPoint(sx, sy, fx, fy, to.node.width / 2, to.node.height / 2, toRadius);
       // Instances are submitted in virtual coordinates; the vertex shader
       // applies the camera.
       this.#edgeData[base] = x1;
@@ -919,8 +963,10 @@ export class GraphRenderer {
     let count = 0;
     for (const [id, entry] of this.#entries) {
       if (entry.alpha < 0.01 || !this.#admitted.has(id)) continue;
-      if ((count + 1) * 16 > this.#nodeData.length) this.#nodeData = grow(this.#nodeData);
+      if ((count + 1) * 15 > this.#nodeData.length) this.#nodeData = grow(this.#nodeData);
       const node = entry.node;
+      // The ordinary / hovered / selected / focus states differ only in the
+      // border — width and color here, no in-card badges (DESIGN.md).
       const emphasized = node.selected || node.focus || node.hovered;
       const borderWidth = node.focus
         ? BORDER_WIDTH_FOCUS
@@ -934,7 +980,7 @@ export class GraphRenderer {
         : node.premise
           ? premix(this.#theme.nodeBorder, this.#theme.canvasBg, 0.4)
           : this.#theme.nodeBorder;
-      const base = count * 16;
+      const base = count * 15;
       // Everything is virtual; the vertex shader applies the camera.
       this.#nodeData[base] = node.x + node.width / 2;
       this.#nodeData[base + 1] = node.y + node.height / 2;
@@ -951,8 +997,7 @@ export class GraphRenderer {
         base + 6,
       );
       this.#nodeData.set(borderColor, base + 10);
-      this.#nodeData[base + 14] = node.selected ? 1 : 0;
-      this.#nodeData[base + 15] = entry.alpha;
+      this.#nodeData[base + 14] = entry.alpha;
       count++;
     }
 
@@ -960,7 +1005,6 @@ export class GraphRenderer {
     gl.useProgram(program);
     gl.uniform2f(uniform("u_resolution"), this.#canvas.width, this.#canvas.height);
     gl.uniform1f(uniform("u_dpr"), window.devicePixelRatio || 1);
-    gl.uniform4fv(uniform("u_primary"), this.#theme.primary);
     gl.uniform1f(uniform("u_scale"), scale);
     gl.uniform2f(uniform("u_offset"), tx, ty);
     gl.bindVertexArray(this.#nodeVao);
@@ -977,13 +1021,17 @@ export class GraphRenderer {
     const scale = this.#camera.scale;
     const tx = this.#camera.tx;
     const ty = this.#camera.ty;
+    // Glyphs rasterize at roughly the size they appear on screen (quantized
+    // tiers, switched with an atlas reset): magnified labels stay sharp
+    // instead of smearing fixed-size bitmaps.
+    this.#atlas.setRasterScale(quantizeRasterScale(scale * this.#textScale));
     // Glyph metrics are resolved in virtual units so glyph quads are
     // submitted like every other geometry; the text size multiplier
     // resizes text on top of the camera (README: 文本随视口缩放).
     const fontUnits = LABEL_FONT_PX * this.#textScale;
     const padUnits = LABEL_PAD_X * this.#textScale;
     const padYUnits = LABEL_PAD_Y * this.#textScale;
-    const glyphUnits = fontUnits / 24; // atlas font pixels → virtual units
+    const glyphUnits = fontUnits / this.#atlas.fontPx; // atlas font pixels → virtual units
     const lineHeight = fontUnits * LABEL_LINE_HEIGHT;
     let count = 0;
     for (const [id, entry] of this.#entries) {
@@ -1041,7 +1089,9 @@ export class GraphRenderer {
   }
 
   #linesFor(label: string, maxWidth: number, maxLines: number): string[] {
-    const key = `${maxWidth}\u0000${maxLines}\u0000${label}`;
+    // The atlas font size keys the cache: a rasterization tier switch
+    // changes every measured advance.
+    const key = `${this.#atlas.fontPx}\u0000${maxWidth}\u0000${maxLines}\u0000${label}`;
     let fitted = this.#labelCache.get(key);
     if (fitted === undefined) {
       fitted = wrapEllipsized(this.#atlas, label, maxWidth, maxLines);

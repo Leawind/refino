@@ -197,7 +197,10 @@ const scene = computed<SceneInput>(() => {
       edges.push({
         fromId: ground,
         toId: lite.id,
-        emphasized: lite.id === hoveredId,
+        // Hovered constraints highlight their direct grounds; edges between
+        // two selected nodes share the emphasized style (DESIGN.md).
+        emphasized:
+          lite.id === hoveredId || (selectionSet.has(ground) && selectionSet.has(lite.id)),
         weak: byId.value.get(ground)?.type === "premise",
       });
     }

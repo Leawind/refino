@@ -35,7 +35,7 @@ const textScale = computed<number>({
         v-model:value="textScale"
         :min="TEXT_SCALE_MIN"
         :max="TEXT_SCALE_MAX"
-        :step="0.1"
+        :step="0.01"
         :tooltip="false"
       />
       <NButton quaternary size="tiny" @click="textScale = 1">
