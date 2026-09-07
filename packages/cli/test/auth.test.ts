@@ -65,6 +65,12 @@ describe("refino auth", () => {
     expect(state.history).toHaveLength(1);
     expect(state.history[0]!.revision).toBe(0);
 
+    // The write path never manages .gitignore: this fixture has none (not
+    // created via init), and signing must not conjure one.
+    await expect(stat(join(root(), ".refino", ".gitignore"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+
     const show = await run(["--root", root(), "auth", "show"]);
     expect(show.out).toContain("授权来源：工作区签发");
     expect(show.out).toContain("revision：1");

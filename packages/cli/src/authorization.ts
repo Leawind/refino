@@ -65,34 +65,6 @@ export function workspaceStatePath(root: string): string {
   return join(root, ".refino", "state", "current.json");
 }
 
-/** The anchored gitignore rule that keeps the state lane unversioned. */
-const GITIGNORE_RULE = "/state/";
-
-const GITIGNORE_TEXT = `# refino workspace state (signed authorizations; machine-local, not shared)\n${GITIGNORE_RULE}\n`;
-
-/**
- * Keep the state lane out of git: `.refino/.gitignore` is committed and
- * carries the anchored `/state/` rule, so clones inherit the exclusion and
- * the ignore behavior is a property of the repository, not of any machine's
- * global git config. Ensured by `refino init` and before every state write;
- * idempotent — a missing file is created, an existing file without the rule
- * gains it appended.
- */
-export async function ensureStateIgnored(refinoDir: string): Promise<void> {
-  const file = join(refinoDir, ".gitignore");
-  let content: string;
-  try {
-    content = await readFile(file, "utf8");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    await writeFile(file, GITIGNORE_TEXT, "utf8");
-    return;
-  }
-  if (content.split(/\r?\n/).some((line) => line.trim() === GITIGNORE_RULE)) return;
-  const separator = content.length > 0 && !content.endsWith("\n") ? "\n" : "";
-  await writeFile(file, `${content}${separator}${GITIGNORE_RULE}\n`, "utf8");
-}
-
 export async function readWorkspaceState(statePath: string): Promise<WorkspaceState | undefined> {
   let raw: string;
   try {
@@ -128,7 +100,6 @@ export async function readWorkspaceState(statePath: string): Promise<WorkspaceSt
 
 /** Atomic write (temp file + rename), mirroring the storage layer's discipline. */
 export async function writeWorkspaceState(root: string, state: WorkspaceState): Promise<void> {
-  await ensureStateIgnored(join(root, ".refino"));
   const statePath = workspaceStatePath(root);
   await mkdir(dirname(statePath), { recursive: true });
   const tmp = `${statePath}.${process.pid}.tmp`;
