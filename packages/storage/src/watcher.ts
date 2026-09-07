@@ -20,9 +20,12 @@ import { ID_CHARSET } from "refino";
  * debounced: after a quiet period the accumulated ids flush as one batch
  * into the index's unified update entry.
  *
- * Watch initialization failures return undefined — the server silently
- * degrades to manual refresh (POST /api/reload). Removing a whole shard
- * directory is likewise not reported per id and needs a manual reload.
+ * Watch initialization fails permanently (e.g. the directory is missing) with
+ * undefined — the server silently degrades to manual refresh (POST
+ * /api/reload). Transient resource exhaustion (the machine-wide per-user
+ * inotify instance budget) retries arming in the background instead. Removing
+ * a whole shard directory is likewise not reported per id and needs a manual
+ * reload.
  */
 
 /** A shard directory name: the first 2 characters of a node id. */
@@ -40,16 +43,69 @@ export interface NodeWatcherOptions {
   debounceMs?: number;
 }
 
+/** Retry spacing for transient arming failures (see startNodeWatcher). */
+const RETRY_ARM_DELAY_MS = 250;
+
 export function startNodeWatcher(
   nodesDir: string,
   onBatch: (ids: string[], shards: string[]) => void,
   options: NodeWatcherOptions = {},
 ): NodeWatcher | undefined {
+  const armed = armWatcher(nodesDir, onBatch, options, false);
+  if (typeof armed !== "string") return armed;
+  if (armed !== "transient") return undefined;
+
+  // Transient exhaustion (EMFILE: the per-user inotify instance budget is
+  // shared by every process on the machine and concurrent processes can
+  // drain it; ENOSPC: the watch budget) does not stay exhausted — sibling
+  // processes release their instances as they exit. Retry in the background
+  // instead of silently degrading forever; the timer never keeps the
+  // process alive. A late-armed watcher has missed every file event since
+  // open, so its arming runs with a catch-up scan over the current shards.
+  let inner: NodeWatcher | undefined;
+  let retry: ReturnType<typeof setTimeout> | undefined;
+  const attempt = (): void => {
+    retry = undefined;
+    const next = armWatcher(nodesDir, onBatch, options, true);
+    if (typeof next !== "string") {
+      inner = next;
+      return;
+    }
+    if (next === "give-up") return;
+    retry = setTimeout(attempt, RETRY_ARM_DELAY_MS);
+    retry.unref?.();
+  };
+  retry = setTimeout(attempt, RETRY_ARM_DELAY_MS);
+  retry.unref?.();
+  return {
+    close(): void {
+      if (retry !== undefined) clearTimeout(retry);
+      retry = undefined;
+      inner?.close();
+      inner = undefined;
+    },
+  };
+}
+
+/**
+ * The watcher body. Resolves an armed watcher, `"transient"` when arming
+ * failed on a resource limit worth retrying, or `"give-up"` for permanent
+ * failures (missing directory, watching unavailable). `catchUp` scans every
+ * current shard into the first batch — for watchers that armed late and so
+ * missed all earlier file events.
+ */
+function armWatcher(
+  nodesDir: string,
+  onBatch: (ids: string[], shards: string[]) => void,
+  options: NodeWatcherOptions,
+  catchUp: boolean,
+): NodeWatcher | "transient" | "give-up" {
   let root: FSWatcher;
   try {
     root = watch(nodesDir);
-  } catch {
-    return undefined; // dir missing or watching unavailable: manual refresh only
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    return code === "EMFILE" || code === "ENOSPC" ? "transient" : "give-up";
   }
 
   const debounceMs = options.debounceMs ?? 500;
@@ -127,15 +183,58 @@ export function startNodeWatcher(
 
   // Attach a watcher to every shard that already exists (one watch per shard
   // plus the root watch); shards are created lazily as ids are generated.
-  // Writes into a pre-existing shard are invisible otherwise.
+  // Writes into a pre-existing shard are invisible otherwise. Catch-up mode
+  // (late-armed watcher) additionally scans every shard into the first batch:
+  // files written before arming produced no events, and a scan is the only
+  // way to recover them.
   for (const entry of readdirSync(nodesDir, { withFileTypes: true })) {
-    if (entry.isDirectory() && SHARD_RE.test(entry.name)) watchShard(entry.name);
+    if (!entry.isDirectory() || !SHARD_RE.test(entry.name)) continue;
+    watchShard(entry.name);
+    if (catchUp) {
+      scanShard(entry.name);
+      dirtyShards.add(entry.name);
+      rescanPending.add(entry.name);
+      schedule();
+    }
   }
+
+  /**
+   * Reconcile the root after a nameless event: inotify queue overflow
+   * surfaces as a change with no filename, and any number of events —
+   * including whole new shard directories — may have been lost. Attach
+   * watchers for shards we do not know yet and schedule them for a scan;
+   * already-watched shards recover through their own nameless-event rescan.
+   */
+  const reconcileRoot = (): void => {
+    let entries;
+    try {
+      entries = readdirSync(nodesDir, { withFileTypes: true }) as Array<{
+        name: string;
+        isDirectory(): boolean;
+      }>;
+    } catch {
+      return; // vanished root: the error handler keeps the watcher harmless
+    }
+    let touched = false;
+    for (const entry of entries) {
+      if (!entry.isDirectory() || !SHARD_RE.test(entry.name)) continue;
+      if (shards.has(entry.name)) continue;
+      watchShard(entry.name);
+      scanShard(entry.name);
+      dirtyShards.add(entry.name);
+      rescanPending.add(entry.name);
+      touched = true;
+    }
+    if (touched) schedule();
+  };
 
   // The root FSWatcher event is always "change"; "rename" as eventType
   // signals a shard directory appearing or disappearing.
   root.on("change", (_eventType: string, filename: string | Buffer | null) => {
-    if (filename === null) return;
+    if (filename === null) {
+      reconcileRoot();
+      return;
+    }
     const name = filename.toString();
     if (!SHARD_RE.test(name)) return;
     // A shard appearing gets a watcher, an immediate scan, and a deferred
