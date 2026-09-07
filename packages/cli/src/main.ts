@@ -23,8 +23,12 @@ import { processIo, renderFullRecord, renderIssues, renderNodeTable } from "./fo
 import type { CliIo } from "./format.js";
 import { createDevCommand } from "./dev.js";
 import { checkModification, type ModificationCheck } from "@refino/harness";
-import { effectiveContext, resolveAuthorization } from "@refino/harness/state";
-import { coveringFrontier, renderEscalation } from "./authorization.js";
+import {
+  coveringFrontier,
+  effectiveContext,
+  renderEscalation,
+  resolveAuthorization,
+} from "./authorization.js";
 import { frozenIds } from "./frozen.js";
 import { createInitCommand } from "./commands/init.js";
 import { createContextCommand } from "./commands/context.js";

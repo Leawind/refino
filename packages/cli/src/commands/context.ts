@@ -9,7 +9,7 @@ import {
   effectiveContext,
   resolveAuthorization,
   type ResolvedAuthorization,
-} from "@refino/harness/state";
+} from "../authorization.js";
 import type { Graph } from "refino";
 import { Command } from "commander";
 import { emit, withStore } from "../shared.js";

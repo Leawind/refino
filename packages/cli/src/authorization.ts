@@ -1,15 +1,186 @@
-import { frozenFrontier, type ApplyPreview, type ModificationCheck } from "@refino/harness";
-import { effectiveContext, type ResolvedAuthorization } from "@refino/harness/state";
+import { createHash } from "node:crypto";
+import { realpathSync } from "node:fs";
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import {
+  authorizationContextOf,
+  convergeAuthorization,
+  frozenFrontier,
+  materializeDefaultAuthorization,
+  parseSignedAuthorization,
+  type ApplyPreview,
+  type ModificationCheck,
+  type SignedAuthorization,
+  type AuthorizationContext,
+} from "@refino/harness";
+import { orchestratorCredential, readAuthorizationDocument } from "@refino/harness/state";
 import type { Graph } from "refino";
 import { getAncestors } from "refino";
 import type { CliIo } from "./format.js";
 
 /**
- * CLI presentation helpers over the shared authorization state lane
- * (@refino/harness/state): the resolution itself lives in harness so the
- * dsh plugin and the CLI act on one implementation. What remains here is
- * prose-shaped output only.
+ * The conversation lane of the generic skill+CLI form (docs/design.md,
+ * "授权状态的作用域"): a CLI invocation is a one-shot process with nothing
+ * to hold session state, so signed contexts persist in the tool-managed
+ * user-level workspace state. Three origins resolve with decreasing
+ * precedence — an orchestrator credential, the workspace state written by
+ * `refino auth apply`, and the materialized default; the credential reader
+ * itself lives in @refino/harness/state (shared with the plugin form). The
+ * default is derived live on every invocation and never persisted; the state
+ * file only ever exists because a human approved a signing. What also lives
+ * here is the escalation/preview prose the CLI prints.
  */
+
+export type AuthorizationSource = "orchestrator" | "workspace" | "default";
+
+export interface ResolvedAuthorization {
+  /** The signed document as stored (pre-convergence). */
+  signed: SignedAuthorization;
+  /** Effective document: converged against the current graph. */
+  doc: SignedAuthorization;
+  source: AuthorizationSource;
+  /** Workspace state file path; absent for orchestrator and default origins. */
+  statePath?: string;
+  /** Full workspace state; absent for orchestrator and default origins. */
+  state?: WorkspaceState;
+}
+
+export interface WorkspaceState {
+  current: SignedAuthorization;
+  /** Previous signed versions, most recent first; bounded for --since deltas. */
+  history: SignedAuthorization[];
+}
+
+export const HISTORY_LIMIT = 10;
+
+/** Base directory for tool-managed state; overridable for tests and sandboxed hosts. */
+export function refinoHome(env: NodeJS.ProcessEnv = process.env): string {
+  return env.REFINO_HOME ?? join(homedir(), ".refino");
+}
+
+/**
+ * Per-workspace state file: `<home>/workspaces/<sha256 of canonical root>.json`.
+ * The root is canonicalized through symlinks so one repository maps to one
+ * state file no matter which path variant reaches it (docs/design.md,
+ * "授权状态的作用域"); a nonexistent root falls back to the literal absolute
+ * path — keying must not throw before the store reports the real problem.
+ */
+export function workspaceStatePath(root: string, env: NodeJS.ProcessEnv = process.env): string {
+  const key = createHash("sha256").update(canonicalRoot(root)).digest("hex").slice(0, 16);
+  return join(refinoHome(env), "workspaces", `${key}.json`);
+}
+
+function canonicalRoot(root: string): string {
+  try {
+    return realpathSync(resolve(root));
+  } catch {
+    return resolve(root);
+  }
+}
+
+export async function readWorkspaceState(statePath: string): Promise<WorkspaceState | undefined> {
+  let raw: string;
+  try {
+    raw = await readFile(statePath, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw new Error(
+      `cannot read workspace authorization at ${statePath}: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
+    );
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw new Error(
+      `workspace authorization at ${statePath} is not valid JSON (${error instanceof Error ? error.message : String(error)}); run "refino auth reset" to recover`,
+      { cause: error },
+    );
+  }
+  if (typeof parsed !== "object" || parsed === null || !("current" in parsed)) {
+    throw new Error(
+      `workspace authorization at ${statePath} is malformed; run "refino auth reset" to recover`,
+    );
+  }
+  const state = parsed as { current: unknown; history?: unknown };
+  const current = parseSignedAuthorization(state.current);
+  const history = Array.isArray(state.history)
+    ? state.history.slice(0, HISTORY_LIMIT).map((entry) => parseSignedAuthorization(entry))
+    : [];
+  return { current, history };
+}
+
+/** Atomic write (temp file + rename), mirroring the storage layer's discipline. */
+export async function writeWorkspaceState(statePath: string, state: WorkspaceState): Promise<void> {
+  await mkdir(dirname(statePath), { recursive: true });
+  const tmp = `${statePath}.${process.pid}.tmp`;
+  await writeFile(tmp, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+  await rename(tmp, statePath);
+}
+
+/**
+ * Materialize a signed document as an orchestrator credential file
+ * (`auth apply --output`): the written file feeds back through
+ * `--authorization` / `REFINO_AUTHORIZATION` into child processes, so an
+ * orchestrator can hand each task its signed context without touching the
+ * conversation lane's workspace state (docs/design.md, "授权状态的作用域").
+ */
+export async function writeCredentialFile(
+  outputPath: string,
+  doc: SignedAuthorization,
+): Promise<void> {
+  await mkdir(dirname(outputPath), { recursive: true });
+  const tmp = `${outputPath}.${process.pid}.tmp`;
+  await writeFile(tmp, `${JSON.stringify(doc, null, 2)}\n`, "utf8");
+  await rename(tmp, outputPath);
+}
+
+export async function removeWorkspaceState(statePath: string): Promise<boolean> {
+  try {
+    await stat(statePath);
+  } catch {
+    return false;
+  }
+  await rm(statePath);
+  return true;
+}
+
+/**
+ * Resolve the effective authorization for a workspace against the given
+ * graph. Orchestrator credentials and the workspace state are converged on
+ * the way out (deleted nodes dropped, frontier re-minimalized); the default
+ * is materialized from the live graph and needs no convergence.
+ */
+export async function resolveAuthorization(
+  graph: Graph,
+  req: { root: string; authorization?: string },
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<ResolvedAuthorization> {
+  const credential = orchestratorCredential(req, env);
+  if (credential !== undefined) {
+    const signed = await readAuthorizationDocument(credential);
+    const doc = convergeAuthorization(graph, signed);
+    return { signed, doc, source: "orchestrator" };
+  }
+  const statePath = workspaceStatePath(req.root, env);
+  const state = await readWorkspaceState(statePath);
+  if (state !== undefined) {
+    const doc = convergeAuthorization(graph, state.current);
+    return { signed: state.current, doc, source: "workspace", statePath, state };
+  }
+  const signed = materializeDefaultAuthorization(graph);
+  return { signed, doc: signed, source: "default" };
+}
+
+/** The effective context a write-path boundary check acts on. */
+export function effectiveContext(
+  graph: Graph,
+  resolved: ResolvedAuthorization,
+): AuthorizationContext {
+  return authorizationContextOf(graph, resolved.doc);
+}
 
 /**
  * Which signed frontier constraints cover a frozen node: the node itself, or

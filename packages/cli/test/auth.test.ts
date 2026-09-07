@@ -12,7 +12,7 @@ import {
   run,
   useOrchestratorCredential,
 } from "./authorization-fixture.js";
-import { workspaceStatePath } from "@refino/harness/state";
+import { workspaceStatePath } from "../src/authorization.js";
 
 async function readStateJson(): Promise<unknown> {
   const dir = join(process.env.REFINO_HOME!, "workspaces");

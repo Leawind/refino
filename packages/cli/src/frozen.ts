@@ -1,6 +1,6 @@
 import type { Graph } from "refino";
 import { frozenZone } from "@refino/harness";
-import { effectiveContext, resolveAuthorization } from "@refino/harness/state";
+import { effectiveContext, resolveAuthorization } from "./authorization.js";
 import type { GlobalOptions } from "./shared.js";
 
 /**
