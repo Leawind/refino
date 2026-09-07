@@ -7,15 +7,20 @@ import { byId } from "./types.js";
 import type { AuthorizationContext } from "./types.js";
 
 /**
- * A signed authorization document: the persistable form of a task's
- * authorization context (docs/design.md, "通用接入形态"). One schema serves
- * three origins with decreasing precedence — an orchestrator credential (env
- * var or explicit path), the tool-managed workspace state written by
- * `refino auth apply`, and the materialized default. Whatever the origin, the
- * effective context is re-derived against the current graph at read time:
- * zone closure follows the live `grounds` edges, so ancestors that grow after
- * signing join the zone without re-signing, and entries whose nodes were
- * deleted are silently dropped (`convergeAuthorization`).
+ * A signed authorization document: the persistable form of a task's frozen
+ * zone (docs/design.md, "通用接入形态"). One schema serves three origins with
+ * decreasing precedence — an orchestrator credential (env var or explicit
+ * path), the tool-managed workspace state written by `refino auth apply` (or
+ * a plugin's signing tool), and the materialized default. Whatever the
+ * origin, the effective context is re-derived against the current graph at
+ * read time: zone closure follows the live `grounds` edges, so ancestors
+ * that grow after signing join the zone without re-signing, and entries
+ * whose nodes were deleted are silently dropped (`convergeAuthorization`).
+ *
+ * Anchors are deliberately absent: they are an injection-policy parameter
+ * derived at runtime (`defaultAuthorizationContext`), not a signed fact —
+ * documents signed before this change may still carry an `anchors` field,
+ * which parses as an unknown field and is ignored.
  */
 export interface SignedAuthorization {
   version: 1;
@@ -26,8 +31,6 @@ export interface SignedAuthorization {
    * one, so optimistic concurrency (`--expect-revision`) can branch on it.
    */
   revision: number;
-  /** Scope anchors: the nodes loaded when a task starts. */
-  anchors: string[];
   /**
    * The frozen zone's minimal representation (its most downstream
    * constraints). Stored instead of the full zone so the zone semantics keep
@@ -36,9 +39,15 @@ export interface SignedAuthorization {
   frozenFrontier: string[];
 }
 
-/** The authorization context a signed document acts as. */
-export function authorizationContextOf(doc: SignedAuthorization): AuthorizationContext {
-  return { anchors: doc.anchors, frozen: doc.frozenFrontier };
+/** The authorization context a signed document acts as, over the given graph. */
+export function authorizationContextOf(
+  graph: Graph,
+  doc: SignedAuthorization,
+): AuthorizationContext {
+  return {
+    anchors: defaultAuthorizationContext(graph).context.anchors,
+    frozen: doc.frozenFrontier,
+  };
 }
 
 function fail(detail: string): never {
@@ -64,7 +73,6 @@ export function parseSignedAuthorization(value: unknown): SignedAuthorization {
     version: 1,
     signedAt,
     revision,
-    anchors: parseIdList(doc.anchors, "anchors", fail),
     frozenFrontier: parseIdList(doc.frozenFrontier, "frozenFrontier", fail),
   };
 }
@@ -83,21 +91,18 @@ function rfc3339(date: Date): string {
 
 /**
  * Materialize the unsigned default as a document (docs/design.md, dsh plugin
- * defaults): the frontier names all root constraints, anchors cover every
- * node while the graph has at most `maxAutoNodes` nodes and stay empty
- * otherwise. Revision 0; the default is derived live and never persisted.
+ * defaults): the frontier names all root constraints. Revision 0; the
+ * default is derived live and never persisted.
  */
 export function materializeDefaultAuthorization(
   graph: Graph,
   now: Date = new Date(),
-  maxAutoNodes = 1024,
 ): SignedAuthorization {
-  const { context } = defaultAuthorizationContext(graph, maxAutoNodes);
+  const { context } = defaultAuthorizationContext(graph);
   return {
     version: 1,
     signedAt: rfc3339(now),
     revision: 0,
-    anchors: [...context.anchors],
     frozenFrontier: [...context.frozen],
   };
 }
@@ -107,26 +112,23 @@ export function materializeDefaultAuthorization(
  * nodes no longer exist (deleted externally, e.g. via git) and reduce the
  * frontier back to the zone's minimal representation — a frontier node may
  * have gained a downstream refinement since signing, and the zone then reads
- * through the refinement instead. Anchors keep their order; ids are
- * deduplicated. Read-side only: signing (`applyAuthorization`) validates
- * strictly instead.
+ * through the refinement instead. Ids are deduplicated. Read-side only:
+ * signing (`applyAuthorization`) validates strictly instead.
  */
 export function convergeAuthorization(graph: Graph, doc: SignedAuthorization): SignedAuthorization {
-  const exists = (id: string): boolean => graph.nodes.has(id);
-  const anchors = [...new Set(doc.anchors.filter(exists))];
-  const frontier = [...new Set(doc.frozenFrontier.filter(exists))].filter(
-    (id) => graph.nodes.get(id)!.type === "constraint",
-  );
+  const frontier = [...new Set(doc.frozenFrontier)].filter((id) => {
+    const node = graph.nodes.get(id);
+    return node !== undefined && node.type === "constraint";
+  });
   // The zone's minimal representation may have drifted from the stored
   // frontier (the graph grew or shrank since signing); recompute it from the
   // zone so unfreeze operations keep acting on true frontier nodes.
   const minimal = frozenFrontier(graph, { anchors: [], frozen: frontier }).map((n) => n.id);
-  return { ...doc, anchors, frozenFrontier: minimal };
+  return { ...doc, frozenFrontier: minimal };
 }
 
 /** A draft for `applyAuthorization`: the full new document content. */
 export interface ApplyDraft {
-  anchors: string[];
   frozenFrontier: string[];
 }
 
@@ -147,12 +149,13 @@ export interface ApplyPreview {
 
 /**
  * Validate a draft and turn it into the next signed document. The draft must
- * reference existing nodes, name constraints only in its frontier, and list
- * each id at most once (`validateContext` semantics — signing is strict,
- * unlike read-side convergence). The frontier is reduced to the zone's
- * minimal representation: naming a constraint together with one of its
- * ancestors is accepted and the ancestor is dropped as redundant. The
- * returned document carries the given revision; callers own revision policy.
+ * reference existing constraint nodes and list each id at most once
+ * (`validateContext` semantics — signing is strict, unlike read-side
+ * convergence); anchors are derived automatically and need no drafting. The
+ * frontier is reduced to the zone's minimal representation: naming a
+ * constraint together with one of its ancestors is accepted and the ancestor
+ * is dropped as redundant. The returned document carries the given revision;
+ * callers own revision policy.
  */
 export function applyAuthorization(
   graph: Graph,
@@ -160,7 +163,7 @@ export function applyAuthorization(
   options: { now?: Date; revision: number },
 ): { doc: SignedAuthorization; preview: ApplyPreview } {
   const context: AuthorizationContext = {
-    anchors: [...draft.anchors],
+    anchors: defaultAuthorizationContext(graph).context.anchors,
     frozen: [...draft.frozenFrontier],
   };
   validateContext(graph, context);
@@ -183,7 +186,6 @@ export function applyAuthorization(
     version: 1,
     signedAt: rfc3339(options.now ?? new Date()),
     revision: options.revision,
-    anchors: context.anchors,
     frozenFrontier: frontier,
   };
   return {

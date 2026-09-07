@@ -23,12 +23,8 @@ import { processIo, renderFullRecord, renderIssues, renderNodeTable } from "./fo
 import type { CliIo } from "./format.js";
 import { createDevCommand } from "./dev.js";
 import { checkModification, type ModificationCheck } from "@refino/harness";
-import {
-  coveringFrontier,
-  effectiveContext,
-  renderEscalation,
-  resolveAuthorization,
-} from "./authorization.js";
+import { effectiveContext, resolveAuthorization } from "@refino/harness/state";
+import { coveringFrontier, renderEscalation } from "./authorization.js";
 import { frozenIds } from "./frozen.js";
 import { createInitCommand } from "./commands/init.js";
 import { createContextCommand } from "./commands/context.js";
@@ -416,7 +412,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
           // inside it is refused with a structured escalation report, no
           // matter how the command was invoked.
           const resolved = await resolveAuthorization(store.graph, opts);
-          const check = checkModification(store.graph, effectiveContext(resolved), id);
+          const check = checkModification(store.graph, effectiveContext(store.graph, resolved), id);
           if (!check.allowed) {
             renderEscalation(store.graph, resolved, check, io, opts.json);
             return 1;
@@ -485,7 +481,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
         const { force } = cmd.opts() as { force?: boolean };
         return withStoreForWrite(io, opts, async (store) => {
           const resolved = await resolveAuthorization(store.graph, opts);
-          const context = effectiveContext(resolved);
+          const context = effectiveContext(store.graph, resolved);
           const results: Array<{
             id: string;
             error?: string;

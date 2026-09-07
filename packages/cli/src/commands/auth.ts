@@ -1,5 +1,6 @@
 import {
   applyAuthorization,
+  authorizationContextOf,
   estimateContext,
   frozenZone,
   HarnessError,
@@ -7,22 +8,21 @@ import {
   type ApplyPreview,
   type SignedAuthorization,
 } from "@refino/harness";
-import type { Graph } from "refino";
-import { Command } from "commander";
 import {
-  effectiveContext,
   HISTORY_LIMIT,
-  idList,
-  orchestratorPath,
+  effectiveContext,
+  orchestratorCredential,
   readWorkspaceState,
   removeWorkspaceState,
-  renderPreview,
   resolveAuthorization,
   workspaceStatePath,
   writeCredentialFile,
   writeWorkspaceState,
   type WorkspaceState,
-} from "../authorization.js";
+} from "@refino/harness/state";
+import type { Graph } from "refino";
+import { Command } from "commander";
+import { idList, renderPreview } from "../authorization.js";
 import { emit, withStore } from "../shared.js";
 import type { GlobalOptions, RunFn } from "../shared.js";
 import type { CliIo } from "../format.js";
@@ -54,12 +54,6 @@ export function createAuthCommand(io: CliIo, run: RunFn): Command {
   auth
     .command("apply")
     .description("sign a new authorization document (human approval required)")
-    .option(
-      "--anchor <id>",
-      "scope anchor node id; repeat for all anchors (the full new list)",
-      collect,
-      [] as string[],
-    )
     .option(
       "--frozen-frontier <id>",
       "frozen frontier constraint id; repeat for the full new list",
@@ -105,7 +99,6 @@ function collect(value: string, previous: string[]): string[] {
 }
 
 interface ApplyOptions {
-  anchor?: string[];
   frozenFrontier?: string[];
   dryRun?: boolean;
   expectRevision?: string;
@@ -118,14 +111,11 @@ function currentRevision(state: WorkspaceState | undefined): number {
 
 async function showAuthorization(io: CliIo, opts: GlobalOptions, graph: Graph): Promise<number> {
   const resolved = await resolveAuthorization(graph, opts);
-  const context = effectiveContext(resolved);
+  const context = effectiveContext(graph, resolved);
   const zone = frozenZone(graph, context);
-  const dropped = {
-    anchors: resolved.signed.anchors.filter((id) => !resolved.doc.anchors.includes(id)),
-    frozenFrontier: resolved.signed.frozenFrontier.filter(
-      (id) => !resolved.doc.frozenFrontier.includes(id),
-    ),
-  };
+  const droppedFrontier = resolved.signed.frozenFrontier.filter(
+    (id) => !resolved.doc.frozenFrontier.includes(id),
+  );
   if (opts.json) {
     emit(io, {
       source: resolved.source,
@@ -136,27 +126,26 @@ async function showAuthorization(io: CliIo, opts: GlobalOptions, graph: Graph): 
         constraints: zone.filter((n) => n.type === "constraint").length,
         premises: zone.filter((n) => n.type === "premise").length,
       },
-      ...(dropped.anchors.length + dropped.frozenFrontier.length > 0 && { dropped }),
+      ...(droppedFrontier.length > 0 && { dropped: { frozenFrontier: droppedFrontier } }),
     });
     return 0;
   }
+  const credential = orchestratorCredential(opts);
   const origin =
     resolved.source === "orchestrator"
-      ? `编排者凭据（${orchestratorPath(opts) ?? "--authorization"}）`
+      ? `编排者凭据（${credential ?? "--authorization"}）`
       : resolved.source === "workspace"
         ? `工作区签发（${resolved.statePath}）`
         : "默认（未签发；全部根约束及其祖先被冻结）";
   const lines = [
     `授权来源：${origin}`,
     `revision：${resolved.doc.revision}（signedAt ${resolved.doc.signedAt}）`,
-    `锚点：${idList(context.anchors)}`,
+    `锚点（自动注入策略，非签发内容）：${idList(context.anchors)}`,
     `冻结 frontier：${idList(resolved.doc.frozenFrontier)}`,
     `生效冻结区：${zone.filter((n) => n.type === "constraint").length} 个约束、${zone.filter((n) => n.type === "premise").length} 个前提`,
   ];
-  if (dropped.anchors.length > 0 || dropped.frozenFrontier.length > 0) {
-    lines.push(
-      `收敛：签发中的 ${[...dropped.anchors, ...dropped.frozenFrontier].join(", ")} 已不存在，读取时忽略。`,
-    );
+  if (droppedFrontier.length > 0) {
+    lines.push(`收敛：签发中的 ${droppedFrontier.join(", ")} 已不存在，读取时忽略。`);
   }
   lines.push("预演签发：refino auth apply --dry-run；恢复默认：refino auth reset。");
   io.stdout.write(`${lines.join("\n")}\n`);
@@ -169,17 +158,16 @@ async function applyAuthorizationCommand(
   graph: Graph,
   o: ApplyOptions,
 ): Promise<number> {
-  const credential = orchestratorPath(opts);
+  const credential = orchestratorCredential(opts);
   if (credential !== undefined) {
     io.stderr.write(
       `error: authorization is provided by an orchestrator credential (${credential}); "auth apply" would not take effect\n`,
     );
     return 1;
   }
-  const anchors = o.anchor ?? [];
   const frozenFrontier = o.frozenFrontier ?? [];
-  if (anchors.length === 0 && frozenFrontier.length === 0) {
-    io.stderr.write("error: specify at least one --anchor or --frozen-frontier\n");
+  if (frozenFrontier.length === 0) {
+    io.stderr.write("error: specify at least one --frozen-frontier\n");
     return 1;
   }
   const statePath = workspaceStatePath(opts.root);
@@ -202,7 +190,7 @@ async function applyAuthorizationCommand(
   let doc: SignedAuthorization;
   let preview: ApplyPreview;
   try {
-    const outcome = applyAuthorization(graph, { anchors, frozenFrontier }, { revision });
+    const outcome = applyAuthorization(graph, { frozenFrontier }, { revision });
     doc = outcome.doc;
     preview = outcome.preview;
   } catch (error) {
@@ -214,10 +202,7 @@ async function applyAuthorizationCommand(
   }
 
   if (o.dryRun === true) {
-    const estimate = estimateContext(graph, {
-      anchors: doc.anchors,
-      frozen: doc.frozenFrontier,
-    });
+    const estimate = estimateContext(graph, authorizationContextOf(graph, doc));
     if (opts.json) emit(io, { dryRun: true, nextRevision: revision, preview, estimate });
     else {
       io.stdout.write(
@@ -268,7 +253,7 @@ async function applyAuthorizationCommand(
 }
 
 async function resetAuthorization(io: CliIo, opts: GlobalOptions): Promise<number> {
-  const credential = orchestratorPath(opts);
+  const credential = orchestratorCredential(opts);
   if (credential !== undefined) {
     io.stderr.write(
       `error: authorization is provided by an orchestrator credential (${credential}); "auth reset" would not take effect\n`,

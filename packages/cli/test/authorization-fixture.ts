@@ -64,7 +64,6 @@ export async function writeCredentialFile(frontier: string[]): Promise<string> {
       version: 1,
       signedAt: "2026-09-06T08:30:00.000Z",
       revision: 7,
-      anchors: [],
       frozenFrontier: frontier,
     }),
   );

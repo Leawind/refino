@@ -1,7 +1,7 @@
 import type { Graph } from "refino";
 import { frozenZone } from "@refino/harness";
+import { effectiveContext, resolveAuthorization } from "@refino/harness/state";
 import type { GlobalOptions } from "./shared.js";
-import { effectiveContext, resolveAuthorization } from "./authorization.js";
 
 /**
  * Frozen-status annotation for read commands: resolve the effective
@@ -12,5 +12,5 @@ import { effectiveContext, resolveAuthorization } from "./authorization.js";
  */
 export async function frozenIds(graph: Graph, opts: GlobalOptions): Promise<Set<string>> {
   const resolved = await resolveAuthorization(graph, opts);
-  return new Set(frozenZone(graph, effectiveContext(resolved)).map((n) => n.id));
+  return new Set(frozenZone(graph, effectiveContext(graph, resolved)).map((n) => n.id));
 }

@@ -12,7 +12,7 @@ import {
   run,
   useOrchestratorCredential,
 } from "./authorization-fixture.js";
-import { workspaceStatePath } from "../src/authorization.js";
+import { workspaceStatePath } from "@refino/harness/state";
 
 async function readStateJson(): Promise<unknown> {
   const dir = join(process.env.REFINO_HOME!, "workspaces");
@@ -135,12 +135,11 @@ describe("refino auth", () => {
     expect(unchanged.code).toBe(0);
     expect(unchanged.out).toContain("授权上下文自 revision 2 以来未变化");
 
-    // Revision 0 is the seeded implicit default: anchors were dropped and
-    // the other root left the zone.
+    // Revision 0 is the seeded implicit default: the standalone root left
+    // the zone when A1 was signed.
     const fromDefault = await run(["--root", root(), "context", "--since", "0"]);
     expect(fromDefault.code).toBe(0);
     expect(fromDefault.out).toContain("授权上下文增量（revision 0 → 2）");
-    expect(fromDefault.out).toContain("anchor_removed");
     expect(fromDefault.out).toContain("frozen_removed");
 
     const json = await run(["--root", root(), "--json", "context", "--since", "1"]);

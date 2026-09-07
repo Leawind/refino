@@ -46,16 +46,26 @@ describe("parseSignedAuthorization", () => {
       version: 1,
       signedAt: "2026-09-06T08:30:00.000Z",
       revision: 2,
-      anchors: [P1],
       frozenFrontier: [E5],
     });
     expect(doc).toEqual({
       version: 1,
       signedAt: "2026-09-06T08:30:00.000Z",
       revision: 2,
+      frozenFrontier: [E5],
+    });
+  });
+
+  it("ignores a legacy anchors field instead of rejecting the document", () => {
+    const doc = parseSignedAuthorization({
+      version: 1,
+      signedAt: "2026-09-06T08:30:00.000Z",
+      revision: 2,
       anchors: [P1],
       frozenFrontier: [E5],
     });
+    expect(doc).not.toHaveProperty("anchors");
+    expect(doc.frozenFrontier).toEqual([E5]);
   });
 
   it.each([
@@ -66,32 +76,26 @@ describe("parseSignedAuthorization", () => {
         version: 2,
         signedAt: "2026-09-06T08:30:00.000Z",
         revision: 0,
-        anchors: [],
         frozenFrontier: [],
       },
     ],
-    [
-      "bad timestamp",
-      { version: 1, signedAt: "yesterday", revision: 0, anchors: [], frozenFrontier: [] },
-    ],
+    ["bad timestamp", { version: 1, signedAt: "yesterday", revision: 0, frozenFrontier: [] }],
     [
       "negative revision",
       {
         version: 1,
         signedAt: "2026-09-06T08:30:00.000Z",
         revision: -1,
-        anchors: [],
         frozenFrontier: [],
       },
     ],
     [
-      "non-array anchors",
+      "non-array frozenFrontier",
       {
         version: 1,
         signedAt: "2026-09-06T08:30:00.000Z",
         revision: 0,
-        anchors: "A1",
-        frozenFrontier: [],
+        frozenFrontier: "A1",
       },
     ],
   ])("rejects %s", (_name, value) => {
@@ -102,21 +106,14 @@ describe("parseSignedAuthorization", () => {
 });
 
 describe("materializeDefaultAuthorization", () => {
-  it("names all root constraints as the frontier and all nodes as anchors", () => {
+  it("names all root constraints as the frontier", () => {
     const doc = materializeDefaultAuthorization(graphOf(), NOW);
     expect(doc).toEqual({
       version: 1,
       signedAt: "2026-09-06T08:30:00.000Z",
       revision: 0,
-      anchors: [P1, A1, B2, D4, E5, Z9],
       frozenFrontier: [A1, Z9],
     });
-  });
-
-  it("leaves anchors empty beyond the auto-anchor budget", () => {
-    const doc = materializeDefaultAuthorization(graphOf(), NOW, 3);
-    expect(doc.anchors).toEqual([]);
-    expect(doc.frozenFrontier).toEqual([A1, Z9]);
   });
 });
 
@@ -133,14 +130,12 @@ describe("convergeAuthorization", () => {
       version: 1,
       signedAt: "2026-09-06T08:30:00.000Z",
       revision: 1,
-      anchors: [P1, E5, Z9],
       frozenFrontier: [E5, Z9],
     });
     expect(convergeAuthorization(graph, doc)).toEqual({
       version: 1,
       signedAt: "2026-09-06T08:30:00.000Z",
       revision: 1,
-      anchors: [P1],
       frozenFrontier: [],
     });
   });
@@ -153,7 +148,6 @@ describe("convergeAuthorization", () => {
       version: 1,
       signedAt: "2026-09-06T08:30:00.000Z",
       revision: 1,
-      anchors: [],
       frozenFrontier: [D4, Z9],
     });
     const graph = buildGraph([
@@ -170,7 +164,6 @@ describe("convergeAuthorization", () => {
       version: 1,
       signedAt: "2026-09-06T08:30:00.000Z",
       revision: 1,
-      anchors: [A1],
       frozenFrontier: [Z9],
     });
     expect(convergeAuthorization(graphOf(), doc)).toEqual(doc);
@@ -181,28 +174,20 @@ describe("applyAuthorization", () => {
   it("signs strictly: unknown ids, premise frontiers and duplicates are rejected", () => {
     const graph = graphOf();
     expect(() =>
-      applyAuthorization(
-        graph,
-        { anchors: ["9M8N7P6Q"], frozenFrontier: [] },
-        { now: NOW, revision: 1 },
-      ),
+      applyAuthorization(graph, { frozenFrontier: ["9M8N7P6Q"] }, { now: NOW, revision: 1 }),
     ).toThrow(expect.objectContaining({ code: "UNKNOWN_NODE" }) as unknown as Error);
     expect(() =>
-      applyAuthorization(graph, { anchors: [], frozenFrontier: [P1] }, { now: NOW, revision: 1 }),
+      applyAuthorization(graph, { frozenFrontier: [P1] }, { now: NOW, revision: 1 }),
     ).toThrow(expect.objectContaining({ code: "FROZEN_NOT_CONSTRAINT" }) as unknown as Error);
     expect(() =>
-      applyAuthorization(
-        graph,
-        { anchors: [A1, A1], frozenFrontier: [] },
-        { now: NOW, revision: 1 },
-      ),
+      applyAuthorization(graph, { frozenFrontier: [A1, A1] }, { now: NOW, revision: 1 }),
     ).toThrow(expect.objectContaining({ code: "DUPLICATE_CONTEXT_ID" }) as unknown as Error);
   });
 
   it("reduces the frontier to its minimal representation and reports it", () => {
     const { doc, preview } = applyAuthorization(
       graphOf(),
-      { anchors: [], frozenFrontier: [A1, D4, E5] },
+      { frozenFrontier: [A1, D4, E5] },
       { now: NOW, revision: 3 },
     );
     // A1 and D4 are ancestors of E5; only E5 survives.
@@ -215,7 +200,7 @@ describe("applyAuthorization", () => {
   it("counts the frozen zone and warns about unfrozen roots", () => {
     const { preview } = applyAuthorization(
       graphOf(),
-      { anchors: [], frozenFrontier: [E5] },
+      { frozenFrontier: [E5] },
       { now: NOW, revision: 1 },
     );
     // Zone of E5: E5, D4, A1, P1 — Z9 stays outside and is a root.
@@ -227,12 +212,15 @@ describe("applyAuthorization", () => {
     });
   });
 
-  it("produces a context the zone helpers accept", () => {
+  it("produces a context with runtime-derived anchors the zone helpers accept", () => {
     const { doc } = applyAuthorization(
       graphOf(),
-      { anchors: [P1], frozenFrontier: [E5] },
+      { frozenFrontier: [E5] },
       { now: NOW, revision: 1 },
     );
-    expect(authorizationContextOf(doc)).toEqual({ anchors: [P1], frozen: [E5] });
+    expect(authorizationContextOf(graphOf(), doc)).toEqual({
+      anchors: [P1, A1, B2, D4, E5, Z9],
+      frozen: [E5],
+    });
   });
 });

@@ -5,13 +5,13 @@ import {
   estimateContext,
   renderContext,
 } from "@refino/harness";
-import type { Graph } from "refino";
-import { Command } from "commander";
 import {
   effectiveContext,
   resolveAuthorization,
   type ResolvedAuthorization,
-} from "../authorization.js";
+} from "@refino/harness/state";
+import type { Graph } from "refino";
+import { Command } from "commander";
 import { emit, withStore } from "../shared.js";
 import type { GlobalOptions, RunFn } from "../shared.js";
 import type { CliIo } from "../format.js";
@@ -55,7 +55,7 @@ async function renderContextOutput(
   o: ContextOptions,
 ): Promise<number> {
   const resolved = await resolveAuthorization(graph, opts);
-  const context = effectiveContext(resolved);
+  const context = effectiveContext(graph, resolved);
 
   if (o.since !== undefined) {
     const since = Number(o.since);
@@ -74,7 +74,7 @@ async function renderContextOutput(
     }
     const prevDoc = resolved.state?.history.find((d) => d.revision === since);
     if (prevDoc !== undefined) {
-      const prev = authorizationContextOf(convergeAuthorization(graph, prevDoc));
+      const prev = authorizationContextOf(graph, convergeAuthorization(graph, prevDoc));
       const delta = diffContext(graph, prev, context);
       if (opts.json) emit(io, { changed: true, revision: resolved.doc.revision, delta });
       else if (delta.length === 0) {
@@ -111,9 +111,7 @@ async function renderContextOutput(
     renderContext(graph, context),
   ];
   if (context.anchors.length === 0) {
-    parts.push(
-      "未设锚点：用 `refino search` 定位相关约束，经用户确认后以 `refino auth apply` 签发。",
-    );
+    parts.push("图超过自动锚点预算，未注入全图摘要：用 `refino search` 按需定位任务相关节点。");
   }
   if (resolved.source === "default") {
     parts.push(
