@@ -95,7 +95,14 @@ export class GlyphAtlas {
   }
 
   get full(): boolean {
-    return this.#nextCell >= (ATLAS_SIZE / this.cell) ** 2;
+    return this.#nextCell >= this.#cellsPerRow() ** 2;
+  }
+
+  /** Whole cells across the atlas: non-divisible tier cells (48, 72, 108,
+   * 160 against 2048) must not wrap past the right edge into the next row,
+   * which would overlap neighboring glyphs and corrupt sampling. */
+  #cellsPerRow(): number {
+    return Math.floor(ATLAS_SIZE / this.cell);
   }
 
   /** Text advance width in atlas pixels at the rasterization font size. */
@@ -134,7 +141,7 @@ export class GlyphAtlas {
       cell - CELL_PAD * 2,
       ascent + Math.ceil(metrics.actualBoundingBoxDescent),
     );
-    const perRow = ATLAS_SIZE / cell;
+    const perRow = this.#cellsPerRow();
     const cellX = (this.#nextCell % perRow) * cell;
     const cellY = Math.floor(this.#nextCell / perRow) * cell;
     this.#nextCell++;

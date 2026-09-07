@@ -36,6 +36,11 @@ void main() {
   float head = (1.0 - smoothstep(headHalf - aa, headHalf + aa, abs(v_frame.y)))
              * smoothstep(-aa, aa, along)
              * (1.0 - smoothstep(ARROW_LEN - aa, ARROW_LEN + aa, along));
-  float alpha = max(shaft, head) * v_color.a;
+  float coverage = max(shaft, head);
+  // Nearly-transparent fragments stay out of the depth buffer: near-
+  // parallel grounds converging on the same node otherwise blend through
+  // each other's anti-aliased rims into jagged, doubled-looking arrows.
+  if (coverage < 0.5) discard;
+  float alpha = coverage * v_color.a;
   outColor = vec4(v_color.rgb * alpha, alpha);
 }

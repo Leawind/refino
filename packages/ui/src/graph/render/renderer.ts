@@ -880,7 +880,7 @@ export class GraphRenderer {
     this.#culled = result.culled;
 
     gl.viewport(0, 0, this.#canvas.width, this.#canvas.height);
-    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
     this.#drawEdges(lowLod, result.edges);
     this.#drawNodes();
@@ -948,11 +948,19 @@ export class GraphRenderer {
     gl.uniform1f(uniform("u_dpr"), window.devicePixelRatio || 1);
     gl.uniform1f(uniform("u_scale"), scale);
     gl.uniform2f(uniform("u_offset"), tx, ty);
+    // Near-parallel grounds converge on the same border point; the depth
+    // test keeps the first edge's solid pixels from being re-blended by the
+    // others' rims (the fragment stage discards sub-0.5 coverage). Nodes
+    // and text draw afterwards without depth, as before.
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthFunc(gl.LESS);
+    gl.depthMask(true);
     gl.bindVertexArray(this.#edgeVao);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.#edgeInstances);
     gl.bufferData(gl.ARRAY_BUFFER, this.#edgeData.slice(0, count * 9), gl.DYNAMIC_DRAW);
     gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, count);
     gl.bindVertexArray(null);
+    gl.disable(gl.DEPTH_TEST);
   }
 
   #drawNodes(): void {
