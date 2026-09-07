@@ -4,11 +4,12 @@
 // itself, and dragging its corner handles resizes the shared card size live
 // (ui DESIGN.md, "交互"). The value persists through the workspace canvas
 // config like every other setting.
-import { computed, onBeforeUnmount, ref, watch } from "vue";
+import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { NButton } from "naive-ui";
 import { injectRequired } from "../context";
 import { NODE_SIZE_DEFAULT, NODE_SIZE_MAX, NODE_SIZE_MIN, workspaceKey } from "../workspace";
+import { useDismissable } from "../useDismissable";
 
 const { t } = useI18n();
 
@@ -87,33 +88,9 @@ function onResizeUp(): void {
   window.removeEventListener("mouseup", onResizeUp);
 }
 
-/** Any press outside the control collapses it back to the button. */
-function onDocumentDown(event: MouseEvent): void {
-  if (root.value !== null && event.target instanceof Node && !root.value.contains(event.target)) {
-    open.value = false;
-  }
-}
-
-function onKeydown(event: KeyboardEvent): void {
-  if (event.key === "Escape") open.value = false;
-}
-
-watch(open, (value) => {
-  if (value) {
-    document.addEventListener("mousedown", onDocumentDown);
-    window.addEventListener("keydown", onKeydown);
-  } else {
-    document.removeEventListener("mousedown", onDocumentDown);
-    window.removeEventListener("keydown", onKeydown);
-    onResizeUp(); // never leak a live gesture
-  }
-});
-
-onBeforeUnmount(() => {
-  onResizeUp();
-  document.removeEventListener("mousedown", onDocumentDown);
-  window.removeEventListener("keydown", onKeydown);
-});
+// Outside press or Escape collapses the control; closing never leaks a
+// live resize gesture.
+useDismissable(open, root, onResizeUp);
 </script>
 
 <template>

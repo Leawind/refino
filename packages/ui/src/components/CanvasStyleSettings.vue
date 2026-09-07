@@ -2,17 +2,21 @@
 // Canvas style settings: an edge button opening a small floating panel
 // (README, "配置项"). Holds the canvas text size multiplier; the value
 // persists through the workspace canvas config like every other setting.
+// Like every float panel, an outside press or Escape collapses it.
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { NButton, NSlider } from "naive-ui";
 import { injectRequired } from "../context";
 import { TEXT_SCALE_MAX, TEXT_SCALE_MIN } from "../graph/render/renderer";
 import { workspaceKey } from "../workspace";
+import { useDismissable } from "../useDismissable";
 
 const { t } = useI18n();
 
 const workspace = injectRequired(workspaceKey, "workspace");
 const open = ref(false);
+const root = ref<HTMLElement | null>(null);
+useDismissable(open, root);
 
 const textScale = computed<number>({
   get: () => workspace.state.config.textScale,
@@ -21,7 +25,7 @@ const textScale = computed<number>({
 </script>
 
 <template>
-  <div class="style-settings">
+  <div ref="root" class="style-settings">
     <section v-if="open" class="panel">
       <div class="row">
         <span>{{ t("canvas.textSize") }}</span>
