@@ -65,13 +65,7 @@ export class RefinoWorkspace {
     const workspace = new RefinoWorkspace(store);
     workspace.#rebuildSession();
     workspace.#unsubscribe = store.onChange((change) => {
-      let outcome;
-      try {
-        outcome = workspace.#absorb(change);
-      } catch (error) {
-        console.log("ABSORB FAILED:", error);
-        throw error;
-      }
+      const outcome = workspace.#absorb(change);
       if (change.origin !== "file") return; // own writes report through the write result
       if (outcome.delta.length > 0 || outcome.pending.length > 0) onExternalSync?.(outcome);
     });
