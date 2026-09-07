@@ -28,9 +28,18 @@ export interface Glyph {
 }
 
 const ATLAS_SIZE = 2048;
-const BASE_CELL = 32;
 const BASE_FONT_PX = 24;
-const CELL_PAD = 2;
+/** Gap between a cell's glyph and its neighbors. */
+const CELL_PAD = 3;
+/**
+ * Cell size for a rasterization font size: the font's ink box can reach
+ * ~1.2em (CJK with full ascent+descent), so the cell gives the glyph ~1.4em
+ * plus padding — a tight cell lets ink bleed across the border into the
+ * neighboring cell, and the neighbor's quad samples it as a stray block.
+ */
+function cellFor(fontPx: number): number {
+  return Math.round(fontPx * 1.4) + CELL_PAD * 2;
+}
 /** Atlas rasterization font at tier 1; label quads scale this down to
  * LABEL_FONT_PX. */
 export const ATLAS_FONT_PX = BASE_FONT_PX;
@@ -74,7 +83,7 @@ export class GlyphAtlas {
   }
 
   get cell(): number {
-    return BASE_CELL * this.#tier;
+    return cellFor(this.fontPx);
   }
 
   #applyFont(): void {
@@ -149,11 +158,14 @@ export class GlyphAtlas {
     this.#ctx.fillText(ch, cellX + CELL_PAD, cellY + CELL_PAD + ascent);
     this.#version++;
 
+    // Inset the sample rect by half a texel: LINEAR filtering at a cell's
+    // exact border would blend the neighbor cell's texels into the glyph.
+    const inset = 0.5 / ATLAS_SIZE;
     const glyph: Glyph = {
-      u0: (cellX + CELL_PAD) / ATLAS_SIZE,
-      v0: (cellY + CELL_PAD) / ATLAS_SIZE,
-      u1: (cellX + CELL_PAD + width) / ATLAS_SIZE,
-      v1: (cellY + CELL_PAD + height) / ATLAS_SIZE,
+      u0: (cellX + CELL_PAD) / ATLAS_SIZE + inset,
+      v0: (cellY + CELL_PAD) / ATLAS_SIZE + inset,
+      u1: (cellX + CELL_PAD + width) / ATLAS_SIZE - inset,
+      v1: (cellY + CELL_PAD + height) / ATLAS_SIZE - inset,
       width,
       height,
       ascent,
