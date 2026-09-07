@@ -1,44 +1,52 @@
-import { mkdtemp, rm, symlink } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { workspaceStatePath } from "../src/authorization.js";
+import { ensureStateIgnored, workspaceStatePath } from "../src/authorization.js";
 
 /**
- * Workspace state keying (docs/design.md, "授权状态的作用域"): one
- * repository maps to one state file no matter which path variant reaches it.
- * This lane belongs to the generic skill+CLI form; the plugin form keeps its
- * signings in session memory instead.
+ * The state lane is workspace-scoped (docs/design.md, "授权状态的作用域"):
+ * the state file lives inside the repository's own `.refino/state/`, kept
+ * out of version control by the committed `.refino/.gitignore`. This lane
+ * belongs to the generic skill+CLI form; the plugin form keeps its signings
+ * in session memory instead.
  */
-describe("workspaceStatePath", () => {
+describe("workspace state lane", () => {
   const dirs: string[] = [];
 
   afterAll(async () => {
     await Promise.all(dirs.map((d) => rm(d, { recursive: true, force: true })));
   });
 
-  it("keys a symlinked root to the same state file as the real path", async () => {
-    const real = await mkdtemp(join(tmpdir(), "refino-ws-real-"));
-    const parent = await mkdtemp(join(tmpdir(), "refino-ws-parent-"));
-    dirs.push(real, parent);
-    const link = join(parent, "link");
-    await symlink(real, link);
-
-    const env = { REFINO_HOME: join(parent, "home") };
-    expect(workspaceStatePath(link, env)).toBe(workspaceStatePath(real, env));
+  it("places the state file in the workspace's own .refino/state/", () => {
+    expect(workspaceStatePath("/some/repo")).toMatch(/[/\\]\.refino[/\\]state[/\\]current\.json$/);
   });
 
-  it("distinct repositories key to distinct state files", async () => {
-    const a = await mkdtemp(join(tmpdir(), "refino-ws-a-"));
-    const b = await mkdtemp(join(tmpdir(), "refino-ws-b-"));
-    dirs.push(a, b);
-    const env = { REFINO_HOME: join(a, "home") };
-
-    expect(workspaceStatePath(a, env)).not.toBe(workspaceStatePath(b, env));
+  it("ensureStateIgnored creates the gitignore when missing", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "refino-state-a-"));
+    dirs.push(dir);
+    await ensureStateIgnored(dir);
+    const content = await readFile(join(dir, ".gitignore"), "utf8");
+    expect(content).toContain("/state/");
   });
 
-  it("does not throw for a nonexistent root", () => {
-    const path = workspaceStatePath("/definitely/not/here", { REFINO_HOME: "/tmp/refino-ws-home" });
-    expect(path).toMatch(/[/\\]workspaces[/\\][0-9a-f]{16}\.json$/);
+  it("ensureStateIgnored leaves an existing rule untouched", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "refino-state-b-"));
+    dirs.push(dir);
+    const file = join(dir, ".gitignore");
+    await writeFile(file, "/state/\n", "utf8");
+    await ensureStateIgnored(dir);
+    expect(await readFile(file, "utf8")).toBe("/state/\n");
+  });
+
+  it("ensureStateIgnored appends the rule to a foreign gitignore", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "refino-state-c-"));
+    dirs.push(dir);
+    const file = join(dir, ".gitignore");
+    await writeFile(file, "notes.txt", "utf8");
+    await ensureStateIgnored(dir);
+    const content = await readFile(file, "utf8");
+    expect(content).toContain("notes.txt");
+    expect(content).toContain("/state/");
   });
 });

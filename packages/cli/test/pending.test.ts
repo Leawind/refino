@@ -19,14 +19,10 @@ const A1 = "A1B2C3D4";
 const D4 = "D4E5F6G7";
 
 const exec = promisify(execFile);
-let home: string;
 let repo: string;
 let bare: string;
 
 beforeAll(async () => {
-  home = await mkdtemp(join(tmpdir(), "refino-pending-home-"));
-  process.env.REFINO_HOME = home;
-
   repo = await mkdtemp(join(tmpdir(), "refino-pending-repo-"));
   await git(repo, ["init"]);
   await git(repo, ["config", "user.email", "test@example.com"]);
@@ -50,8 +46,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  for (const dir of [home, repo, bare]) await rm(dir, { recursive: true, force: true });
-  delete process.env.REFINO_HOME;
+  for (const dir of [repo, bare]) await rm(dir, { recursive: true, force: true });
 });
 
 function git(root: string, args: string[]): Promise<unknown> {

@@ -1,8 +1,5 @@
-import { createHash } from "node:crypto";
-import { realpathSync } from "node:fs";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import {
   authorizationContextOf,
   convergeAuthorization,
@@ -22,14 +19,16 @@ import type { CliIo } from "./format.js";
 /**
  * The conversation lane of the generic skill+CLI form (docs/design.md,
  * "授权状态的作用域"): a CLI invocation is a one-shot process with nothing
- * to hold session state, so signed contexts persist in the tool-managed
- * user-level workspace state. Three origins resolve with decreasing
- * precedence — an orchestrator credential, the workspace state written by
- * `refino auth apply`, and the materialized default; the credential reader
- * itself lives in @refino/harness/state (shared with the plugin form). The
- * default is derived live on every invocation and never persisted; the state
- * file only ever exists because a human approved a signing. What also lives
- * here is the escalation/preview prose the CLI prints.
+ * to hold session state, so signed contexts persist in the workspace-scoped
+ * state lane — a file inside the adopted repository's own `.refino/`, kept
+ * out of version control by the committed `.refino/.gitignore`. Three origins
+ * resolve with decreasing precedence — an orchestrator credential, the
+ * workspace state written by `refino auth apply`, and the materialized
+ * default; the credential reader itself lives in @refino/harness/state
+ * (shared with the plugin form). The default is derived live on every
+ * invocation and never persisted; the state file only ever exists because a
+ * human approved a signing. What also lives here is the escalation/preview
+ * prose the CLI prints.
  */
 
 export type AuthorizationSource = "orchestrator" | "workspace" | "default";
@@ -54,29 +53,44 @@ export interface WorkspaceState {
 
 export const HISTORY_LIMIT = 10;
 
-/** Base directory for tool-managed state; overridable for tests and sandboxed hosts. */
-export function refinoHome(env: NodeJS.ProcessEnv = process.env): string {
-  return env.REFINO_HOME ?? join(homedir(), ".refino");
+/**
+ * The conversation lane's state file: `<root>/.refino/state/current.json`.
+ * Workspace-scoped on purpose (docs/design.md, "授权状态的作用域"): the state
+ * lives in the adopted repository's own `.refino/` — one checkout carries its
+ * own signing, worktrees are isolated by the filesystem, and there is no
+ * user-level directory to key, redirect, or clean up. The directory stays out
+ * of version control via the committed `.refino/.gitignore`.
+ */
+export function workspaceStatePath(root: string): string {
+  return join(root, ".refino", "state", "current.json");
 }
+
+/** The anchored gitignore rule that keeps the state lane unversioned. */
+const GITIGNORE_RULE = "/state/";
+
+const GITIGNORE_TEXT = `# refino workspace state (signed authorizations; machine-local, not shared)\n${GITIGNORE_RULE}\n`;
 
 /**
- * Per-workspace state file: `<home>/workspaces/<sha256 of canonical root>.json`.
- * The root is canonicalized through symlinks so one repository maps to one
- * state file no matter which path variant reaches it (docs/design.md,
- * "授权状态的作用域"); a nonexistent root falls back to the literal absolute
- * path — keying must not throw before the store reports the real problem.
+ * Keep the state lane out of git: `.refino/.gitignore` is committed and
+ * carries the anchored `/state/` rule, so clones inherit the exclusion and
+ * the ignore behavior is a property of the repository, not of any machine's
+ * global git config. Ensured by `refino init` and before every state write;
+ * idempotent — a missing file is created, an existing file without the rule
+ * gains it appended.
  */
-export function workspaceStatePath(root: string, env: NodeJS.ProcessEnv = process.env): string {
-  const key = createHash("sha256").update(canonicalRoot(root)).digest("hex").slice(0, 16);
-  return join(refinoHome(env), "workspaces", `${key}.json`);
-}
-
-function canonicalRoot(root: string): string {
+export async function ensureStateIgnored(refinoDir: string): Promise<void> {
+  const file = join(refinoDir, ".gitignore");
+  let content: string;
   try {
-    return realpathSync(resolve(root));
-  } catch {
-    return resolve(root);
+    content = await readFile(file, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    await writeFile(file, GITIGNORE_TEXT, "utf8");
+    return;
   }
+  if (content.split(/\r?\n/).some((line) => line.trim() === GITIGNORE_RULE)) return;
+  const separator = content.length > 0 && !content.endsWith("\n") ? "\n" : "";
+  await writeFile(file, `${content}${separator}${GITIGNORE_RULE}\n`, "utf8");
 }
 
 export async function readWorkspaceState(statePath: string): Promise<WorkspaceState | undefined> {
@@ -113,7 +127,9 @@ export async function readWorkspaceState(statePath: string): Promise<WorkspaceSt
 }
 
 /** Atomic write (temp file + rename), mirroring the storage layer's discipline. */
-export async function writeWorkspaceState(statePath: string, state: WorkspaceState): Promise<void> {
+export async function writeWorkspaceState(root: string, state: WorkspaceState): Promise<void> {
+  await ensureStateIgnored(join(root, ".refino"));
+  const statePath = workspaceStatePath(root);
   await mkdir(dirname(statePath), { recursive: true });
   const tmp = `${statePath}.${process.pid}.tmp`;
   await writeFile(tmp, `${JSON.stringify(state, null, 2)}\n`, "utf8");
@@ -164,7 +180,7 @@ export async function resolveAuthorization(
     const doc = convergeAuthorization(graph, signed);
     return { signed, doc, source: "orchestrator" };
   }
-  const statePath = workspaceStatePath(req.root, env);
+  const statePath = workspaceStatePath(req.root);
   const state = await readWorkspaceState(statePath);
   if (state !== undefined) {
     const doc = convergeAuthorization(graph, state.current);

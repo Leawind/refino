@@ -7,12 +7,12 @@ import { main } from "../src/main.js";
 import type { CliIo } from "../src/format.js";
 
 /**
- * Shared fixture for the authorization-related suites: REFINO_HOME is
- * redirected into a temp dir so workspace state never touches the real home,
- * and the graph has two roots so the default frozen zone covers more than
- * one node. Root constraints have no grounds by definition, so premises are
- * never frozen by default — only by an explicit signing (frontier D4 pulls
- * P1 into the zone as an ancestor).
+ * Shared fixture for the authorization-related suites: workspace state lands
+ * inside the fixture's own .refino/state/ (removed with it), and the graph
+ * has two roots so the default frozen zone covers more than one node. Root
+ * constraints have no grounds by definition, so premises are never frozen by
+ * default — only by an explicit signing (frontier D4 pulls P1 into the zone
+ * as an ancestor).
  *
  *   1A2B3C4D (premise) ──┬→ D4E5F6G7
  *   A1B2C3D4 (root) ─────┘
@@ -34,8 +34,7 @@ export function root(): string {
 }
 
 beforeAll(async () => {
-  home = await mkdtemp(join(tmpdir(), "refino-home-"));
-  process.env.REFINO_HOME = home;
+  home = await mkdtemp(join(tmpdir(), "refino-credentials-"));
   rootDir = await createRefino({
     "nodes/1A/2B3C4D-premise.md": premise(P1, "P1 fact."),
     "nodes/2B/3C4D5E-premise.md": premise(P2, "P2 fact."),
@@ -48,7 +47,6 @@ beforeAll(async () => {
 afterAll(async () => {
   await removeRefino(rootDir);
   await rm(home, { recursive: true, force: true });
-  delete process.env.REFINO_HOME;
   delete process.env.REFINO_AUTHORIZATION;
 });
 

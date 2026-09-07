@@ -33,10 +33,10 @@ import type { CliIo } from "../format.js";
  * in conversation (docs/design.md, "通用接入形态"). There is no interactive
  * wizard on purpose: the model drafts, `--dry-run` previews, the human
  * approves in conversation (and through the harness's command approval
- * surface), then the model applies. Writing targets the tool-managed
- * workspace state only — orchestrator credentials are read-only, so an
- * active credential makes apply/reset a refused no-op instead of a silent
- * one.
+ * surface), then the model applies. Writing targets the workspace-scoped
+ * state lane only (`.refino/state/`, git-ignored) — orchestrator credentials
+ * are read-only, so an active credential makes apply/reset a refused no-op
+ * instead of a silent one.
  */
 export function createAuthCommand(io: CliIo, run: RunFn): Command {
   const auth = new Command("auth").description(
@@ -219,7 +219,7 @@ async function applyAuthorizationCommand(
     return 0;
   }
 
-  await writeWorkspaceState(statePath, {
+  await writeWorkspaceState(opts.root, {
     current: doc,
     history:
       state !== undefined

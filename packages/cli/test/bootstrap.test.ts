@@ -7,22 +7,19 @@ import { main } from "../src/main.js";
 import type { CliIo } from "../src/format.js";
 
 /**
- * Bootstrap commands: init, context, search, guide, skill. Uses its own
- * REFINO_HOME so context's workspace-state resolution cannot leak between
- * files.
+ * Bootstrap commands: init, context, search, guide, skill. Workspace state
+ * lands inside each fixture's own .refino/, so fixtures cannot leak into
+ * each other.
  */
 const P1 = "1A2B3C4D";
 const A1 = "A1B2C3D4";
 const D4 = "D4E5F6G7";
 const Z9 = "Z9Y8X7W6";
 
-let home: string;
 let graphRoot: string;
 let bareRoot: string;
 
 beforeAll(async () => {
-  home = await mkdtemp(join(tmpdir(), "refino-home-"));
-  process.env.REFINO_HOME = home;
   graphRoot = await createRefino({
     "nodes/1A/2B3C4D-premise.md": premise(P1, "PostgreSQL 16 is in use."),
     "nodes/A1/B2C3D4-constraint.md": constraint(A1, undefined, "All data lives in PostgreSQL."),
@@ -35,8 +32,6 @@ beforeAll(async () => {
 afterAll(async () => {
   await removeRefino(graphRoot);
   await rm(bareRoot, { recursive: true, force: true });
-  await rm(home, { recursive: true, force: true });
-  delete process.env.REFINO_HOME;
 });
 
 async function run(argv: string[]): Promise<{ code: number; out: string; err: string }> {
@@ -58,6 +53,9 @@ describe("refino init", () => {
     await expect(readFile(join(bareRoot, ".refino", "nodes"), "utf8")).rejects.toMatchObject({
       code: "EISDIR",
     });
+    // The committed gitignore keeps the state lane out of version control.
+    const gitignore = await readFile(join(bareRoot, ".refino", ".gitignore"), "utf8");
+    expect(gitignore).toContain("/state/");
 
     const again = await run(["--root", bareRoot, "init"]);
     expect(again.code).toBe(1);

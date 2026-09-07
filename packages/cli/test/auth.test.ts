@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -15,10 +15,7 @@ import {
 import { workspaceStatePath } from "../src/authorization.js";
 
 async function readStateJson(): Promise<unknown> {
-  const dir = join(process.env.REFINO_HOME!, "workspaces");
-  const files = await readdir(dir);
-  expect(files.length).toBeGreaterThan(0);
-  return JSON.parse(await readFile(join(dir, files[0]!), "utf8"));
+  return JSON.parse(await readFile(workspaceStatePath(root()), "utf8"));
 }
 
 describe("refino auth", () => {
@@ -48,9 +45,7 @@ describe("refino auth", () => {
     expect(out).toContain("根约束将解冻");
     expect(out).toContain(Z9);
     expect(out).toContain("确认后去掉 --dry-run");
-    await expect(stat(join(process.env.REFINO_HOME!, "workspaces"))).rejects.toMatchObject({
-      code: "ENOENT",
-    });
+    await expect(stat(workspaceStatePath(root()))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("apply signs the workspace state and show reflects it", async () => {
@@ -157,7 +152,7 @@ describe("refino auth", () => {
     const { code, out } = await run(["--root", root(), "auth", "reset"]);
     expect(code).toBe(0);
     expect(out).toContain("已移除工作区签发");
-    await expect(readdir(join(process.env.REFINO_HOME!, "workspaces"))).resolves.toEqual([]);
+    await expect(stat(workspaceStatePath(root()))).rejects.toMatchObject({ code: "ENOENT" });
 
     const show = await run(["--root", root(), "auth", "show"]);
     expect(show.out).toContain("授权来源：默认");
