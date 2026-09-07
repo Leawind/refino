@@ -55,10 +55,12 @@ export interface CanvasConfig {
   direction: LayoutDirection;
 }
 
-/** Bounds of the node card size, in virtual units. The minimum fits one
- * text line plus padding; the maximum keeps cards from dwarfing the view. */
-export const NODE_SIZE_MIN = { width: 100, height: 36 };
+/** Bounds of the node card size, in virtual units. The minimum sits just
+ * above the collapsed control button itself; the maximum keeps cards from
+ * dwarfing the view. */
+export const NODE_SIZE_MIN = { width: 40, height: 36 };
 export const NODE_SIZE_MAX = { width: 480, height: 280 };
+export const NODE_SIZE_DEFAULT = { width: 150, height: 44 };
 
 const DEFAULT_CONFIG: CanvasConfig = {
   descendantDepth: 2,
@@ -71,8 +73,8 @@ const DEFAULT_CONFIG: CanvasConfig = {
   zoomAnchor: "cursor",
   zoomMax: 4,
   textScale: 1,
-  nodeWidth: 150,
-  nodeHeight: 44,
+  nodeWidth: NODE_SIZE_DEFAULT.width,
+  nodeHeight: NODE_SIZE_DEFAULT.height,
   layoutMode: "layered",
   direction: "LR",
 };

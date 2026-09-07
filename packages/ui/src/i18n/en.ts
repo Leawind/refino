@@ -122,6 +122,9 @@ export default {
     styleSettings: "Style settings",
     textSize: "Text size",
     textSizeReset: "Reset",
+    nodeSize: "Node size",
+    nodeSizeResize: "Drag a corner to resize",
+    nodeSizeReset: "Reset",
     rangeDisconnected:
       "No path between the two nodes (no common ancestor or the search budget ran out); the selection is now just the clicked node",
     glUnavailable: "WebGL 2 is unavailable; the canvas cannot render",

@@ -29,6 +29,7 @@ import AppHeader from "./components/AppHeader.vue";
 import ResourceExplorer from "./components/ResourceExplorer.vue";
 import DecisionGraph from "./components/DecisionGraph.vue";
 import CanvasStyleSettings from "./components/CanvasStyleSettings.vue";
+import NodeSizeControl from "./components/NodeSizeControl.vue";
 import NodeDetailWindow from "./components/NodeDetailWindow.vue";
 import NodePeek from "./components/NodePeek.vue";
 import GraphFloat from "./components/GraphFloat.vue";
@@ -159,6 +160,7 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
                 </GraphFloat>
                 <GraphFloat placement="bottom-right">
                   <CanvasStyleSettings />
+                  <NodeSizeControl />
                   <div class="layout-controls">
                     <NPopselect
                       :value="layoutMode"
