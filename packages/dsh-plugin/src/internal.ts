@@ -1,5 +1,4 @@
-import type { TraversalOptions } from "refino";
-import type { RefinoWorkspace } from "./workspace.js";
+import type { RefinoWorkspace } from "@refino/harness/host";
 
 /** Helpers shared by the query and write tool modules. */
 
@@ -11,27 +10,7 @@ export function requireWorkspace(get: () => RefinoWorkspace | undefined): Refino
   return workspace;
 }
 
-/** Parameter schema for batch traversals (`ids` plus an optional depth bound). */
-export function traversalParams(description: string) {
-  return {
-    ids: { type: "array", items: { type: "string" }, required: true, description },
-    max_depth: {
-      type: "integer",
-      description: "最大遍历深度：1 只含直接依据/依赖，0 不含任何节点；省略则不限",
-    },
-  } as const;
-}
-
-/** Hand-checked constraint the schema DSL cannot express (cookbook: validate by hand). */
-export function traversalOptions(maxDepth: number | undefined): TraversalOptions {
-  if (maxDepth === undefined) return {};
-  if (!Number.isInteger(maxDepth) || maxDepth < 0) {
-    throw new Error(`max_depth must be a non-negative integer, got ${maxDepth}`);
-  }
-  return { maxDepth };
-}
-
-/** Canonical output schema shared by the three write tools. */
+/** Canonical output schema shared by the four write tools. */
 export function writeResultSchema() {
   return {
     type: "object",

@@ -109,6 +109,9 @@ importers:
 
   packages/harness:
     dependencies:
+      '@refino/storage':
+        specifier: workspace:^
+        version: link:../storage
       refino:
         specifier: workspace:^
         version: link:../refino

@@ -14,6 +14,7 @@
 - 注入规模估算：上下文块数与字符量预估，供授权控制台的签发预览
 - 增量 delta：锚点/冻结区变化的事件序列，支持 prompt-cache 友好的增量注入
 - `HarnessSession`：批量、部分成功语义的查询工具与边界校验的会话封装
+- 工具插件公共核心（`@refino/harness/host` 子路径，Node 专属）：`RefinoWorkspace`（基于 `@refino/storage` Store 的会话工作区：常驻投影 + 默认/已签发授权上下文的收敛 + 外部变更同步）、`DeltaCoalescer`（delta 注入降噪）、会话开局授权解析（`resolveAuthorization`：编排者凭据 → 默认值）、CRG 工具执行核心（只读查询、写入链、对话签发，批量 + 部分成功语义）、注入文本渲染（初始上下文、超预算引导、resume 状态行、更新通知；工具指称经 `ToolRefs` 参数化，各宿主传入模型侧实际工具名）、canonical 结果形状与模型侧 markdown 渲染、工具与参数描述文本。dsh 插件与 cc 插件（Claude Code 插件规范形态）各自只保留宿主绑定（工具 schema 声明、会话事件、审批面与注入通道）；主入口保持浏览器安全，本子路径与 `state` 一样仅限 Node 消费方
 
 本包不提供：
 

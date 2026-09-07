@@ -6,23 +6,17 @@ import type { Agent, SessionStartSource } from "@deepseek-ai/dsh-agent";
 import type { ApprovalOutcome } from "@deepseek-ai/dsh-user-approval";
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
 import {
-  authorizationContextOf,
-  convergeAuthorization,
-  defaultAuthorizationContext,
-} from "@refino/harness";
-import { orchestratorCredential, readAuthorizationDocument } from "@refino/harness/state";
-import { DeltaCoalescer } from "./coalesce.js";
-import {
   authorizationStatusText,
+  defaultAuthorizationContext,
   initialContextText,
   orientationText,
+  toolRefs,
   updateText,
-  REFINO_PLUGIN_SOURCE,
-} from "./inject-text.js";
-import { findRefinoDir } from "./locate.js";
+  type AuthorizationOrigin,
+} from "@refino/harness";
+import { DeltaCoalescer, RefinoWorkspace, resolveAuthorization } from "@refino/harness/host";
+import { findRefinoDir } from "@refino/storage";
 import { createTools } from "./tools.js";
-import type { AuthorizationOrigin } from "./signing.js";
-import { RefinoWorkspace } from "./workspace.js";
 
 /**
  * refino plugin for the DeepSeek Harness (docs/design.md, dsh 插件落地形态):
@@ -42,6 +36,12 @@ export const name = "refino";
 
 /** Minimum spacing between external-change injections (docs/design.md, delta 降噪). */
 const EXTERNAL_SYNC_INTERVAL_MS = 2000;
+
+/** dsh tool names (`refino_show`); injected texts cite the same names. */
+const TOOLS = toolRefs("refino_");
+
+/** Stable plugin identity used as the message source for every injection. */
+const REFINO_PLUGIN_SOURCE = { kind: "plugin", plugin: "refino" } as const;
 
 export function apply(ctx: Context): void {
   const workspaces = new WeakMap<Agent, RefinoWorkspace>();
@@ -104,25 +104,20 @@ async function startSession(
   // environment provides one, the derived defaults otherwise. There is no
   // persisted signing lane on the plugin side — in-session signings die with
   // the process, and resume re-states the effective status in one line.
-  const origin: AuthorizationOrigin = { source: "default", signedAt: "" };
-  const credential = orchestratorCredential({}, process.env);
-  if (credential !== undefined) {
-    try {
-      const doc = convergeAuthorization(
-        workspace.graph,
-        await readAuthorizationDocument(credential),
-      );
-      // Adopt the credential as session state; its delta is irrelevant here —
-      // the baseline injection below already reflects it.
-      workspace.signContext(authorizationContextOf(workspace.graph, doc));
-      origin.source = "orchestrator";
-      origin.signedAt = doc.signedAt;
-    } catch (error) {
-      ctx.logger.warn("refino: orchestrator credential unreadable, using defaults: %o", error);
-    }
+  const resolved = await resolveAuthorization(workspace.graph, process.env);
+  if (resolved.warning !== undefined) {
+    ctx.logger.warn(
+      "refino: orchestrator credential unreadable, using defaults: %o",
+      resolved.warning,
+    );
+  }
+  if (resolved.origin.source === "orchestrator") {
+    // Adopt the credential as session state; its delta is irrelevant here —
+    // the baseline injection below already reflects it.
+    workspace.signContext(resolved.context);
   }
 
-  const originRecord = { ...origin };
+  const originRecord: AuthorizationOrigin = { ...resolved.origin };
   const get = () => workspaces.get(agent);
   const signing = {
     get,
@@ -144,13 +139,13 @@ async function startSession(
     if (defaultAuthorizationContext(workspace.graph).complete) {
       inject(
         agent,
-        initialContextText(workspace.graph, workspace.authorizationContext, originRecord),
+        initialContextText(workspace.graph, workspace.authorizationContext, TOOLS, originRecord),
       );
     } else {
-      inject(agent, orientationText(workspace.graph));
+      inject(agent, orientationText(workspace.graph, TOOLS));
     }
   } else if (source === "resume") {
-    inject(agent, authorizationStatusText(originRecord));
+    inject(agent, authorizationStatusText(originRecord, TOOLS));
   }
 }
 

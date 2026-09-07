@@ -1,4 +1,4 @@
-import type { DeltaEvent } from "@refino/harness";
+import type { DeltaEvent } from "./types.js";
 import type { RefinoNode } from "refino";
 import type { SyncOutcome } from "./workspace.js";
 

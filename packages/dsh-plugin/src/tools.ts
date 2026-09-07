@@ -2,7 +2,7 @@ import type { ToolDefinition } from "@deepseek-ai/dsh-tools";
 import { createQueryTools } from "./query-tools.js";
 import { createSigningTools, type SigningDeps } from "./signing.js";
 import { createWriteTools } from "./write-tools.js";
-import type { RefinoWorkspace } from "./workspace.js";
+import type { RefinoWorkspace } from "@refino/harness/host";
 
 /**
  * The model-facing CRG toolset for one agent: read-only queries plus the

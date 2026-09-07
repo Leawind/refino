@@ -23,7 +23,7 @@ export { searchNodes } from "./search.js";
 export type { SearchPage, SearchParams } from "./search.js";
 export { HarnessSession } from "./session.js";
 export type { HarnessHost } from "./session.js";
-export { byId, unknownNodes } from "./types.js";
+export { byId, toolRefs, unknownNodes } from "./types.js";
 export type {
   AuthorizationContext,
   ContextBlock,
@@ -33,5 +33,36 @@ export type {
   EscalationReport,
   ModificationCheck,
   NodeZone,
+  ToolRefs,
 } from "./types.js";
+export {
+  authorizationStatusText,
+  initialContextText,
+  orientationText,
+  updateText,
+} from "./inject-text.js";
+export type { AuthorizationOrigin } from "./inject-text.js";
+export { createRenderKit, type RenderKit } from "./render.js";
+export { createToolText, PARAM_TEXT, type ToolText } from "./descriptions.js";
+export { depthLite, fullLite, issueLite, lite } from "./shapes.js";
+export type {
+  ApprovalOutcome,
+  ContextStatusResult,
+  EscalationLite,
+  FullNodeLite,
+  IssueLite,
+  ListResult,
+  NodeDepthLite,
+  NodeLite,
+  PendingResult,
+  QueryEntryDepths,
+  QueryEntryFull,
+  QueryEntryNodes,
+  QueryEntrySiblings,
+  SearchResult,
+  SiblingLite,
+  SignResult,
+  SiblingsResult,
+  WriteResult,
+} from "./shapes.js";
 export type { QueryGroup } from "refino";

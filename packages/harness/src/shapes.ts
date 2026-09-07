@@ -2,9 +2,10 @@ import type { NodeContent } from "@refino/storage";
 import type { NodeWithDepth, RefinoNode } from "refino";
 
 /**
- * Canonical tool-result shapes (docs/design.md, dsh 插件落地形态). Loose on
- * purpose where values cross the tool schema boundary: the schema-inferred
- * render inputs carry plain `string` where the domain model has unions.
+ * Canonical tool-result shapes shared by every tool-plugin host (docs/design.md,
+ * dsh 插件落地形态). Loose on purpose where values cross the tool schema
+ * boundary: the schema-inferred render inputs carry plain `string` where the
+ * domain model has unions.
  */
 
 /** Summary-level node reference used by list/grounds/pending results. */
@@ -115,6 +116,36 @@ export interface QueryEntrySiblings {
 
 export interface SiblingsResult {
   results: QueryEntrySiblings[];
+}
+
+/** Outcome of a host approval-surface request; fail-closed on anything but an allow. */
+export type ApprovalOutcome = "allowed-once" | "rejected" | "cancelled" | "unavailable";
+
+/** Canonical value of `refino_request_authorization`. */
+export interface SignResult {
+  ok: boolean;
+  /** The signed frontier on success. */
+  frontier?: string[];
+  frozen_constraints?: number;
+  frozen_premises?: number;
+  /** Frontier ids covered by other frontier constraints (redundant in the draft). */
+  redundant_frontier?: string[];
+  /** Root constraints the draft unfreezes (highest-authorization warning). */
+  unfrozen_roots?: string[];
+  /** The approval outcome when `ok` is false. */
+  outcome?: ApprovalOutcome;
+  error?: string;
+}
+
+/** Canonical value of `refino_context`. */
+export interface ContextStatusResult {
+  source: string;
+  signed_at: string;
+  frontier: string[];
+  frozen_constraints: number;
+  frozen_premises: number;
+  anchors_complete: boolean;
+  orchestrator_credential: boolean;
 }
 
 export function lite(node: RefinoNode): NodeLite {

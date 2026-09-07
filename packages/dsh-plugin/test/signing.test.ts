@@ -5,7 +5,7 @@ import type { ToolDefinition } from "@deepseek-ai/dsh-tools";
 import type { ApprovalOutcome } from "@deepseek-ai/dsh-user-approval";
 import { constraint, createRefino, premise, removeRefino } from "@refino/testkit";
 import { createSigningTools, type AuthorizationOrigin, type SigningDeps } from "../src/signing.js";
-import { RefinoWorkspace } from "../src/workspace.js";
+import { RefinoWorkspace } from "@refino/harness/host";
 
 /**
  * Dialogue signing, entirely in session memory: an approved signing applies

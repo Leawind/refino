@@ -1,26 +1,29 @@
-import {
-  byId,
-  defaultAuthorizationContext,
-  frozenZone,
-  validateContext,
-  HarnessSession,
-  type AuthorizationContext,
-  type DeltaEvent,
-} from "@refino/harness";
+import { authorizationContextOf, convergeAuthorization } from "./authorization.js";
+import { defaultAuthorizationContext } from "./default.js";
+import { frozenZone, validateContext } from "./boundary.js";
+import { HarnessSession } from "./session.js";
+import { byId } from "./types.js";
+import { orchestratorCredential, readAuthorizationDocument } from "./state.js";
+import type { AuthorizationContext, DeltaEvent } from "./types.js";
+import type { AuthorizationOrigin } from "./inject-text.js";
 import { RefinoStore, type StoreChange, type StoreIssue } from "@refino/storage";
 import type { Graph, RefinoNode } from "refino";
 
 /**
  * One agent's CRG state over a `.refino/` directory: the storage Store's
  * resident projection under the current authorization context, plus
- * external-change syncing. The context starts at the defaults
- * (docs/design.md, dsh 插件落地形态); once a host signs an explicit one
+ * external-change syncing (docs/design.md, 存储层 Store / dsh 插件落地形态).
+ * The context starts at the defaults; once a host signs an explicit one
  * (`signContext` — authorization console, user commands, model-initiated
  * confirmation), it is session state: store changes converge it instead of
  * resetting — ids removed by a change drop out, surviving declarations are
  * untouched. The projection and its consistency with the disk live in the
  * store; every applied change (own writes and external file events alike)
  * rebuilds the session here, so reads never see a stale graph.
+ *
+ * Node-only by necessity (the Store); exported through the
+ * `@refino/harness/host` subpath so the platform-agnostic main entry stays
+ * browser-safe (same policy as `@refino/harness/state`).
  */
 
 /** Callback for external (watcher-detected) syncs; must not throw. */
@@ -35,6 +38,45 @@ export interface SyncOutcome {
   deleted: string[];
   /** Direct dependents of the changed nodes, pending review (docs/crg.md 1.6). */
   pending: RefinoNode[];
+}
+
+/** How the effective authorization of a session was resolved. */
+export interface ResolvedAuthorization {
+  context: AuthorizationContext;
+  origin: AuthorizationOrigin;
+  /**
+   * The error behind a fallback: set when an orchestrator credential is
+   * present but unreadable or invalid, so defaults apply instead. Hosts log
+   * it; the model-facing behavior is unchanged.
+   */
+  warning?: unknown;
+}
+
+/**
+ * Resolve the authorization a session starts under (docs/design.md, dsh 插件
+ * 落地形态): an orchestrator credential when the environment provides one,
+ * the derived defaults otherwise. Hosts adopt the resolved context on their
+ * workspace (signContext) when it is not the defaults.
+ */
+export async function resolveAuthorization(
+  graph: Graph,
+  env: NodeJS.ProcessEnv,
+): Promise<ResolvedAuthorization> {
+  const fallback: ResolvedAuthorization = {
+    context: defaultAuthorizationContext(graph).context,
+    origin: { source: "default", signedAt: "" },
+  };
+  const credential = orchestratorCredential({}, env);
+  if (credential === undefined) return fallback;
+  try {
+    const doc = convergeAuthorization(graph, await readAuthorizationDocument(credential));
+    return {
+      context: authorizationContextOf(graph, doc),
+      origin: { source: "orchestrator", signedAt: doc.signedAt },
+    };
+  } catch (error) {
+    return { ...fallback, warning: error };
+  }
 }
 
 export class RefinoWorkspace {

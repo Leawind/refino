@@ -93,6 +93,29 @@ export function unknownNodes(graph: Graph, ids: readonly string[]): string[] {
   return ids.filter((id) => !graph.nodes.has(id));
 }
 
+/**
+ * Model-facing tool-name references used by injected and rendered texts
+ * (docs/design.md, 增量注入与工具指称): each host exposes the CRG tools under
+ * its own naming scheme (`refino_show`, `mcp__refino__show`), so shared texts
+ * cite tools through these refs instead of hard-coded names.
+ */
+export interface ToolRefs {
+  search: string;
+  show: string;
+  grounds: string;
+  requestAuthorization: string;
+}
+
+/** Build refs from a host tool-name prefix (e.g. `refino_` or `mcp__refino__`). */
+export function toolRefs(prefix: string): ToolRefs {
+  return {
+    search: `${prefix}search`,
+    show: `${prefix}show`,
+    grounds: `${prefix}grounds`,
+    requestAuthorization: `${prefix}request_authorization`,
+  };
+}
+
 /** Sort nodes by id for deterministic output. */
 export function byId(nodes: Iterable<RefinoNode>): RefinoNode[] {
   return [...nodes].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));

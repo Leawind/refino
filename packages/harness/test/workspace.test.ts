@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { createPremise, createConstraint, deleteNode } from "@refino/storage";
 import { premise, constraint, createRefino, removeRefino } from "@refino/testkit";
-import { RefinoWorkspace, type SyncOutcome } from "../src/workspace.js";
+import { RefinoWorkspace, type SyncOutcome } from "../src/host.js";
 
 const cleanup: string[] = [];
 const workspaces: RefinoWorkspace[] = [];

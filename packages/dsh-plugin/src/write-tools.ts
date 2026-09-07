@@ -1,22 +1,31 @@
 import { defineTool, type ToolDefinition } from "@deepseek-ai/dsh-tools";
-import { getDependents, ID_RE, RefinoError, type NodeWithDepth, type RefinoNode } from "refino";
-import { checkModification, HarnessError } from "@refino/harness";
-import { confirmedToMs, isValidConfirmed, WriteRejected, type NodeContent } from "@refino/storage";
-import { depthLite, issueLite, lite, type WriteResult } from "./shapes.js";
-import { renderWrite } from "./render.js";
+import {
+  createRenderKit,
+  createToolText,
+  PARAM_TEXT,
+  toolRefs,
+  type WriteResult,
+} from "@refino/harness";
+import {
+  runCreateConstraint,
+  runCreatePremise,
+  runDeleteNode,
+  runUpdateNode,
+  type RefinoWorkspace,
+} from "@refino/harness/host";
 import { requireWorkspace, writeResultSchema } from "./internal.js";
-import type { RefinoWorkspace } from "./workspace.js";
 
 /**
- * CRG write tools (docs/design.md, dsh 插件落地形态). Every write walks the
- * same chain before persisting: engine `checkGroundsChange` (create validates
- * against a prospective graph copy) and harness `checkModification` — a
- * frozen-zone target returns a structured escalation report as a normal tool
- * result, never an error. The modification space closes downwards along
- * dependents (docs/crg.md 2.4), so no downstream-freeze check exists. The
- * target's own sync runs after persisting; its pending-review set rides the
- * result instead of being injected.
+ * CRG write tools as dsh native tools: schema declarations over the shared
+ * write cores (docs/design.md, dsh 插件落地形态). The write chain — engine
+ * grounds validation, harness boundary check, structured escalation reports
+ * — lives in the cores, shared with every other host.
  */
+
+const TOOL_PREFIX = "refino_";
+const TEXT = createToolText(toolRefs(TOOL_PREFIX));
+const kit = createRenderKit(toolRefs(TOOL_PREFIX));
+
 export function createWriteTools(get: () => RefinoWorkspace | undefined): ToolDefinition[] {
   return [
     createPremiseTool(get),
@@ -28,297 +37,98 @@ export function createWriteTools(get: () => RefinoWorkspace | undefined): ToolDe
 
 function createPremiseTool(get: () => RefinoWorkspace | undefined): ToolDefinition {
   return defineTool({
-    name: "refino_create_premise",
-    description: "新增前提节点（项目运作依赖的客观事实）。前提不携带 grounds，不参与约束谱系。",
+    name: `${TOOL_PREFIX}create_premise`,
+    description: TEXT.createPremise,
     parameters: {
-      body: { type: "string", required: true, description: "事实内容（Markdown 正文）" },
-      summary: { type: "string", description: "独立摘要；省略时取正文首段" },
+      body: { type: "string", required: true, description: PARAM_TEXT.bodyPremise },
+      summary: { type: "string", description: PARAM_TEXT.summary },
       confirmed: {
         type: "string",
-        description: "确认时间，RFC 3339 带显式 UTC 偏移（如 2026-09-05T00:00:00Z）",
+        description: PARAM_TEXT.confirmed,
       },
       id: {
         type: "string",
-        description: "显式节点 ID（3-16 位 A-Z、0-9、_）；省略则自动生成",
+        description: PARAM_TEXT.explicitId,
       },
     },
     output: { schema: writeResultSchema(), render: renderWriteValue },
     async execute(args) {
-      const ws = requireWorkspace(get);
-      if (args.confirmed !== undefined && !isValidConfirmed(args.confirmed)) {
-        return invalidConfirmed(args.confirmed);
-      }
-      try {
-        const outcome = await ws.store.createPremise({
-          ...args,
-          confirmed: args.confirmed === undefined ? undefined : confirmedToMs(args.confirmed),
-        });
-        return { ok: true, id: outcome.id, pending: ws.pendingOf(outcome.change).map(lite) };
-      } catch (error) {
-        return writeFailure(error);
-      }
+      return runCreatePremise(requireWorkspace(get), args);
     },
   });
 }
 
 function createConstraintTool(get: () => RefinoWorkspace | undefined): ToolDefinition {
   return defineTool({
-    name: "refino_create_constraint",
-    description:
-      "新增约束节点（会限制后续实现选择空间的项目决策）。grounds 为依据 ID 列表（上游约束或前提）；省略则创建根约束——根约束默认进入冻结区，只在确有必要时创建。",
+    name: `${TOOL_PREFIX}create_constraint`,
+    description: TEXT.createConstraint,
     parameters: {
-      body: { type: "string", required: true, description: "决策内容（Markdown 正文）" },
-      summary: { type: "string", description: "独立摘要；省略时取正文首段" },
-      rationale: { type: "string", description: "为什么从依据得出该决策" },
+      body: { type: "string", required: true, description: PARAM_TEXT.bodyConstraint },
+      summary: { type: "string", description: PARAM_TEXT.summary },
+      rationale: { type: "string", description: PARAM_TEXT.rationaleCreate },
       grounds: {
         type: "array",
         items: { type: "string" },
-        description: "依据节点 ID 列表；省略则创建根约束",
+        description: PARAM_TEXT.grounds,
       },
       id: {
         type: "string",
-        description: "显式节点 ID（3-16 位 A-Z、0-9、_）；省略则自动生成",
+        description: PARAM_TEXT.explicitId,
       },
     },
     output: { schema: writeResultSchema(), render: renderWriteValue },
     async execute(args) {
-      const ws = requireWorkspace(get);
-      if (args.id !== undefined && !ID_RE.test(args.id)) {
-        return { ok: false, error: `节点 ID 必须是 3-16 位 A-Z、0-9 或 _，收到 "${args.id}"` };
-      }
-      if (args.id !== undefined && ws.graph.nodes.has(args.id)) {
-        return { ok: false, error: `节点 ID "${args.id}" 已被占用` };
-      }
-      try {
-        // Grounds validation runs inside the store's write method; a
-        // rejected change never touches the disk.
-        const outcome = await ws.store.createConstraint(args);
-        return { ok: true, id: outcome.id, pending: ws.pendingOf(outcome.change).map(lite) };
-      } catch (error) {
-        return writeFailure(error);
-      }
+      return runCreateConstraint(requireWorkspace(get), args);
     },
   });
 }
 
 function updateNodeTool(get: () => RefinoWorkspace | undefined): ToolDefinition {
   return defineTool({
-    name: "refino_update_node",
-    description:
-      "部分更新节点的可编辑字段：省略的字段保持不变，传空串清除该可选属性（summary 清除后回退为正文首段派生）。约束的 grounds 提供时整体替换并经校验，省略则保持不变。至少提供一个字段。目标在冻结区（只读）时返回结构化升级报告（正常结果，非报错）。",
+    name: `${TOOL_PREFIX}update_node`,
+    description: TEXT.updateNode,
     parameters: {
-      id: { type: "string", required: true, description: "要修改的节点 ID" },
+      id: { type: "string", required: true, description: PARAM_TEXT.updateId },
       summary: {
         type: "string",
-        description: "新的独立摘要；省略保持不变；空串清除（回退为正文派生）",
+        description: PARAM_TEXT.updateSummary,
       },
-      body: { type: "string", description: "新的正文（Markdown）；省略保持不变" },
+      body: { type: "string", description: PARAM_TEXT.updateBody },
       grounds: {
         type: "array",
         items: { type: "string" },
-        description: "约束的新依据 ID 列表（整体替换并校验）；省略保持不变；仅约束可用",
+        description: PARAM_TEXT.updateGrounds,
       },
       rationale: {
         type: "string",
-        description: "约束的新理由；省略保持不变；空串清除；仅约束可用",
+        description: PARAM_TEXT.updateRationale,
       },
       confirmed: {
         type: "string",
-        description: "前提的新确认时间（RFC 3339 带偏移）；省略保持不变；空串清除；仅前提可用",
+        description: PARAM_TEXT.updateConfirmed,
       },
     },
     output: { schema: writeResultSchema(), render: renderWriteValue },
     async execute(args) {
-      const ws = requireWorkspace(get);
-      const node = ws.graph.nodes.get(args.id);
-      if (node === undefined) {
-        return { ok: false, error: `节点 "${args.id}" 不存在` };
-      }
-      const touched =
-        args.summary !== undefined ||
-        args.body !== undefined ||
-        args.grounds !== undefined ||
-        args.rationale !== undefined ||
-        args.confirmed !== undefined;
-      if (!touched) {
-        return { ok: false, error: "未指定任何要更新的字段；省略的字段保持不变" };
-      }
-      const blocked = checkModification(ws.graph, ws.authorizationContext, node.id);
-      if (!blocked.allowed) {
-        return escalationResult(node.id, blocked.report!.affected);
-      }
-      if (node.type === "premise") {
-        return updatePremiseNode(ws, node, args);
-      }
-      return updateConstraintNode(ws, node, args);
+      return runUpdateNode(requireWorkspace(get), args);
     },
   });
-}
-
-type UpdateArgs = {
-  id: string;
-  summary?: string;
-  body?: string;
-  grounds?: string[];
-  rationale?: string;
-  confirmed?: string;
-};
-
-/**
- * Read what a partial update needs: the paged content (body, rationale live
- * there, not on the resident node) plus the summary per the partial
- * semantics (docs/design.md) — an omitted summary keeps an explicit one and
- * stays body-derived otherwise, so updating the body alone keeps the
- * fallback in sync; an empty string clears the explicit summary.
- */
-async function readForUpdate(
-  ws: RefinoWorkspace,
-  id: string,
-  args: UpdateArgs,
-): Promise<{ summary: string | undefined; content: NodeContent } | WriteResult> {
-  const entry = ws.store.entry(id);
-  if (entry === undefined) return { ok: false, error: `节点 "${id}" 不存在` };
-  const summary =
-    args.summary === undefined
-      ? entry.summaryExplicit
-        ? entry.node.summary
-        : undefined
-      : args.summary === ""
-        ? undefined
-        : args.summary;
-  return { summary, content: (await ws.content(id)) ?? { body: "" } };
-}
-
-async function updatePremiseNode(
-  ws: RefinoWorkspace,
-  node: RefinoNode & { type: "premise" },
-  args: UpdateArgs,
-): Promise<WriteResult> {
-  if (args.body !== undefined && args.body === "") {
-    return { ok: false, error: "body 不能为空" };
-  }
-  if (args.confirmed !== undefined && args.confirmed !== "" && !isValidConfirmed(args.confirmed)) {
-    return invalidConfirmed(args.confirmed);
-  }
-  // Rationale and grounds do not apply to premises; per the misplaced-field
-  // policy they are silently ignored instead of rejected.
-  const read = await readForUpdate(ws, node.id, args);
-  if ("ok" in read) return read;
-  try {
-    const outcome = await ws.store.updatePremise(node.id, {
-      body: args.body ?? read.content.body,
-      summary: read.summary,
-      confirmed:
-        args.confirmed === undefined
-          ? node.confirmed
-          : args.confirmed === ""
-            ? undefined
-            : confirmedToMs(args.confirmed),
-    });
-    return { ok: true, id: node.id, pending: ws.pendingOf(outcome.change).map(lite) };
-  } catch (error) {
-    return writeFailure(error);
-  }
-}
-
-async function updateConstraintNode(
-  ws: RefinoWorkspace,
-  node: RefinoNode & { type: "constraint" },
-  args: UpdateArgs,
-): Promise<WriteResult> {
-  if (args.body !== undefined && args.body === "") {
-    return { ok: false, error: "body 不能为空" };
-  }
-  // `confirmed` does not apply to constraints; per the misplaced-field policy
-  // it is silently ignored instead of rejected. Grounds validation runs
-  // inside the store's write method; a rejected change never touches the disk.
-  const read = await readForUpdate(ws, node.id, args);
-  if ("ok" in read) return read;
-  try {
-    const outcome = await ws.store.updateConstraint(node.id, {
-      body: args.body ?? read.content.body,
-      summary: read.summary,
-      rationale:
-        args.rationale === undefined
-          ? read.content.rationale
-          : args.rationale === ""
-            ? undefined
-            : args.rationale,
-      grounds: args.grounds ?? node.grounds,
-    });
-    return { ok: true, id: node.id, pending: ws.pendingOf(outcome.change).map(lite) };
-  } catch (error) {
-    return writeFailure(error);
-  }
 }
 
 function deleteNodeTool(get: () => RefinoWorkspace | undefined): ToolDefinition {
   return defineTool({
-    name: "refino_delete_node",
-    description:
-      "删除节点。目标在冻结区时返回升级报告；仍有下游约束时拒绝并附受影响列表——先处理下游，再删除。",
+    name: `${TOOL_PREFIX}delete_node`,
+    description: TEXT.deleteNode,
     parameters: {
-      id: { type: "string", required: true, description: "要删除的节点 ID" },
+      id: { type: "string", required: true, description: PARAM_TEXT.deleteId },
     },
     output: { schema: writeResultSchema(), render: renderWriteValue },
     async execute(args) {
-      const ws = requireWorkspace(get);
-      const node = ws.graph.nodes.get(args.id);
-      if (node === undefined) {
-        return { ok: false, error: `节点 "${args.id}" 不存在` };
-      }
-      const blocked = checkModification(ws.graph, ws.authorizationContext, node.id);
-      if (!blocked.allowed) {
-        return escalationResult(node.id, blocked.report!.affected);
-      }
-      const dependents = getDependents(ws.graph, node.id);
-      if (dependents.length > 0) {
-        return {
-          ok: false,
-          error: `节点 ${node.id} 仍有下游约束，不能删除`,
-          dependents: dependents.map((dependent) => lite(dependent.node)),
-        };
-      }
-      try {
-        await ws.store.deleteNode(node.id);
-      } catch (error) {
-        return writeFailure(error);
-      }
-      return { ok: true, id: node.id, pending: [] };
+      return runDeleteNode(requireWorkspace(get), args.id);
     },
   });
 }
 
-// ---- shared write helpers ----
-
 function renderWriteValue(_args: unknown, value: unknown) {
-  return [{ type: "text" as const, text: renderWrite(value as WriteResult) }];
-}
-
-function escalationResult(id: string, affected: NodeWithDepth[]): WriteResult {
-  return {
-    ok: false,
-    error: `节点 ${id} 位于冻结区，只读`,
-    escalation: { id, reason: "node_frozen", affected: affected.map(depthLite) },
-  };
-}
-
-function invalidConfirmed(value: string): WriteResult {
-  return {
-    ok: false,
-    error: `confirmed 必须是带显式 UTC 偏移的 RFC 3339 时间戳，收到 "${value}"`,
-  };
-}
-
-function writeFailure(error: unknown): WriteResult {
-  if (error instanceof WriteRejected) {
-    return { ok: false, error: "grounds 校验未通过", issues: error.issues.map(issueLite) };
-  }
-  if (error instanceof RefinoError) {
-    return { ok: false, error: `${error.code}: ${error.message}` };
-  }
-  if (error instanceof HarnessError) {
-    return { ok: false, error: error.message };
-  }
-  throw error;
+  return [{ type: "text" as const, text: kit.renderWrite(value as WriteResult) }];
 }

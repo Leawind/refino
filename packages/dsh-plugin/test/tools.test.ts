@@ -3,7 +3,7 @@ import type { ToolDefinition } from "@deepseek-ai/dsh-tools";
 import { readNode } from "@refino/storage";
 import { constraint, createRefino, premise, removeRefino } from "@refino/testkit";
 import { createTools } from "../src/tools.js";
-import { RefinoWorkspace } from "../src/workspace.js";
+import { RefinoWorkspace } from "@refino/harness/host";
 
 const cleanup: string[] = [];
 const workspaces: RefinoWorkspace[] = [];
