@@ -127,3 +127,56 @@ export function ellipsize(atlas: GlyphAtlas, text: string, maxWidth: number): st
   }
   return "…";
 }
+
+/** Scripts that allow a line break after every character (CJK ideographs,
+ * kana, hangul, fullwidth forms and CJK punctuation). */
+const CJK_BREAK_AFTER = /[\u2E80-\u9FFF\uAC00-\uD7AF\uF900-\uFAFF\uFF00-\uFFEF]/;
+
+/** Line-wraps `text` into lines that each fit `maxWidth` atlas pixels:
+ * greedy fill, preferring the last break opportunity inside a line (after
+ * whitespace — kept on the line, so the lines join back to the full text —
+ * or after a CJK character); a run with no break opportunity is
+ * hard-broken, and an oversized single character still occupies a line. */
+export function wrap(atlas: GlyphAtlas, text: string, maxWidth: number): string[] {
+  const lines: string[] = [];
+  let start = 0;
+  while (start < text.length) {
+    // Longest run from `start` that fits the line, but never empty.
+    let end = start + 1;
+    while (end < text.length && atlas.measure(text.slice(start, end + 1)) <= maxWidth) end++;
+    if (end === text.length) {
+      lines.push(text.slice(start));
+      break;
+    }
+    let cut = -1;
+    for (let i = start; i < end; i++) {
+      const ch = text[i]!;
+      if (ch === " " || CJK_BREAK_AFTER.test(ch)) cut = i;
+    }
+    if (cut >= start) {
+      lines.push(text.slice(start, cut + 1));
+      start = cut + 1;
+    } else {
+      lines.push(text.slice(start, end));
+      start = end;
+    }
+  }
+  return lines.length > 0 ? lines : [text];
+}
+
+/** Wraps `text` to at most `maxLines` lines: only when the wrapped text
+ * still exceeds the line budget is the overflow collapsed into the last
+ * line, which the ellipsis then shortens until it fits. */
+export function wrapEllipsized(
+  atlas: GlyphAtlas,
+  text: string,
+  maxWidth: number,
+  maxLines: number,
+): string[] {
+  const budget = Math.max(1, maxLines);
+  const lines = wrap(atlas, text, maxWidth);
+  if (lines.length <= budget) return lines;
+  const kept = lines.slice(0, budget);
+  kept[budget - 1] = ellipsize(atlas, lines.slice(budget - 1).join(""), maxWidth);
+  return kept;
+}

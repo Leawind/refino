@@ -1,4 +1,4 @@
-import { ellipsize, GlyphAtlas } from "./atlas";
+import { GlyphAtlas, wrapEllipsized } from "./atlas";
 import {
   centeredCamera,
   fitCamera,
@@ -112,6 +112,10 @@ const CAMERA_EPSILON = 0.01;
 // viewport zoom like every canvas content (ui README, "视口").
 const LABEL_FONT_PX = 12;
 const LABEL_PAD_X = 10;
+/** Vertical label padding and line height (in font-size units): a default
+ * 150×44 card fits two 12px lines. */
+const LABEL_PAD_Y = 4;
+const LABEL_LINE_HEIGHT = 1.4;
 const EDGE_WIDTH = 1.4;
 const EDGE_WIDTH_EMPHASIZED = 2.4;
 const EDGE_WIDTH_LOD = 1;
@@ -214,7 +218,7 @@ export class GraphRenderer {
   #edges: RenderEdgeInput[] = [];
   #admitted = new Set<string>();
   #culled = false;
-  #labelCache = new Map<string, string>();
+  #labelCache = new Map<string, string[]>();
 
   #theme: ThemeColors = {
     nodeBg: [1, 1, 1, 1],
@@ -962,33 +966,42 @@ export class GraphRenderer {
     // resizes text on top of the camera (README: 文本随视口缩放).
     const fontUnits = LABEL_FONT_PX * this.#textScale;
     const padUnits = LABEL_PAD_X * this.#textScale;
+    const padYUnits = LABEL_PAD_Y * this.#textScale;
     const glyphUnits = fontUnits / 24; // atlas font pixels → virtual units
+    const lineHeight = fontUnits * LABEL_LINE_HEIGHT;
     let count = 0;
     for (const [id, entry] of this.#entries) {
       if (entry.alpha < 0.02 || !this.#admitted.has(id) || !textShown.get(id)) continue;
       const node = entry.node;
       const maxWidth = (node.width - padUnits * 2) / glyphUnits;
-      const label = this.#labelFor(node.label, maxWidth);
-      let penX = node.x + padUnits;
-      const baseline = node.y + node.height / 2 + fontUnits * 0.35;
-      for (const ch of label) {
-        const glyph = this.#atlas.glyph(ch);
-        if (glyph === undefined) break; // atlas ran full; retries next frame
-        if ((count + 1) * 9 > this.#textData.length) this.#textData = grow(this.#textData);
-        if (glyph.width > 0) {
-          const base = count * 9;
-          this.#textData[base] = penX;
-          this.#textData[base + 1] = baseline - glyph.ascent * glyphUnits;
-          this.#textData[base + 2] = glyph.width * glyphUnits;
-          this.#textData[base + 3] = glyph.height * glyphUnits;
-          this.#textData[base + 4] = glyph.u0;
-          this.#textData[base + 5] = glyph.v0;
-          this.#textData[base + 6] = glyph.u1 - glyph.u0;
-          this.#textData[base + 7] = glyph.v1 - glyph.v0;
-          this.#textData[base + 8] = entry.alpha;
-          count++;
+      const maxLines = Math.max(1, Math.floor((node.height - padYUnits * 2) / lineHeight));
+      const lines = this.#linesFor(node.label, maxWidth, maxLines);
+      // The wrapped lines are centered on the node as a block; `0.35`
+      // shifts a line's baseline from its box center to the text middle.
+      const firstBaseline =
+        node.y + node.height / 2 - ((lines.length - 1) * lineHeight) / 2 + fontUnits * 0.35;
+      for (let line = 0; line < lines.length; line++) {
+        let penX = node.x + padUnits;
+        const baseline = firstBaseline + line * lineHeight;
+        for (const ch of lines[line]!) {
+          const glyph = this.#atlas.glyph(ch);
+          if (glyph === undefined) break; // atlas ran full; retries next frame
+          if ((count + 1) * 9 > this.#textData.length) this.#textData = grow(this.#textData);
+          if (glyph.width > 0) {
+            const base = count * 9;
+            this.#textData[base] = penX;
+            this.#textData[base + 1] = baseline - glyph.ascent * glyphUnits;
+            this.#textData[base + 2] = glyph.width * glyphUnits;
+            this.#textData[base + 3] = glyph.height * glyphUnits;
+            this.#textData[base + 4] = glyph.u0;
+            this.#textData[base + 5] = glyph.v0;
+            this.#textData[base + 6] = glyph.u1 - glyph.u0;
+            this.#textData[base + 7] = glyph.v1 - glyph.v0;
+            this.#textData[base + 8] = entry.alpha;
+            count++;
+          }
+          penX += glyph.advance * glyphUnits;
         }
-        penX += glyph.advance * glyphUnits;
       }
     }
 
@@ -1011,11 +1024,11 @@ export class GraphRenderer {
     gl.bindVertexArray(null);
   }
 
-  #labelFor(label: string, maxWidth: number): string {
-    const key = `${maxWidth}\u0000${label}`;
+  #linesFor(label: string, maxWidth: number, maxLines: number): string[] {
+    const key = `${maxWidth}\u0000${maxLines}\u0000${label}`;
     let fitted = this.#labelCache.get(key);
     if (fitted === undefined) {
-      fitted = ellipsize(this.#atlas, label, maxWidth);
+      fitted = wrapEllipsized(this.#atlas, label, maxWidth, maxLines);
       if (this.#labelCache.size > 4096) this.#labelCache.clear();
       this.#labelCache.set(key, fitted);
     }
