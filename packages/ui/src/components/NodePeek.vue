@@ -4,21 +4,21 @@
 // immediately; the full record (body, rationale) fills in asynchronously
 // with a latest-wins guard, and grounds render as a plain unordered list of
 // summaries. Non-interactive by design — pointer-events stay off so the
-// card can never trap the cursor.
-import { computed, ref, watch } from "vue";
+// card can never trap the cursor; wheel over the card is forwarded to its
+// scroller explicitly. Placement is pure geometry (peek-layout.ts) fed by
+// the page size, the cursor and the card's measured size, so the card can
+// grow toward its viewport-given maxima and scroll whatever still overflows.
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { injectRequired } from "../context";
 import { fetchGroundLites } from "../grounds";
 import { peekState } from "../peek";
+import { computePeekLayout, PEEK_BASE_WIDTH, PEEK_ESTIMATED_SIZE } from "../peek-layout";
 import { clientKey } from "../api";
 import type { NodeRecord } from "../types";
 
 const client = injectRequired(clientKey, "client");
 const { t } = useI18n();
-
-const MAX_BODY_CHARS = 600;
-const MAX_RATIONALE_CHARS = 280;
-const MAX_GROUND_SUMMARY_CHARS = 120;
 
 const record = ref<NodeRecord | null>(null);
 /** Ground summaries in declared order; raw ids stay out of the card. */
@@ -41,7 +41,7 @@ watch(
         const lites = await fetchGroundLites(client, id);
         if (token !== loadToken || peekState.id !== id) return;
         groundSummaries.value = lites.map((lite) =>
-          lite.summary === "" ? t("node.untitled") : clip(lite.summary, MAX_GROUND_SUMMARY_CHARS),
+          lite.summary === "" ? t("node.untitled") : lite.summary,
         );
       })
       .catch(() => {
@@ -50,37 +50,101 @@ watch(
   },
 );
 
-function clip(text: string, max: number): string {
-  return text.length > max ? `${text.slice(0, max)}…` : text;
-}
-
-const body = computed(() => {
-  const value = record.value?.body ?? "";
-  return value === "" ? "" : clip(value, MAX_BODY_CHARS);
-});
-const rationale = computed(() => {
-  const value = record.value?.rationale ?? "";
-  return value === "" ? "" : clip(value, MAX_RATIONALE_CHARS);
-});
+const body = computed(() => record.value?.body ?? "");
+const rationale = computed(() => record.value?.rationale ?? "");
 const summary = computed(() => {
   const value = record.value?.summary ?? "";
   return value === "" ? t("node.untitled") : value;
 });
 
-/** Card position: cursor + offset, flipped to stay inside the viewport. */
+const cardEl = ref<HTMLElement | null>(null);
+const cardSize = ref({ ...PEEK_ESTIMATED_SIZE });
+const viewport = ref({ width: window.innerWidth, height: window.innerHeight });
+
+watch(cardEl, (el, prev) => {
+  if (prev !== null) observer?.unobserve(prev);
+  if (el !== null) {
+    // Measure synchronously first: ResizeObserver callbacks need a rendered
+    // frame, so a just-shown card would otherwise place on estimated size.
+    measureSize(el);
+    observer?.observe(el);
+  }
+});
+
+let observer: ResizeObserver | null = null;
+
+function measureSize(el: HTMLElement): void {
+  // Border box: placement must account for padding and border too.
+  const rect = el.getBoundingClientRect();
+  cardSize.value = { width: rect.width, height: rect.height };
+}
+
+function measure(entry: ResizeObserverEntry): void {
+  const box = entry.borderBoxSize?.[0];
+  if (box !== undefined) {
+    cardSize.value = { width: box.inlineSize, height: box.blockSize };
+  } else if (cardEl.value !== null) {
+    measureSize(cardEl.value);
+  }
+}
+
+function onResize(): void {
+  viewport.value = { width: window.innerWidth, height: window.innerHeight };
+}
+
+/**
+ * Wheel over the card scrolls its content (and nothing else): the card
+ * keeps pointer-events: none, so the event's target is whatever sits
+ * beneath — swallow it in the capture phase to keep the canvas from
+ * treating it as zoom.
+ */
+function onWheel(event: WheelEvent): void {
+  const el = cardEl.value;
+  if (el === null || !peekState.alt || peekState.id === null) return;
+  if (event.deltaY === 0 || el.scrollHeight <= el.clientHeight) return;
+  const rect = el.getBoundingClientRect();
+  if (
+    event.clientX < rect.left ||
+    event.clientX >= rect.right ||
+    event.clientY < rect.top ||
+    event.clientY >= rect.bottom
+  ) {
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  el.scrollTop += event.deltaY;
+}
+
+onMounted(() => {
+  observer = new ResizeObserver((entries) => {
+    const entry = entries[entries.length - 1];
+    if (entry !== undefined) measure(entry);
+  });
+  if (cardEl.value !== null) observer.observe(cardEl.value);
+  window.addEventListener("resize", onResize);
+  window.addEventListener("wheel", onWheel, { capture: true, passive: false });
+});
+
+onUnmounted(() => {
+  observer?.disconnect();
+  window.removeEventListener("resize", onResize);
+  window.removeEventListener("wheel", onWheel, { capture: true });
+});
+
+/** Placement via pure geometry; the card caps at the roomier side per axis. */
 const style = computed(() => {
-  const width = 380;
-  const height = 320;
-  const margin = 16;
-  const x =
-    peekState.x + margin + width <= window.innerWidth
-      ? peekState.x + margin
-      : Math.max(8, peekState.x - margin - width);
-  const y =
-    peekState.y + margin + height <= window.innerHeight
-      ? peekState.y + margin
-      : Math.max(8, peekState.y - margin - height);
-  return { left: `${x}px`, top: `${y}px`, width: `${width}px` };
+  const layout = computePeekLayout({
+    viewport: viewport.value,
+    cursor: { x: peekState.x, y: peekState.y },
+    card: cardSize.value,
+  });
+  return {
+    left: `${layout.left}px`,
+    top: `${layout.top}px`,
+    width: `min(${PEEK_BASE_WIDTH}px, ${layout.maxWidth}px)`,
+    maxHeight: `${layout.maxHeight}px`,
+  };
 });
 </script>
 
@@ -89,6 +153,7 @@ const style = computed(() => {
     <Transition name="peek">
       <aside
         v-if="peekState.alt && peekState.id !== null"
+        ref="cardEl"
         class="peek"
         :style="style"
         aria-hidden="true"
@@ -117,8 +182,9 @@ const style = computed(() => {
 .peek {
   position: fixed;
   z-index: 1000;
-  max-height: 60vh;
-  overflow: hidden;
+  /* Border box: placement caps and the measured size must share one metric. */
+  box-sizing: border-box;
+  overflow: hidden auto;
   padding: 10px 12px;
   border-radius: var(--refino-radius);
   background: var(--refino-surface);
