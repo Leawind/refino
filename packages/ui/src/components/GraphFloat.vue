@@ -3,8 +3,10 @@
 // Any control that should hover over the graph (direction switch, status
 // pill, future tools) mounts inside one of these instead of positioning
 // itself, so placements stay consistent.
+import type { FloatPlacement } from "../types";
+
 const props = defineProps<{
-  placement: "top-left" | "top-right" | "bottom-left" | "bottom-right";
+  placement: FloatPlacement;
 }>();
 </script>
 

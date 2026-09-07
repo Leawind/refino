@@ -101,5 +101,9 @@ export interface NodePayload {
 /** Visualization directions, ordered from most abstract to most concrete. */
 export type LayoutDirection = "LR" | "TB" | "RL" | "BT";
 
+/** Corners of the canvas pane where float controls can mount (ui DESIGN.md,
+ * "布局"). */
+export type FloatPlacement = "top-left" | "top-right" | "bottom-left" | "bottom-right";
+
 export type Theme = "light" | "dark";
 export type Locale = "zh" | "en";

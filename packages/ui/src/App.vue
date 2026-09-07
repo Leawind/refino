@@ -1,8 +1,9 @@
 <script setup lang="ts">
-// Application shell: header, dual sidebars, canvas with floating layers,
-// detail bar. Graph data flows through the on-demand workspace; the shell
-// only wires lifecycle, global actions and status display.
-import { computed, inject, onBeforeUnmount, onMounted, ref, watchEffect } from "vue";
+// Application shell: header, sidebars, the canvas pane (graph + edge float
+// controls, see GraphArea) and the detail window. Graph data flows through
+// the on-demand workspace; the shell only wires lifecycle and global
+// actions.
+import { computed, inject, onBeforeUnmount, onMounted, watchEffect } from "vue";
 import { useI18n } from "vue-i18n";
 import {
   NAlert,
@@ -18,27 +19,19 @@ import {
 } from "naive-ui";
 import { injectRequired } from "./context";
 import { installAltTracking } from "./peek";
-import { renderCulled } from "./renderStatus";
 import { storeKey } from "./store";
 import { workspaceKey } from "./workspace";
+import AppHeader from "./components/AppHeader.vue";
+import ResourceExplorer from "./components/ResourceExplorer.vue";
+import GraphArea from "./components/GraphArea.vue";
+import NodeDetailWindow from "./components/NodeDetailWindow.vue";
+import CommandPalette from "./components/CommandPalette.vue";
+import ReviewDrawer from "./components/ReviewDrawer.vue";
+import WorkspaceToasts from "./components/WorkspaceToasts.vue";
+import type { LayoutDirection } from "./types";
 
 const store = injectRequired(storeKey, "store");
 const workspace = injectRequired(workspaceKey, "workspace");
-import AppHeader from "./components/AppHeader.vue";
-import ResourceExplorer from "./components/ResourceExplorer.vue";
-import DecisionGraph from "./components/DecisionGraph.vue";
-import CanvasStyleSettings from "./components/CanvasStyleSettings.vue";
-import LayoutControls from "./components/LayoutControls.vue";
-import NodeSizeControl from "./components/NodeSizeControl.vue";
-import NodeDetailWindow from "./components/NodeDetailWindow.vue";
-import NodePeek from "./components/NodePeek.vue";
-import GraphFloat from "./components/GraphFloat.vue";
-import CommandPalette from "./components/CommandPalette.vue";
-import ReviewDrawer from "./components/ReviewDrawer.vue";
-import SelectionList from "./components/SelectionList.vue";
-import StatusPill from "./components/StatusPill.vue";
-import WorkspaceToasts from "./components/WorkspaceToasts.vue";
-import type { LayoutDirection } from "./types";
 
 const { t, locale } = useI18n();
 
@@ -46,12 +39,6 @@ const { t, locale } = useI18n();
 watchEffect(() => {
   locale.value = store.state.locale;
 });
-
-// The graph host reports per-frame render culling into the shared status
-// state; the status pill reads it from there.
-function onRenderCulled(value: boolean): void {
-  renderCulled.value = value;
-}
 
 const naiveTheme = computed(() => (store.state.theme === "dark" ? darkTheme : null));
 const naiveLocale = computed(() => (locale.value === "zh" ? zhCN : enUS));
@@ -123,25 +110,7 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
           <div class="workbench">
             <ResourceExplorer />
             <div class="center-pane">
-              <div class="graph-area">
-                <DecisionGraph
-                  :direction="direction"
-                  :layout-mode="workspace.state.config.layoutMode"
-                  @render-culled="onRenderCulled"
-                />
-                <GraphFloat placement="top-right">
-                  <SelectionList />
-                </GraphFloat>
-                <GraphFloat placement="bottom-right">
-                  <CanvasStyleSettings />
-                  <NodeSizeControl />
-                  <LayoutControls />
-                </GraphFloat>
-                <GraphFloat placement="bottom-left">
-                  <StatusPill />
-                </GraphFloat>
-                <NodePeek />
-              </div>
+              <GraphArea />
               <NodeDetailWindow />
             </div>
           </div>
@@ -192,13 +161,6 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
   min-height: 0;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
-}
-
-.graph-area {
-  position: relative;
-  flex: 1;
-  min-height: 0;
   overflow: hidden;
 }
 </style>
