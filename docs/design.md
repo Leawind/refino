@@ -15,7 +15,7 @@
 | `@refino/testkit`       | 各包测试共用的夹具与工具函数                                                                                                                                                  | 已有           |
 | `@refino/ui`            | CRG 可视化编辑组件库（Vue 3）                                                                                                                                                 | 已有（脚手架） |
 | `@refino/harness`       | 任务界定层（作用域锚点、冻结区与修改空间、授权上下文、冲突检测与越界升级）与 vibe coding 工具插件的公共逻辑（上下文增量生成、模型技能、注入协议）                             | 已有           |
-| `@refino/<tool>-plugin` | 各 vibe coding 工具的插件，如 `@refino/dsh-plugin`（dsh 适配，以 Cordis 插件形式接入，bundle 形式分发）                                                                       | 设计中         |
+| `@refino/<tool>-plugin` | 各 vibe coding 工具的插件，如 `@refino/dsh-plugin`（dsh 适配，以 Cordis 插件形式接入，bundle 形式分发）                                                                       | 已有（未验证） |
 | `@refino/desktop`       | 桌面应用                                                                                                                                                                      | 未来           |
 | `@refino/vscode`        | VSCode 插件                                                                                                                                                                   | 未来           |
 
