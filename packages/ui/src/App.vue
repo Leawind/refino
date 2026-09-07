@@ -77,8 +77,8 @@ const directionOptions = [
 ];
 
 // Layout selection and display direction live in the persisted canvas
-// config; the direction switch only applies to layouts with a direction
-// (force ignores it).
+// config; both apply to every layout (the force layout's main axis is
+// signed by the direction).
 const layoutMode = computed(() => workspace.state.config.layoutMode);
 const layoutOptions = computed(() => [
   { label: t("app.layoutLayered"), value: "layered" },
@@ -175,13 +175,8 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
                       v-model:value="direction"
                       :options="directionOptions"
                       trigger="click"
-                      :disabled="layoutMode === 'force'"
                     >
-                      <NButton
-                        circle
-                        :disabled="layoutMode === 'force'"
-                        :title="t('app.direction')"
-                      >
+                      <NButton circle :title="t('app.direction')">
                         {{ direction }}
                       </NButton>
                     </NPopselect>

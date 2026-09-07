@@ -19,6 +19,7 @@ import { workspaceKey } from "../workspace";
 const store = injectRequired(storeKey, "store");
 const workspace = injectRequired(workspaceKey, "workspace");
 import { createLayoutSession } from "../graph/layout/registry";
+import { structureSignature } from "../graph/layout/structure";
 import type { LaidOutNode, LayoutSession } from "../graph/layout/types";
 import type { LayoutMode } from "../graph/layout/types";
 import {
@@ -53,6 +54,14 @@ const layout = ref<LaidOutNode[]>([]);
 let session: LayoutSession | null = null;
 let rafId = 0;
 let lastFrame = 0;
+/** Structure of the live session: displayed ids + grounds edges, mode and
+ * direction. A selection change that alters none of them must not restart
+ * (and wobble) the session. */
+let lastStructure: {
+  signature: string;
+  mode: LayoutMode;
+  direction: LayoutDirection;
+} | null = null;
 
 function stopSession(): void {
   if (rafId !== 0) {
@@ -64,14 +73,29 @@ function stopSession(): void {
 }
 
 function startSession(): void {
+  const mode = props.layoutMode;
+  const direction = props.direction;
+  const displayed = workspace.displayed.value;
+  const signature = structureSignature(displayed);
+  const sameOrientation =
+    session !== null &&
+    lastStructure !== null &&
+    lastStructure.mode === mode &&
+    lastStructure.direction === direction;
+  // A selection change that alters neither the node set nor the edges
+  // keeps the settled session: restarting it would only wobble.
+  if (sameOrientation && lastStructure!.signature === signature) return;
   // Hand the outgoing session's coordinates to the next one before
-  // disposing it: the force strategy carries known nodes over and only
-  // reheats gently (a working-set change must not re-swim the graph); the
-  // layered strategy ignores the seed and lays out from scratch.
-  const seed = session?.positions();
+  // disposing it, but only when mode and direction are unchanged: the
+  // force strategy carries known nodes over and reheats gently (a
+  // working-set change must not re-swim the graph), while a mode or
+  // direction switch means a fundamentally different layout and gets a
+  // full relaxation. The layered strategy ignores the seed either way.
+  const seed = session !== null && sameOrientation ? session.positions() : undefined;
+  lastStructure = { signature, mode, direction };
   stopSession();
-  session = createLayoutSession(props.layoutMode, workspace.displayed.value, {
-    direction: props.direction,
+  session = createLayoutSession(mode, displayed, {
+    direction,
     seed: seed ? new Map(seed.map((n) => [n.id, { x: n.x, y: n.y }] as const)) : undefined,
   });
   layout.value = [...session.positions()];

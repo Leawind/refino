@@ -10,6 +10,8 @@ import {
   type SimulationLinkDatum,
   type SimulationNodeDatum,
 } from "d3-force";
+import { assignLayers } from "refino";
+import type { LayoutDirection } from "../../types";
 import { layeredLayout, NODE_HEIGHT, NODE_WIDTH } from "./engine";
 import type {
   LaidOutNode,
@@ -27,10 +29,12 @@ import type {
  * gently, so working-set changes nudge the layout instead of re-swimming
  * it. Nodes unknown to the seed join near the centroid of their grounds.
  * A d3 simulation relaxes the graph: springs on grounds edges, Barnes-Hut
- * pair repulsion, circle packing against card overlap, and slight gravity
- * toward the viewport center. d3's alpha schedule scales every force and
- * decays it exponentially, so motion shrinks smoothly to a stop instead of
- * rattling at full strength until a hard cutoff.
+ * pair repulsion, circle packing against card overlap, and a main-axis
+ * pull that places every node at its grounds-depth layer along the display
+ * direction — the upstream→downstream flow reads as position. d3's alpha
+ * schedule scales every force and decays it exponentially, so motion
+ * shrinks smoothly to a stop instead of rattling at full strength until a
+ * hard cutoff.
  *
  * Determinism: nodes are laid out in id-sorted array order (d3 iterates
  * nodes in array order), and the random source stays d3's fixed-seed LCG,
@@ -46,10 +50,16 @@ const REPULSION = -100;
 /** Inverse-square floor: below this center distance the push stops growing,
  * keeping near-contact motion orderly instead of divergent. */
 const REPULSION_FLOOR = 160;
-/** Gravity toward the viewport center. Weak on purpose: the repulsion and
- * packing forces set the spacing, gravity only keeps disjoint groups from
- * drifting apart indefinitely. */
+/** Cross-axis gravity toward the viewport center line. Weak on purpose: it
+ * only keeps disconnected groups from drifting apart on the cross axis —
+ * the main axis is owned by the layer targets, spacing by repulsion and
+ * packing. */
 const GRAVITY = 0.002;
+/** Main-axis pull toward each node's layer position (grounds longest-path
+ * depth × the edge length, signed by the display direction). Strong enough
+ * to keep the upstream→downstream flow readable, loose enough that springs
+ * and packing own the cross axis and spacing. */
+const MAIN_AXIS_STRENGTH = 0.08;
 /** Circle-packing radius that guarantees non-overlapping cards: a center
  * distance of twice this value separates any two card rectangles. The
  * small slack lets the iterative packing fully resolve, leaving no
@@ -94,6 +104,14 @@ class ForceSession implements LayoutSession {
     // layout. A carried-over seed (previous session) wins per node.
     const layered = new Map(layeredLayout(nodes, "LR").map((n) => [n.id, n] as const));
     const carried = options.seed;
+    // Main axis: grounds longest-path depth (the same layering the layered
+    // layout uses) sets each node's target coordinate along the display
+    // direction, so the upstream→downstream flow reads as position.
+    const direction: LayoutDirection = options.direction;
+    const horizontal = direction === "LR" || direction === "RL";
+    const sign = direction === "LR" || direction === "TB" ? 1 : -1;
+    const layers = assignLayers([...nodes].sort((a, b) => (a.id < b.id ? -1 : 1)));
+    const axisTarget = (id: string): number => sign * (layers.get(id) ?? 0) * EDGE_LENGTH;
     // Id-sorted array order: d3 iterates nodes in array order, and the
     // layout must not depend on the input order (ui DESIGN, "布局").
     const ids = [...layered.keys()].sort();
@@ -141,6 +159,12 @@ class ForceSession implements LayoutSession {
         .map((g) => ({ source: g, target: body.id })),
     );
     const reheated = carried !== undefined && carriedCount > 0;
+    const axis = horizontal
+      ? forceX<Body>((body) => axisTarget(body.id)).strength(MAIN_AXIS_STRENGTH)
+      : forceY<Body>((body) => axisTarget(body.id)).strength(MAIN_AXIS_STRENGTH);
+    const crossGravity = horizontal
+      ? forceY<Body>(0).strength(GRAVITY)
+      : forceX<Body>(0).strength(GRAVITY);
     this.#sim = forceSimulation<Body>(this.#bodies)
       .force(
         "link",
@@ -150,8 +174,8 @@ class ForceSession implements LayoutSession {
       )
       .force("charge", forceManyBody<Body>().strength(REPULSION).distanceMin(REPULSION_FLOOR))
       .force("collide", forceCollide<Body>(COLLIDE_RADIUS).iterations(3))
-      .force("x", forceX<Body>(0).strength(GRAVITY))
-      .force("y", forceY<Body>(0).strength(GRAVITY))
+      .force("axis", axis)
+      .force("cross", crossGravity)
       .force("center", forceCenter<Body>(0, 0))
       .alpha(reheated ? REHEAT_ALPHA : 1)
       .alphaDecay(reheated ? REHEAT_ALPHA_DECAY : ALPHA_DECAY)

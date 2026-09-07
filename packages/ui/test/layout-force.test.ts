@@ -102,6 +102,30 @@ describe("force session", () => {
     session.dispose();
   });
 
+  it("orients the grounds flow along the main axis (LR)", () => {
+    const session = forceStrategy.createSession(chain(8), { direction: "LR" });
+    const positions = new Map(settled(session).map((n) => [n.id, n] as const));
+    session.dispose();
+    for (let i = 1; i < 8; i++) {
+      expect(positions.get(`n${i}`)!.x).toBeGreaterThan(positions.get(`n${i - 1}`)!.x);
+    }
+  });
+
+  it("TB puts downstream further down; RL puts it further left", () => {
+    const tb = forceStrategy.createSession(chain(6), { direction: "TB" });
+    const down = new Map(settled(tb).map((n) => [n.id, n] as const));
+    tb.dispose();
+    for (let i = 1; i < 6; i++) {
+      expect(down.get(`n${i}`)!.y).toBeGreaterThan(down.get(`n${i - 1}`)!.y);
+    }
+    const rl = forceStrategy.createSession(chain(6), { direction: "RL" });
+    const left = new Map(settled(rl).map((n) => [n.id, n] as const));
+    rl.dispose();
+    for (let i = 1; i < 6; i++) {
+      expect(left.get(`n${i}`)!.x).toBeLessThan(left.get(`n${i - 1}`)!.x);
+    }
+  });
+
   it("motion decays smoothly to a stop instead of rattle-then-cutoff", () => {
     const session = forceStrategy.createSession(chain(40), { direction: "LR" });
     let prev = session.positions();
@@ -155,8 +179,8 @@ describe("force session", () => {
     expect(Math.hypot(b.x - a.x, b.y - a.y)).toBeGreaterThan(NODE_WIDTH);
     expect(Math.hypot(b.x - a.x, b.y - a.y)).toBeLessThan(600);
     const seedN19 = seed.get("n19")!;
-    // The ground absorbs the newcomer with a local adjustment, not a
-    // full-graph re-swim.
-    expect(Math.hypot(a.x - seedN19.x, a.y - seedN19.y)).toBeLessThan(100);
+    // The ground absorbs the newcomer with a local adjustment (about half
+    // a card slot along the main axis), not a full-graph re-swim.
+    expect(Math.hypot(a.x - seedN19.x, a.y - seedN19.y)).toBeLessThan(150);
   });
 });
