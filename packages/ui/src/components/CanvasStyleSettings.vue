@@ -55,13 +55,19 @@ const textScale = computed<number>({
 
 <style scoped>
 .style-settings {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 8px;
 }
 
+/* The panel overlays the pane above the button; it never reflows the
+ * sibling edge controls (ui DESIGN.md, "布局"). */
 .panel {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   gap: 8px;

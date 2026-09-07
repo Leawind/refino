@@ -95,43 +95,65 @@ useDismissable(open, root, onResizeUp);
 
 <template>
   <div ref="root" class="node-size">
-    <!-- The expanded rectangle IS the control: the button grows into it. -->
-    <div
-      v-if="open"
-      class="card"
-      :class="{ resizing }"
-      :style="{ width: `${width}px`, height: `${height}px` }"
-    >
-      <span v-if="showDims" class="dims">{{ width }} × {{ height }}</span>
-      <button
-        v-for="corner in CORNERS"
-        :key="corner"
-        type="button"
-        class="handle"
-        :class="corner"
-        :title="t('canvas.nodeSizeResize')"
-        @mousedown="onHandleDown(corner, $event)"
-      />
-    </div>
-    <NButton v-else circle :title="t('canvas.nodeSize')" @click="open = true"> ⤢ </NButton>
+    <!-- The expanded rectangle IS the control: it grows out of the button's
+         corner as an overlay, so the button keeps its footprint as the
+         anchor and no sibling control moves (ui DESIGN.md, "布局"). -->
     <NButton
-      v-if="open"
-      quaternary
-      size="tiny"
-      @click="
-        workspace.setConfig({
-          nodeWidth: NODE_SIZE_DEFAULT.width,
-          nodeHeight: NODE_SIZE_DEFAULT.height,
-        })
-      "
+      circle
+      :title="t('canvas.nodeSize')"
+      :style="open ? { visibility: 'hidden' } : undefined"
+      @click="open = true"
     >
-      {{ t("canvas.nodeSizeReset") }}
+      ⤢
     </NButton>
+    <div v-if="open" class="popup">
+      <div
+        class="card"
+        :class="{ resizing }"
+        :style="{ width: `${width}px`, height: `${height}px` }"
+      >
+        <span v-if="showDims" class="dims">{{ width }} × {{ height }}</span>
+        <button
+          v-for="corner in CORNERS"
+          :key="corner"
+          type="button"
+          class="handle"
+          :class="corner"
+          :title="t('canvas.nodeSizeResize')"
+          @mousedown="onHandleDown(corner, $event)"
+        />
+      </div>
+      <NButton
+        quaternary
+        size="tiny"
+        @click="
+          workspace.setConfig({
+            nodeWidth: NODE_SIZE_DEFAULT.width,
+            nodeHeight: NODE_SIZE_DEFAULT.height,
+          })
+        "
+      >
+        {{ t("canvas.nodeSizeReset") }}
+      </NButton>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .node-size {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+/* The expanded card overlays the pane from the button's corner; it never
+ * reflows the sibling edge controls (ui DESIGN.md, "布局"). */
+.popup {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
