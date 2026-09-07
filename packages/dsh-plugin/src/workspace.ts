@@ -8,6 +8,7 @@ import {
   type DeltaEvent,
 } from "@refino/harness";
 import { RefinoStore, type StoreChange, type StoreIssue } from "@refino/storage";
+import { dirname } from "node:path";
 import type { Graph, RefinoNode } from "refino";
 
 /**
@@ -80,6 +81,11 @@ export class RefinoWorkspace {
 
   get refinoDir(): string {
     return this.#store.refinoDir;
+  }
+
+  /** The project root containing `.refino/`; keys the user-level state lane. */
+  get workspaceRoot(): string {
+    return dirname(this.#store.refinoDir);
   }
 
   get store(): RefinoStore {
@@ -174,15 +180,16 @@ export class RefinoWorkspace {
     const graph = this.#store.graph;
     let next: AuthorizationContext;
     if (!this.#signed) {
-      const context = defaultAuthorizationContext(graph);
-      this.#complete = context.complete;
-      next = context.context;
+      next = defaultAuthorizationContext(graph).context;
     } else {
       next = {
         anchors: this.#context.anchors.filter((id) => graph.nodes.has(id)),
         frozen: this.#context.frozen.filter((id) => graph.nodes.get(id)?.type === "constraint"),
       };
     }
+    // A graph property, not a context property: anchors are runtime-derived
+    // even when a host signed an explicit zone.
+    this.#complete = defaultAuthorizationContext(graph).complete;
     this.#session = new HarnessSession(graph, next);
     this.#zoneIds = constraintZoneIds(graph, next);
   }

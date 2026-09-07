@@ -52,6 +52,37 @@ describe("initialContextText", () => {
     expect(text).toContain("</system-reminder\\>");
     expect(text.lastIndexOf("</system-reminder>")).toBe(text.length - "</system-reminder>".length);
   });
+
+  it("carries the signing-ownership line and the signing path", () => {
+    const graph = fixtureGraph();
+    const text = initialContextText(graph, defaultAuthorizationContext(graph).context, {
+      source: "workspace",
+      revision: 3,
+      signedAt: "2026-09-07T00:00:00.000Z",
+      statePath: "/h/w.json",
+    });
+    expect(text).toContain("revision 3（signedAt 2026-09-07T00:00:00.000Z，用户级签发）");
+    expect(text).toContain("若该签发不属于当前任务");
+    expect(text).toContain("refino_request_authorization");
+  });
+
+  it("marks an orchestrator credential as non-self-serviceable and omits the line when absent", () => {
+    const graph = fixtureGraph();
+    const context = defaultAuthorizationContext(graph).context;
+    const orchestrated = initialContextText(graph, context, {
+      source: "orchestrator",
+      revision: 5,
+      signedAt: "2026-09-07T00:00:00.000Z",
+    });
+    expect(orchestrated).toContain("编排者凭据（任务内不可自我扩张）");
+    expect(initialContextText(graph, context)).not.toContain("授权：");
+    const defaulted = initialContextText(graph, context, {
+      source: "default",
+      revision: 0,
+      signedAt: "",
+    });
+    expect(defaulted).toContain("授权：默认上下文（revision 0，未签发）");
+  });
 });
 
 describe("orientationText", () => {

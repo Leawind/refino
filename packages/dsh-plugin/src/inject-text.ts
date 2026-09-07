@@ -2,6 +2,7 @@ import { renderContext } from "@refino/harness";
 import type { Graph } from "refino";
 import type { AuthorizationContext, DeltaEvent } from "@refino/harness";
 import type { RefinoNode } from "refino";
+import type { AuthorizationOrigin } from "./signing.js";
 
 /**
  * Model-facing message texts for the refino plugin (docs/design.md, dsh 插件落地形态).
@@ -25,24 +26,40 @@ function sanitize(text: string): string {
  * premises as summaries, closed by the frozen-marking protocol statement
  * (docs/design.md, 上下文注入协议). The frozen zone is not enumerated —
  * frozen status is annotated wherever a node is rendered. Summaries only
- * (two-level injection) — full bodies are fetched via tools.
+ * (two-level injection) — full bodies are fetched via tools. The trailing
+ * origin line carries the signing-ownership check for sequential tasks.
  */
-export function initialContextText(graph: Graph, context: AuthorizationContext): string {
+export function initialContextText(
+  graph: Graph,
+  context: AuthorizationContext,
+  origin?: AuthorizationOrigin,
+): string {
   return frame(
     [
       "以下是与当前任务相关的 CRG（约束细化图）上下文。约束是项目已作出的、会限制后续实现选择空间的决策；前提是项目运作依赖的客观事实。",
       renderContext(graph, context),
-      "以上仅为摘要，初始上下文未列出全部节点。需要某个节点的完整内容、理由或上下游关系时，用 refino_show / refino_grounds / refino_ancestors / refino_dependents 查询；查询结果中冻结节点同样带 [冻结] 标注。",
+      ownershipLine(origin),
+      "以上仅为摘要，初始上下文未列出全部节点。需要某个节点的完整内容、理由或上下游关系时，用 refino_show / refino_grounds / refino_ancestors / refino_dependents 查询；查询结果中冻结节点同样带 [冻结] 标注。需要调整冻结区时，先与用户商定划分，再用 refino_request_authorization 提议（须经用户批准）。",
     ].join("\n\n"),
   );
+}
+
+/** Signing-ownership check: sequential tasks must notice a foreign signing. */
+function ownershipLine(origin: AuthorizationOrigin | undefined): string | undefined {
+  if (origin === undefined) return undefined;
+  if (origin.source === "default") {
+    return "授权：默认上下文（revision 0，未签发）。";
+  }
+  const source = origin.source === "workspace" ? "用户级签发" : "编排者凭据（任务内不可自我扩张）";
+  return `授权：revision ${origin.revision}（signedAt ${origin.signedAt}，${source}）。若该签发不属于当前任务，请与用户确认后重新签发。`;
 }
 
 const ORIENTATION_ROOTS = 8;
 
 /**
  * Minimal orientation for graphs above the auto-anchor budget (docs/design.md,
- * dsh 插件落地形态: 超预算时不静默) — enough for the model to help the user
- * pick anchors instead of working without any project context.
+ * dsh 插件落地形态: 超预算时不静默) — enough for the model to locate nodes by
+ * search instead of working without any project context.
  */
 export function orientationText(graph: Graph): string {
   const roots = [...graph.nodes.values()]
@@ -50,7 +67,7 @@ export function orientationText(graph: Graph): string {
     .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
     .slice(0, ORIENTATION_ROOTS);
   const lines = [
-    `已连接 CRG（约束细化图，共 ${graph.nodes.size} 个节点）。图超过自动锚点预算，本次未注入初始决策上下文。`,
+    `已连接 CRG（约束细化图，共 ${graph.nodes.size} 个节点）。图超过自动锚点预算，本次未注入全图摘要。`,
   ];
   if (roots.length > 0) {
     lines.push(
@@ -61,7 +78,7 @@ export function orientationText(graph: Graph): string {
     lines.push(...roots.map((node) => `- ${node.id} ${node.summary}`));
   }
   lines.push(
-    "用 refino_search 按摘要或 ID 定位节点、refino_show / refino_grounds 按需查询；请与用户确认任务相关的作用域锚点后再展开工作。",
+    "用 refino_search 按摘要或 ID 定位节点、refino_show / refino_grounds 按需查询；需要调整冻结区时，先与用户商定划分，再用 refino_request_authorization 提议（须经用户批准）。",
   );
   return frame(lines.join("\n"));
 }

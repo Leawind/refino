@@ -134,10 +134,84 @@ function renderEscalation(escalation: {
   }
   lines.push(
     "请停止修改，向用户报告越界升级：说明阻挡约束、冻结原因与上述受影响约束，并给出建议的约束调整方案。",
+    "用户裁决为调整冻结区时，用 refino_request_authorization 提议新划分（须经用户批准）；否则改走修改空间以内的替代方案。不得绕过冻结区（包括直接改文件）。",
   );
   return lines;
 }
 
 function renderIssue(issue: IssueLite): string {
   return `- [${issue.code}] ${issue.message}`;
+}
+
+const ORIGIN_LABEL: Record<string, string> = {
+  orchestrator: "编排者凭据",
+  workspace: "工作区签发",
+  default: "默认（未签发；全部根约束及其祖先被冻结）",
+} as const;
+
+/** Model-facing rendering of `refino_request_authorization` results. */
+export function renderSign(result: {
+  ok: boolean;
+  revision?: number;
+  frontier?: string[];
+  frozen_constraints?: number;
+  frozen_premises?: number;
+  redundant_frontier?: string[];
+  unfrozen_roots?: string[];
+  outcome?: string;
+  error?: string;
+}): string {
+  if (!result.ok) {
+    return [
+      `签发未生效：${result.error ?? "未知原因"}`,
+      result.outcome !== undefined && result.outcome !== "allowed-once"
+        ? `审批结果：${result.outcome}`
+        : undefined,
+    ]
+      .filter((line) => line !== undefined)
+      .join("\n");
+  }
+  const lines = [
+    `已签发 revision ${result.revision}，写入用户级授权状态并即时生效。`,
+    `- 冻结区：${result.frozen_constraints} 个约束、${result.frozen_premises} 个前提`,
+    `- frontier：${result.frontier && result.frontier.length > 0 ? result.frontier.join(", ") : "（空，全部解冻）"}`,
+  ];
+  if (result.redundant_frontier !== undefined && result.redundant_frontier.length > 0) {
+    lines.push(`- frontier 归约：${result.redundant_frontier.join(", ")} 被覆盖`);
+  }
+  if (result.unfrozen_roots !== undefined && result.unfrozen_roots.length > 0) {
+    lines.push(
+      `- warning: 以下根约束已解冻（项目最高级别授权已在批准时确认）：${result.unfrozen_roots.join(", ")}`,
+    );
+  }
+  return lines.join("\n");
+}
+
+/** Model-facing rendering of `refino_context` results. */
+export function renderContextStatus(result: {
+  source: string;
+  revision: number;
+  signed_at: string;
+  state_path?: string;
+  frontier: string[];
+  frozen_constraints: number;
+  frozen_premises: number;
+  anchors_complete: boolean;
+  orchestrator_credential: boolean;
+}): string {
+  const origin =
+    result.source === "workspace"
+      ? `工作区签发（${result.state_path ?? "用户级状态"}）`
+      : (ORIGIN_LABEL[result.source] ?? result.source);
+  const lines = [
+    `授权来源：${origin}`,
+    `revision：${result.revision}（signedAt ${result.signed_at}）`,
+    `冻结 frontier：${result.frontier.length > 0 ? result.frontier.join(", ") : "（空，全部解冻）"}`,
+    `生效冻结区：${result.frozen_constraints} 个约束、${result.frozen_premises} 个前提`,
+    `锚点注入策略：${result.anchors_complete ? "全图摘要" : "图超预算，概览加搜索按需定位"}`,
+    result.orchestrator_credential
+      ? "编排者凭据生效：签发被拒绝，调整冻结区须回到签发者。"
+      : "调整冻结区：refino_request_authorization（提议后须经用户批准）。",
+  ];
+  return lines.join("\n");
 }
