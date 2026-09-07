@@ -3,21 +3,26 @@
 // the hovered node, anchored to the cursor. The cached lite shape renders
 // immediately; the full record (body, rationale) fills in asynchronously
 // with a latest-wins guard, and grounds render as a plain unordered list of
-// summaries. Non-interactive by design — pointer-events stay off so the
-// card can never trap the cursor; wheel over the card is forwarded to its
-// scroller explicitly. Placement is pure geometry (peek-layout.ts) fed by
-// the page size, the cursor and the card's measured size, so the card can
-// grow toward its viewport-given maxima and scroll whatever still overflows.
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+// summaries. The body renders as markdown, mirroring the editors' preview.
+// Non-interactive by design — pointer-events stay off so the card can never
+// trap the cursor; when the content overflows, wheel anywhere scrolls the
+// card instead of zooming the canvas beneath. Placement is pure geometry
+// (peek-layout.ts) fed by the page size, the cursor and the card's measured
+// size: width grows first (fit-content) up to what the page affords, then
+// the height may use the whole page, and only then the content scrolls.
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { injectRequired } from "../context";
 import { fetchGroundLites } from "../grounds";
+import { renderMarkdown, renderMermaidDiagrams } from "../markdown";
 import { peekState } from "../peek";
-import { computePeekLayout, PEEK_BASE_WIDTH, PEEK_ESTIMATED_SIZE } from "../peek-layout";
+import { computePeekLayout, PEEK_MIN_WIDTH, PEEK_ESTIMATED_SIZE } from "../peek-layout";
 import { clientKey } from "../api";
+import { storeKey } from "../store";
 import type { NodeRecord } from "../types";
 
 const client = injectRequired(clientKey, "client");
+const store = injectRequired(storeKey, "store");
 const { t } = useI18n();
 
 const record = ref<NodeRecord | null>(null);
@@ -50,16 +55,27 @@ watch(
   },
 );
 
-const body = computed(() => record.value?.body ?? "");
+const bodyText = computed(() => record.value?.body ?? "");
 const rationale = computed(() => record.value?.rationale ?? "");
 const summary = computed(() => {
   const value = record.value?.summary ?? "";
   return value === "" ? t("node.untitled") : value;
 });
+/** Rendered locally from the user-authored markdown source (editors alike). */
+const renderedBody = computed(() => (bodyText.value === "" ? "" : renderMarkdown(bodyText.value)));
 
 const cardEl = ref<HTMLElement | null>(null);
 const cardSize = ref({ ...PEEK_ESTIMATED_SIZE });
 const viewport = ref({ width: window.innerWidth, height: window.innerHeight });
+
+// Render mermaid diagrams once the preview HTML is on the page, and again
+// when the source or the theme changes (editors' preview behavior).
+watch([renderedBody, () => store.state.theme] as const, ([, theme]) => {
+  if (renderedBody.value === "" || cardEl.value === null) return;
+  void nextTick().then(async () => {
+    if (cardEl.value !== null) await renderMermaidDiagrams(cardEl.value, theme);
+  });
+});
 
 watch(cardEl, (el, prev) => {
   if (prev !== null) observer?.unobserve(prev);
@@ -93,24 +109,14 @@ function onResize(): void {
 }
 
 /**
- * Wheel over the card scrolls its content (and nothing else): the card
- * keeps pointer-events: none, so the event's target is whatever sits
- * beneath — swallow it in the capture phase to keep the canvas from
- * treating it as zoom.
+ * While the content overflows, the wheel scrolls the card (and never zooms
+ * the canvas beneath): the card keeps pointer-events: none, so the event's
+ * target is whatever sits beneath — swallow it in the capture phase.
  */
 function onWheel(event: WheelEvent): void {
   const el = cardEl.value;
   if (el === null || !peekState.alt || peekState.id === null) return;
   if (event.deltaY === 0 || el.scrollHeight <= el.clientHeight) return;
-  const rect = el.getBoundingClientRect();
-  if (
-    event.clientX < rect.left ||
-    event.clientX >= rect.right ||
-    event.clientY < rect.top ||
-    event.clientY >= rect.bottom
-  ) {
-    return;
-  }
   event.preventDefault();
   event.stopPropagation();
   el.scrollTop += event.deltaY;
@@ -132,7 +138,7 @@ onUnmounted(() => {
   window.removeEventListener("wheel", onWheel, { capture: true });
 });
 
-/** Placement via pure geometry; the card caps at the roomier side per axis. */
+/** Placement via pure geometry; width grows first, height may fill the page. */
 const style = computed(() => {
   const layout = computePeekLayout({
     viewport: viewport.value,
@@ -142,7 +148,10 @@ const style = computed(() => {
   return {
     left: `${layout.left}px`,
     top: `${layout.top}px`,
-    width: `min(${PEEK_BASE_WIDTH}px, ${layout.maxWidth}px)`,
+    // Content-driven width first; the caps keep it inside the page.
+    width: "fit-content",
+    minWidth: `min(${PEEK_MIN_WIDTH}px, ${layout.maxWidth}px)`,
+    maxWidth: `${layout.maxWidth}px`,
     maxHeight: `${layout.maxHeight}px`,
   };
 });
@@ -166,7 +175,7 @@ const style = computed(() => {
         </div>
         <p class="summary">{{ summary }}</p>
         <p v-if="rationale !== ''" class="rationale">{{ rationale }}</p>
-        <p v-if="body !== ''" class="body">{{ body }}</p>
+        <div v-if="renderedBody !== ''" class="body-markdown" v-html="renderedBody" />
         <template v-if="groundSummaries.length > 0">
           <p class="grounds-label">{{ t("node.grounds") }}</p>
           <ul class="grounds">
@@ -226,14 +235,55 @@ const style = computed(() => {
   font-weight: 600;
 }
 
-.rationale,
-.body {
+.rationale {
   margin: 4px 0 0;
   font-size: 12px;
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
   opacity: 0.85;
+}
+
+/* The body renders as markdown (editors' preview alike); v-html content
+ * carries no scope attributes, so nested selectors go through :deep(). */
+.body-markdown {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  word-break: break-word;
+  opacity: 0.85;
+}
+
+.body-markdown :deep(p) {
+  margin: 4px 0 0;
+}
+
+.body-markdown :deep(ul),
+.body-markdown :deep(ol) {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+
+.body-markdown :deep(pre) {
+  margin: 4px 0 0;
+  padding: 4px 6px;
+  overflow-x: auto;
+  border: 1px solid var(--refino-border);
+  border-radius: var(--refino-radius);
+}
+
+.body-markdown :deep(table) {
+  border-collapse: collapse;
+}
+
+.body-markdown :deep(th),
+.body-markdown :deep(td) {
+  border: 1px solid var(--refino-border);
+  padding: 2px 6px;
+}
+
+.body-markdown :deep(.mermaid) {
+  overflow-x: auto;
 }
 
 .grounds-label {
