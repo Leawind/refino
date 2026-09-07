@@ -1,6 +1,6 @@
 # @refino/cli
 
-`refino` 引擎的命令行接口：对 Constraint Refinement Graph 的查询、校验与节点读写，以及面向 agent 的通用接入命令（上下文渲染、授权签发、自文档）与本地 Web 界面服务（`refino web`）。
+`refino` 引擎的命令行接口：对 Constraint Refinement Graph 的查询、校验与节点读写，以及面向 agent 的通用接入命令（开局概览、审核台账、自文档）与本地 Web 界面服务（`refino web`）。
 
 ```txt
 Usage: refino [options] [command]
@@ -12,8 +12,7 @@ Options:
   --root <dir>               project root directory containing .refino/ (default:
                              "/home/leawind/Workspace/github.com/Leawind/refino-worktrees/examples")
   --json                     emit machine-readable JSON on stdout (default: false)
-  --authorization <path>     path to an orchestrator-signed authorization document (overrides workspace state)
-  -h, --help                 display help for command
+  -h, --help                 display help for commander
 
 Commands:
   validate                   build the graph and report all validation issues
@@ -27,10 +26,9 @@ Commands:
   delete [options] <ids...>  delete one or more nodes; refuses while other nodes ground on the target
   web [options]              start the web UI server
   init                       create the .refino/ directory skeleton (pure scaffolding)
-  context [options]          render the current authorization context (the task's opening context)
+  context                    render the project overview (the task's opening context)
   search [options] [query]   paginated search over id prefixes and summaries
   pending [options]          nodes changed since a git baseline and their downstream pending-review constraints
-  auth                       show, apply or reset the workspace's signed authorization
   guide                      print the full working protocol (written for models)
   skill [options]            print the SKILL.md content with install guidance
   help [command]             display help for command

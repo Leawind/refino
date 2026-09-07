@@ -22,19 +22,10 @@ import type { Graph, NodeWithDepth, QueryGroup, RefinoNode } from "refino";
 import { processIo, renderFullRecord, renderIssues, renderNodeTable } from "./format.js";
 import type { CliIo } from "./format.js";
 import { createDevCommand } from "./dev.js";
-import { checkModification, type ModificationCheck } from "@refino/harness";
-import {
-  coveringFrontier,
-  effectiveContext,
-  renderEscalation,
-  resolveAuthorization,
-} from "./authorization.js";
-import { frozenIds } from "./frozen.js";
 import { createInitCommand } from "./commands/init.js";
 import { createContextCommand } from "./commands/context.js";
 import { createSearchCommand } from "./commands/search.js";
 import { createPendingCommand } from "./commands/pending.js";
-import { createAuthCommand } from "./commands/auth.js";
 import { createGuideCommand, createSkillCommand } from "./commands/selfdoc.js";
 import { emit, fail, refinoDir, withStore, withStoreForWrite } from "./shared.js";
 import type { GlobalOptions } from "./shared.js";
@@ -54,10 +45,6 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
     .version(readVersion())
     .option("--root <dir>", "project root directory containing .refino/", process.cwd())
     .option("--json", "emit machine-readable JSON on stdout", false)
-    .option(
-      "--authorization <path>",
-      "path to an orchestrator-signed authorization document (overrides workspace state)",
-    )
     .configureOutput({
       writeOut: (text) => void io.stdout.write(text),
       writeErr: (text) => void io.stderr.write(text),
@@ -131,16 +118,15 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
             }
             nodes = nodes.filter((n) => n.type === "premise" && !referenced.has(n.id));
           }
-          const frozen = await frozenIds(graph, opts);
           if (opts.json) {
             emit(
               io,
-              nodes.map((n) => nodeJson(n, frozen)),
+              nodes.map((n) => nodeJson(n)),
             );
           } else if (nodes.length === 0) {
             io.stdout.write("(no nodes)\n");
           } else {
-            io.stdout.write(`${renderNodeTable(nodes.map((n) => withFrozen(n, frozen)))}\n`);
+            io.stdout.write(`${renderNodeTable(nodes)}\n`);
           }
           return 0;
         }),
@@ -165,7 +151,6 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
             const content = await store.content(group.id);
             if (content !== undefined) contents.set(group.id, content);
           }
-          const frozen = await frozenIds(graph, opts);
           if (opts.json) {
             emit(
               io,
@@ -175,7 +160,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
                   : {
                       id: group.id,
                       results: group.results.map((node) =>
-                        fullNodeJson(node, contents.get(group.id), frozen),
+                        fullNodeJson(node, contents.get(group.id)),
                       ),
                     },
               ),
@@ -186,11 +171,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
                 .map((group) =>
                   "error" in group
                     ? `error: ${group.error}`
-                    : renderFullRecord(
-                        group.results[0]!,
-                        contents.get(group.id),
-                        frozen.has(group.id),
-                      ),
+                    : renderFullRecord(group.results[0]!, contents.get(group.id)),
                 )
                 .join("\n\n")}\n`,
             );
@@ -207,12 +188,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
     .action((ids: string[], _opts, cmd) =>
       run(cmd, async (opts) =>
         withStore(io, opts, async (store) => {
-          const { missing } = emitGroupedNodes(
-            io,
-            opts,
-            queryGroups(store.graph, ids, getGrounds),
-            await frozenIds(store.graph, opts),
-          );
+          const { missing } = emitGroupedNodes(io, opts, queryGroups(store.graph, ids, getGrounds));
           return missing ? 1 : 0;
         }),
       ),
@@ -229,7 +205,6 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
             io,
             opts,
             queryGroups(store.graph, ids, getAncestors),
-            await frozenIds(store.graph, opts),
           );
           return missing ? 1 : 0;
         }),
@@ -247,7 +222,6 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
             io,
             opts,
             queryGroups(store.graph, ids, getDependents),
-            await frozenIds(store.graph, opts),
           );
           return missing ? 1 : 0;
         }),
@@ -341,19 +315,6 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
                 summary,
               });
               emitWritten(io, opts, outcome.id, "constraint", "created");
-              // Creation always lands in the modification space (new nodes
-              // have no downstream), but a grounds-less constraint is a root:
-              // under the default authorization it is frozen from the next
-              // invocation on, so say so while the caller can still react.
-              // JSON consumers get structured output only.
-              if (groundIds.length === 0 && !opts.json) {
-                const resolved = await resolveAuthorization(store.graph, opts);
-                if (resolved.source === "default") {
-                  io.stdout.write(
-                    'notice: created a root constraint; under the default authorization root constraints are frozen — re-sign via "refino auth apply" to modify it later\n',
-                  );
-                }
-              }
               return 0;
             });
           }),
@@ -410,15 +371,6 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
           const entry = store.entry(id);
           if (entry === undefined) {
             io.stderr.write(`error: node "${id}" not found\n`);
-            return 1;
-          }
-          // The frozen zone is enforced on the write path itself: a target
-          // inside it is refused with a structured escalation report, no
-          // matter how the command was invoked.
-          const resolved = await resolveAuthorization(store.graph, opts);
-          const check = checkModification(store.graph, effectiveContext(store.graph, resolved), id);
-          if (!check.allowed) {
-            renderEscalation(store.graph, resolved, check, io, opts.json);
             return 1;
           }
           const node = entry.node;
@@ -484,40 +436,12 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
       run(cmd, async (opts) => {
         const { force } = cmd.opts() as { force?: boolean };
         return withStoreForWrite(io, opts, async (store) => {
-          const resolved = await resolveAuthorization(store.graph, opts);
-          const context = effectiveContext(store.graph, resolved);
-          const results: Array<{
-            id: string;
-            error?: string;
-            blocked?: {
-              coveringFrontier: string[];
-              affected: Array<{ id: string; depth: number }>;
-            };
-          }> = [];
-          const blocked: ModificationCheck[] = [];
+          const results: Array<{ id: string; error?: string }> = [];
           let failure = false;
           for (const id of ids) {
             const node = store.graph.nodes.get(id);
             if (node === undefined) {
               results.push({ id, error: `node "${id}" not found` });
-              failure = true;
-              continue;
-            }
-            // Authorization is not bypassable with --force: --force covers the
-            // structural guard only, the frozen zone needs a signed change.
-            const check = checkModification(store.graph, context, id);
-            if (!check.allowed) {
-              const covering = coveringFrontier(store.graph, resolved, id);
-              results.push({
-                id,
-                error: `frozen by authorization (frontier: ${covering.join(", ")})`,
-                blocked: {
-                  coveringFrontier: covering,
-                  affected:
-                    check.report?.affected.map((a) => ({ id: a.node.id, depth: a.depth })) ?? [],
-                },
-              });
-              blocked.push(check);
               failure = true;
               continue;
             }
@@ -546,9 +470,6 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
           }
           if (opts.json) emit(io, results);
           else {
-            for (const check of blocked) {
-              renderEscalation(store.graph, resolved, check, io, false);
-            }
             io.stdout.write(
               `${results
                 .map((r) => (r.error === undefined ? `deleted ${r.id}` : `error: ${r.error}`))
@@ -599,7 +520,6 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
   program.addCommand(createContextCommand(io, run));
   program.addCommand(createSearchCommand(io, run));
   program.addCommand(createPendingCommand(io, run));
-  program.addCommand(createAuthCommand(io, run));
   program.addCommand(createGuideCommand(io, run));
   program.addCommand(createSkillCommand(io, run));
 
@@ -635,21 +555,16 @@ function emitWritten(
   else io.stdout.write(`${verb} ${id} (${join(".refino", file)})\n`);
 }
 
-function emitNodes(
-  io: CliIo,
-  opts: GlobalOptions,
-  nodes: RefinoNode[],
-  frozen?: ReadonlySet<string>,
-): void {
+function emitNodes(io: CliIo, opts: GlobalOptions, nodes: RefinoNode[]): void {
   if (opts.json) {
     emit(
       io,
-      nodes.map((n) => nodeJson(n, frozen)),
+      nodes.map((n) => nodeJson(n)),
     );
   } else if (nodes.length === 0) {
     io.stdout.write("(empty)\n");
   } else {
-    io.stdout.write(`${renderNodeTable(nodes.map((n) => withFrozen(n, frozen)))}\n`);
+    io.stdout.write(`${renderNodeTable(nodes)}\n`);
   }
 }
 
@@ -664,47 +579,38 @@ function emitGroupedNodes(
   io: CliIo,
   opts: GlobalOptions,
   groups: QueryGroup<RefinoNode>[],
-  frozen?: ReadonlySet<string>,
 ): { missing: boolean } {
   const missing = groups.some((group) => "error" in group);
   if (opts.json) {
     emit(
       io,
       groups.map((group) =>
-        "error" in group
-          ? group
-          : { id: group.id, results: group.results.map((n) => nodeJson(n, frozen)) },
+        "error" in group ? group : { id: group.id, results: group.results.map((n) => nodeJson(n)) },
       ),
     );
   } else if (groups.length === 1) {
-    emitNodesOrError(io, opts, groups[0]!, frozen);
+    emitNodesOrError(io, opts, groups[0]!);
   } else {
     for (const group of groups) {
       io.stdout.write(`${group.id}:\n`);
-      emitNodesOrError(io, opts, group, frozen);
+      emitNodesOrError(io, opts, group);
     }
   }
   return { missing };
 }
 
-function emitNodesOrError(
-  io: CliIo,
-  opts: GlobalOptions,
-  group: QueryGroup<RefinoNode>,
-  frozen?: ReadonlySet<string>,
-): void {
+function emitNodesOrError(io: CliIo, opts: GlobalOptions, group: QueryGroup<RefinoNode>): void {
   if ("error" in group) {
     io.stdout.write(`error: ${group.error}\n`);
     return;
   }
-  emitNodes(io, opts, group.results, frozen);
+  emitNodes(io, opts, group.results);
 }
 
 function emitGroupedDepths(
   io: CliIo,
   opts: GlobalOptions,
   groups: QueryGroup<NodeWithDepth>[],
-  frozen?: ReadonlySet<string>,
 ): { missing: boolean } {
   const missing = groups.some((group) => "error" in group);
   if (opts.json) {
@@ -715,69 +621,49 @@ function emitGroupedDepths(
           ? group
           : {
               id: group.id,
-              results: group.results.map((r) => ({ ...nodeJson(r.node, frozen), depth: r.depth })),
+              results: group.results.map((r) => ({ ...nodeJson(r.node), depth: r.depth })),
             },
       ),
     );
   } else if (groups.length === 1) {
-    emitDepthsOrError(io, opts, groups[0]!, frozen);
+    emitDepthsOrError(io, opts, groups[0]!);
   } else {
     for (const group of groups) {
       io.stdout.write(`${group.id}:\n`);
-      emitDepthsOrError(io, opts, group, frozen);
+      emitDepthsOrError(io, opts, group);
     }
   }
   return { missing };
 }
 
-function emitDepthsOrError(
-  io: CliIo,
-  opts: GlobalOptions,
-  group: QueryGroup<NodeWithDepth>,
-  frozen?: ReadonlySet<string>,
-): void {
+function emitDepthsOrError(io: CliIo, opts: GlobalOptions, group: QueryGroup<NodeWithDepth>): void {
   if ("error" in group) {
     io.stdout.write(`error: ${group.error}\n`);
     return;
   }
-  emitDepths(io, opts, group.results, frozen);
+  emitDepths(io, opts, group.results);
 }
 
 function emitDepths(
   io: CliIo,
   opts: GlobalOptions,
   results: ReadonlyArray<{ node: RefinoNode; depth: number }>,
-  frozen?: ReadonlySet<string>,
 ): void {
   if (opts.json) {
     emit(
       io,
-      results.map((r) => ({ ...nodeJson(r.node, frozen), depth: r.depth })),
+      results.map((r) => ({ ...nodeJson(r.node), depth: r.depth })),
     );
   } else if (results.length === 0) {
     io.stdout.write("(empty)\n");
   } else {
-    io.stdout.write(
-      `${renderNodeTable(results.map((r) => withFrozen({ ...r.node, depth: r.depth }, frozen)))}\n`,
-    );
+    io.stdout.write(`${renderNodeTable(results.map((r) => ({ ...r.node, depth: r.depth })))}\n`);
   }
 }
 
-/** Text-side frozen annotation: the JSON side carries a `frozen` field. */
-function withFrozen<T extends { id: string }>(
-  row: T,
-  frozen?: ReadonlySet<string>,
-): T & { frozen?: boolean } {
-  return frozen === undefined ? row : { ...row, frozen: frozen.has(row.id) };
-}
-
-function fullNodeJson(
-  node: RefinoNode,
-  content?: NodeContent,
-  frozen?: ReadonlySet<string>,
-): Record<string, unknown> {
+function fullNodeJson(node: RefinoNode, content?: NodeContent): Record<string, unknown> {
   return {
-    ...nodeJson(node, frozen),
+    ...nodeJson(node),
     body: content?.body ?? "",
     ...(node.type === "constraint" &&
       content?.rationale !== undefined && {
@@ -790,12 +676,11 @@ function fullNodeJson(
   };
 }
 
-function nodeJson(node: RefinoNode, frozen?: ReadonlySet<string>): Record<string, unknown> {
+function nodeJson(node: RefinoNode): Record<string, unknown> {
   const base = {
     id: node.id,
     type: node.type,
     summary: node.summary,
-    ...(frozen !== undefined && { frozen: frozen.has(node.id) }),
   };
   return node.type === "constraint" ? { ...base, grounds: node.grounds } : base;
 }

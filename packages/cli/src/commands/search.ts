@@ -3,7 +3,6 @@ import { Command } from "commander";
 import { searchNodes, type SearchPage } from "@refino/harness";
 import { emit, withStore } from "../shared.js";
 import type { GlobalOptions, RunFn } from "../shared.js";
-import { frozenIds } from "../frozen.js";
 import { renderNodeTable } from "../format.js";
 import type { CliIo } from "../format.js";
 
@@ -86,12 +85,7 @@ export function createSearchCommand(io: CliIo, run: RunFn): Command {
           } else if (result.nodes.length === 0) {
             io.stdout.write("(no matches)\n");
           } else {
-            // Text rows carry the frozen mark (docs/design.md, 上下文注入协议);
-            // the JSON shape is the SearchPage contract shared with the web API.
-            const frozen = await frozenIds(store.graph, opts);
-            io.stdout.write(
-              `${renderNodeTable(result.nodes.map((n) => ({ ...n, frozen: frozen.has(n.id) })))}\n`,
-            );
+            io.stdout.write(`${renderNodeTable(result.nodes)}\n`);
             if (result.next_cursor !== undefined) {
               io.stdout.write(`(more results; continue with --cursor ${result.next_cursor})\n`);
             }

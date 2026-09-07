@@ -10,8 +10,6 @@ import type { CliIo } from "./format.js";
 export interface GlobalOptions {
   root: string;
   json: boolean;
-  /** Explicit orchestrator authorization document; overrides workspace state. */
-  authorization?: string;
 }
 
 /** Run an action with merged global options and capture its exit code. */

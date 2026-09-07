@@ -8,7 +8,7 @@ import type { CliIo } from "../format.js";
 /** The anchored gitignore rule that keeps the state lane unversioned. */
 const GITIGNORE_RULE = "/state/";
 
-const GITIGNORE_TEXT = `# refino workspace state (signed authorizations; machine-local, not shared)\n${GITIGNORE_RULE}\n`;
+const GITIGNORE_TEXT = `# refino workspace state (review ledger; machine-local, not shared)\n${GITIGNORE_RULE}\n`;
 
 /**
  * Seed the committed `.gitignore` that keeps the state lane (`state/`) out of

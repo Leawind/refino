@@ -2,12 +2,11 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { workspaceStatePath } from "../src/authorization.js";
 import { ensureStateIgnored } from "../src/commands/init.js";
 
 /**
- * The state lane is workspace-scoped (docs/design.md, "授权状态的作用域"):
- * the state file lives inside the repository's own `.refino/state/`, kept
+ * The state lane is workspace-scoped (docs/design.md, "通用接入形态"): the
+ * state directory lives inside the repository's own `.refino/state/`, kept
  * out of version control by the `.refino/.gitignore` seeded once at
  * `refino init`. The write path never manages that file — a user removing
  * the rule (upper-level ignore management, or deliberate versioning of
@@ -19,10 +18,6 @@ describe("workspace state lane", () => {
 
   afterAll(async () => {
     await Promise.all(dirs.map((d) => rm(d, { recursive: true, force: true })));
-  });
-
-  it("places the state file in the workspace's own .refino/state/", () => {
-    expect(workspaceStatePath("/some/repo")).toMatch(/[/\\]\.refino[/\\]state[/\\]current\.json$/);
   });
 
   it("ensureStateIgnored creates the gitignore when missing", async () => {

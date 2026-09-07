@@ -77,54 +77,29 @@ describe("refino init", () => {
 });
 
 describe("refino context", () => {
-  it("renders the default authorization context with guidance", async () => {
+  it("renders the graph overview with root constraints", async () => {
     const { code, out } = await run(["--root", graphRoot, "context"]);
     expect(code).toBe(0);
-    expect(out).toContain("# CRG 授权上下文（revision 0，来源：默认");
-    expect(out).toContain("## 作用域锚点");
-    // Under the default authorization every node is an anchor, so the premise
-    // renders inside the anchor section and no premise heading appears.
-    expect(out).toContain(`${P1} [premise] PostgreSQL 16 is in use.`);
-    expect(out).not.toContain("## 项目前提");
-    // The frozen zone is not enumerated: frozen anchors carry the mark, the
-    // protocol statement replaces the read-only section.
-    expect(out).not.toContain("## 冻结区");
-    expect(out).toContain(`${A1} [constraint] [冻结]`);
-    expect(out).toContain(`${Z9} [constraint] [冻结]`);
-    // D4 is modifiable under the default authorization: unfrozen nodes are
-    // not specially marked.
-    expect(out).toContain(`${D4} [constraint] Access goes through repositories.`);
-    expect(out.indexOf(`${D4} [constraint]`)).toBeGreaterThan(out.indexOf("## 作用域锚点"));
-    expect(out).toContain("标注 [冻结] 者只读");
-    expect(out).toContain("refino auth apply");
+    expect(out).toContain("# CRG 概览");
+    expect(out).toContain("3 个约束、1 个前提");
+    // Roots are the grounds-less constraints; D4 grounds on [P1, A1] and is
+    // therefore not listed.
+    expect(out).toContain(`${A1}  constraint  All data lives in PostgreSQL.`);
+    expect(out).toContain(`${Z9}  constraint  No stored procedures.`);
+    expect(out).not.toContain(D4);
+    expect(out).toContain("refino search");
     expect(out).toContain("refino guide");
   });
 
-  it("renders JSON with anchors, frontier and estimates", async () => {
+  it("emits JSON with counts and roots", async () => {
     const { code, out } = await run(["--root", graphRoot, "--json", "context"]);
     expect(code).toBe(0);
     const payload = JSON.parse(out) as {
-      revision: number;
-      source: string;
-      anchors: string[];
-      frozenFrontier: string[];
-      estimate: { blocks: number; chars: number };
+      counts: { constraints: number; premises: number };
+      roots: Array<{ id: string; type: string; summary: string }>;
     };
-    expect(payload.revision).toBe(0);
-    expect(payload.source).toBe("default");
-    expect(payload.frozenFrontier).toEqual([A1, Z9]);
-    expect(payload.anchors).toContain(P1);
-    expect(payload.estimate.blocks).toBeGreaterThan(0);
-  });
-
-  it("reports an unsigned delta request as unchanged", async () => {
-    const { code, out } = await run(["--root", graphRoot, "context", "--since", "0"]);
-    expect(code).toBe(0);
-    expect(out).toContain("授权上下文自 revision 0 以来未变化");
-
-    const bad = await run(["--root", graphRoot, "context", "--since", "-1"]);
-    expect(bad.code).toBe(1);
-    expect(bad.err).toContain("--since");
+    expect(payload.counts).toEqual({ constraints: 3, premises: 1 });
+    expect(payload.roots.map((r) => r.id)).toEqual([A1, Z9].sort());
   });
 });
 
@@ -182,10 +157,10 @@ describe("refino guide and skill", () => {
     const { code, out } = await run(["--root", graphRoot, "guide"]);
     expect(code).toBe(0);
     expect(out).toContain("# refino 工作协议");
-    expect(out).toContain("冻结区");
+    expect(out).toContain("Git 流程审核");
     expect(out).toContain("refino context");
-    expect(out).toContain("refino auth apply --dry-run");
     expect(out).toContain("refino pending");
+    expect(out).not.toContain("auth apply");
   });
 
   it("skill prints install guidance pointing at --output", async () => {

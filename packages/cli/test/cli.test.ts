@@ -385,7 +385,7 @@ describe("refino cli", () => {
           "D4E5F6G7",
           "--body",
           "Decision.",
-          // Grounds keep it out of the default frozen zone (root constraints),
+          // Grounds keep it a non-root constraint, so nothing else grounds on it.
           // which write-path boundary checks enforce.
           "--grounds",
           "1A2B3C4D",
