@@ -54,6 +54,13 @@
 
 esbuild 打包 `dist/mcp.js` 与 `dist/hook.js`（platform node、target node20、ESM、全依赖内联）。banner 注入 `createRequire`：内联的 CJS 依赖（`yaml`）会 `require("process")`，ESM 输出中 esbuild 自带的 shim 对此抛 "Dynamic require is not supported"，banner 提供真实 `require` 后 shim 会转发。`tsc --noEmit` 只做类型检查。产物在 `.gitignore`（根已全局忽略 `dist/`），源码安装需先构建。
 
+## 测试
+
+- 契约层（`test/artifacts.test.ts`）：把对宿主的约定固化为断言——工件（manifest、`.mcp.json`、hooks、skill）的结构与引用、模板变量白名单、hook 事件名与子命令绑定、超时单位与量级。工件或“对宿主的理解”漂移时，失败信息直接点名漂移项。
+- 宿主替身层（`test/e2e.test.ts`）：以真实 `dist/` 产物 + 脚本化宿主行为做进程级端到端——hook 的 payload→stdout（采纳契约静默、坏输入按空 payload 容忍）、sync 的事件名回显与先取者得、MCP stdio 的 initialize/tools/list/tools/call 协议往返与结构化错误、以及 watcher→coalescer→队列→sync 的完整 delta 链路（真实 fs 事件、`vi.waitFor` 轮询）。`dist/` 未构建时整文件 skip（普通 `vitest run` 可过），`pnpm check` 先跑 `pnpm -r build` 因此 CI 必测。
+- 隔离注意（与 dsh DESIGN.md 的 findRefinoDir 坑同源）：spawn 子进程须用干净的临时目录为 cwd，并剥离子进程环境中的 `REFINO_AUTHORIZATION` / `*_PROJECT_DIR`——开发机的仓库与会话环境可能携带真实 `.refino/`，工作目录回退链会命中它们。
+- 真宿主冒烟：手动清单（注入出现、工具全名、外部变更回合内到达），触发条件限定为 hook 输出形状变化、挂载新事件、`.mcp.json` 变更或宿主升级。
+
 ## v1 边界与后续课题
 
 - 外部变更投递窗口为“工具调用间隙与用户消息间”，模型纯文本输出期间仍有盲区；每会话各得一份需要宿主向 MCP server 提供会话身份（stdio 环境无此通道）。`PostToolUse` 无 matcher（全部工具）以换取最快触达，每次调用有一次 node 进程启动开销；如需收窄可加 matcher（如仅 `mcp__refino__`）。
