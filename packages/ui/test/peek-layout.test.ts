@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { computePeekLayout, PEEK_GAP, PEEK_MIN_WIDTH, PEEK_PAD } from "../src/peek-layout";
+import {
+  computePeekBounds,
+  computePeekLayout,
+  computePeekSize,
+  PEEK_GAP,
+  PEEK_MIN_WIDTH,
+  PEEK_PAD,
+} from "../src/peek-layout";
 import type { PeekLayoutInput } from "../src/peek-layout";
 
 /**
@@ -154,5 +161,68 @@ describe("computePeekLayout", () => {
 
   it("exposes the minimum width floor to the component", () => {
     expect(PEEK_MIN_WIDTH).toBeGreaterThan(0);
+  });
+});
+
+describe("computePeekSize", () => {
+  const MAX = { maxWidth: 600, maxHeight: 784 };
+
+  it("grows to a page-bound square for tall content", () => {
+    // Tall text is shaped into the largest square the page affords.
+    expect(computePeekSize({ natural: { width: 380, height: 2000 }, ...MAX }).width).toBe(600);
+  });
+
+  it("keeps the natural width for content that fits the square", () => {
+    // 380-wide, 500-tall content fits the 600px square: no reshaping.
+    expect(computePeekSize({ natural: { width: 380, height: 500 }, ...MAX }).width).toBe(380);
+  });
+
+  it("keeps the natural width for short content", () => {
+    // A three-line summary must not be squeezed into a tiny square.
+    expect(computePeekSize({ natural: { width: 380, height: 90 }, ...MAX }).width).toBe(380);
+  });
+
+  it("shapes too-wide content into the square", () => {
+    // A block wider than the square reflows (or scrolls x) inside it.
+    expect(
+      computePeekSize({ natural: { width: 813, height: 300 }, maxWidth: 1000, maxHeight: 784 })
+        .width,
+    ).toBe(784);
+  });
+
+  it("caps at maxWidth near the page edge", () => {
+    expect(
+      computePeekSize({ natural: { width: 380, height: 1500 }, maxWidth: 400, maxHeight: 784 })
+        .width,
+    ).toBe(400);
+  });
+
+  it("shrinks to the square when the height bounds it", () => {
+    // Cursor near the top: the square bound (maxHeight) sits below the
+    // natural width; wrappable content reflows into the smaller square.
+    expect(
+      computePeekSize({ natural: { width: 380, height: 1500 }, maxWidth: 876, maxHeight: 300 })
+        .width,
+    ).toBe(300);
+  });
+
+  it("floors at the minimum width", () => {
+    expect(computePeekSize({ natural: { width: 150, height: 100 }, ...MAX }).width).toBe(
+      PEEK_MIN_WIDTH,
+    );
+  });
+});
+
+describe("computePeekBounds", () => {
+  it("matches the layout maxima", () => {
+    const cursor = { x: 200, y: 150 };
+    const bounds = computePeekBounds(BASE_VIEWPORT, cursor);
+    const layout = computePeekLayout({
+      viewport: BASE_VIEWPORT,
+      cursor,
+      card: { width: 10, height: 10 },
+    });
+    expect(bounds.maxWidth).toBe(layout.maxWidth);
+    expect(bounds.maxHeight).toBe(layout.maxHeight);
   });
 });

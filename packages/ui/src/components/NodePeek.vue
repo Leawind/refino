@@ -6,17 +6,23 @@
 // summaries. The body renders as markdown, mirroring the editors' preview.
 // Non-interactive by design — pointer-events stay off so the card can never
 // trap the cursor; when the content overflows, wheel anywhere scrolls the
-// card instead of zooming the canvas beneath. Placement is pure geometry
-// (peek-layout.ts) fed by the page size, the cursor and the card's measured
-// size: width grows first (fit-content) up to what the page affords, then
-// the height may use the whole page, and only then the content scrolls.
+// card instead of zooming the canvas beneath. Shape and placement are pure
+// geometry (peek-layout.ts) fed by the page size, the cursor and measured
+// content: the card prefers a square sized to its content, extends an axis
+// into a rectangle only at a page limit, and scrolls whatever still
+// overflows.
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { injectRequired } from "../context";
 import { fetchGroundLites } from "../grounds";
 import { renderMarkdown, renderMermaidDiagrams } from "../markdown";
 import { peekState } from "../peek";
-import { computePeekLayout, PEEK_MIN_WIDTH, PEEK_ESTIMATED_SIZE } from "../peek-layout";
+import {
+  computePeekBounds,
+  computePeekLayout,
+  computePeekSize,
+  PEEK_ESTIMATED_SIZE,
+} from "../peek-layout";
 import { clientKey } from "../api";
 import { storeKey } from "../store";
 import type { NodeRecord } from "../types";
@@ -68,6 +74,13 @@ const cardEl = ref<HTMLElement | null>(null);
 const cardSize = ref({ ...PEEK_ESTIMATED_SIZE });
 const viewport = ref({ width: window.innerWidth, height: window.innerHeight });
 
+/** Page-afforded bounds around the cursor; drive both sizing and placement. */
+const bounds = computed(() =>
+  computePeekBounds(viewport.value, { x: peekState.x, y: peekState.y }),
+);
+/** Explicit card width from the square-preferring size rule; null = auto. */
+const cardWidth = ref<number | null>(null);
+
 // Render mermaid diagrams once the preview HTML is on the page, and again
 // when the source or the theme changes (editors' preview behavior).
 watch([renderedBody, () => store.state.theme] as const, ([, theme]) => {
@@ -84,6 +97,7 @@ watch(cardEl, (el, prev) => {
     // frame, so a just-shown card would otherwise place on estimated size.
     measureSize(el);
     observer?.observe(el);
+    scheduleSize();
   }
 });
 
@@ -106,6 +120,50 @@ function measure(entry: ResizeObserverEntry): void {
 
 function onResize(): void {
   viewport.value = { width: window.innerWidth, height: window.innerHeight };
+}
+
+// Content or bounds changes reshape the card; coalesce into one measurement.
+watch([record, groundSummaries, bounds], scheduleSize);
+
+let sizeScheduled = false;
+
+function scheduleSize(): void {
+  if (sizeScheduled) return;
+  sizeScheduled = true;
+  void nextTick(() => {
+    sizeScheduled = false;
+    refreshSize();
+  });
+}
+
+/**
+ * Measure the content's natural size (max-content width, height at that
+ * width) and derive the square-preferring card width. Runs synchronously —
+ * the temporary styles are restored before Vue re-renders.
+ */
+function refreshSize(): void {
+  const el = cardEl.value;
+  if (el === null || !peekState.alt || peekState.id === null) return;
+  const max = bounds.value;
+  const prevWidth = el.style.width;
+  const prevMaxHeight = el.style.maxHeight;
+  el.style.width = "max-content";
+  el.style.maxHeight = "none";
+  const naturalWidth = Math.min(el.getBoundingClientRect().width, max.maxWidth);
+  el.style.width = `${naturalWidth}px`;
+  const naturalHeight = el.getBoundingClientRect().height;
+  const size = computePeekSize({
+    natural: { width: naturalWidth, height: naturalHeight },
+    maxWidth: max.maxWidth,
+    maxHeight: max.maxHeight,
+  });
+  el.style.width = `${size.width}px`;
+  el.style.maxHeight = `${max.maxHeight}px`;
+  const rect = el.getBoundingClientRect();
+  el.style.width = prevWidth;
+  el.style.maxHeight = prevMaxHeight;
+  cardWidth.value = size.width;
+  cardSize.value = { width: rect.width, height: rect.height };
 }
 
 /**
@@ -138,7 +196,7 @@ onUnmounted(() => {
   window.removeEventListener("wheel", onWheel, { capture: true });
 });
 
-/** Placement via pure geometry; width grows first, height may fill the page. */
+/** Placement via pure geometry; the shape comes from the measured sizing. */
 const style = computed(() => {
   const layout = computePeekLayout({
     viewport: viewport.value,
@@ -148,11 +206,8 @@ const style = computed(() => {
   return {
     left: `${layout.left}px`,
     top: `${layout.top}px`,
-    // Content-driven width first; the caps keep it inside the page.
-    width: "fit-content",
-    minWidth: `min(${PEEK_MIN_WIDTH}px, ${layout.maxWidth}px)`,
-    maxWidth: `${layout.maxWidth}px`,
-    maxHeight: `${layout.maxHeight}px`,
+    ...(cardWidth.value === null ? {} : { width: `${cardWidth.value}px` }),
+    maxHeight: `${bounds.value.maxHeight}px`,
   };
 });
 </script>
