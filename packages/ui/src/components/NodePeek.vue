@@ -8,9 +8,9 @@
 // trap the cursor; when the content overflows, wheel anywhere scrolls the
 // card instead of zooming the canvas beneath. Shape and placement are pure
 // geometry (peek-layout.ts) fed by the page size, the cursor and measured
-// content: the card prefers a square sized to its content, extends an axis
-// into a rectangle only at a page limit, and scrolls whatever still
-// overflows.
+// content: the card prefers a square (width follows the reflowed content
+// height), extends an axis into a rectangle only at a page limit, and
+// scrolls whatever still overflows.
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { injectRequired } from "../context";
@@ -137,9 +137,10 @@ function scheduleSize(): void {
 }
 
 /**
- * Measure the content's natural size (max-content width, height at that
- * width) and derive the square-preferring card width. Runs synchronously —
- * the temporary styles are restored before Vue re-renders.
+ * Measure the content's natural size and derive the square-preferring card
+ * width (the size rule re-measures candidate widths through `measureAt`).
+ * Runs synchronously — the temporary styles are restored before Vue
+ * re-renders.
  */
 function refreshSize(): void {
   const el = cardEl.value;
@@ -147,15 +148,18 @@ function refreshSize(): void {
   const max = bounds.value;
   const prevWidth = el.style.width;
   const prevMaxHeight = el.style.maxHeight;
-  el.style.width = "max-content";
   el.style.maxHeight = "none";
+  el.style.width = "max-content";
   const naturalWidth = Math.min(el.getBoundingClientRect().width, max.maxWidth);
-  el.style.width = `${naturalWidth}px`;
-  const naturalHeight = el.getBoundingClientRect().height;
+  const measureAt = (width: number): number => {
+    el.style.width = `${width}px`;
+    return el.getBoundingClientRect().height;
+  };
+  const naturalHeight = measureAt(naturalWidth);
   const size = computePeekSize({
     natural: { width: naturalWidth, height: naturalHeight },
     maxWidth: max.maxWidth,
-    maxHeight: max.maxHeight,
+    measureHeight: measureAt,
   });
   el.style.width = `${size.width}px`;
   el.style.maxHeight = `${max.maxHeight}px`;

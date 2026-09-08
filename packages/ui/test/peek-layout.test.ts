@@ -165,51 +165,76 @@ describe("computePeekLayout", () => {
 });
 
 describe("computePeekSize", () => {
-  const MAX = { maxWidth: 600, maxHeight: 784 };
+  // Wrapping model: the text block has a fixed area, so height(w) = area/w
+  // (non-increasing) — good enough to exercise the bisection.
+  function reflow(area: number) {
+    return (width: number): number => area / width;
+  }
+  const never = () => 0;
 
-  it("grows to a page-bound square for tall content", () => {
-    // Tall text is shaped into the largest square the page affords.
-    expect(computePeekSize({ natural: { width: 380, height: 2000 }, ...MAX }).width).toBe(600);
+  it("takes the reflowed height as the square side for wide text", () => {
+    // GOAL-like CJK text: natural width capped at maxW (1201) while only
+    // ~483 tall — narrowing must square it up near sqrt(area).
+    const size = computePeekSize({
+      natural: { width: 1201, height: 483 },
+      maxWidth: 1201,
+      measureHeight: reflow(560_000),
+    });
+    expect(size.width).toBeGreaterThan(700);
+    expect(size.width).toBeLessThan(800);
   });
 
-  it("keeps the natural width for content that fits the square", () => {
-    // 380-wide, 500-tall content fits the 600px square: no reshaping.
-    expect(computePeekSize({ natural: { width: 380, height: 500 }, ...MAX }).width).toBe(380);
-  });
-
-  it("keeps the natural width for short content", () => {
-    // A three-line summary must not be squeezed into a tiny square.
-    expect(computePeekSize({ natural: { width: 380, height: 90 }, ...MAX }).width).toBe(380);
-  });
-
-  it("shapes too-wide content into the square", () => {
-    // A block wider than the square reflows (or scrolls x) inside it.
+  it("takes the content height as the side when it already passes the width", () => {
     expect(
-      computePeekSize({ natural: { width: 813, height: 300 }, maxWidth: 1000, maxHeight: 784 })
+      computePeekSize({ natural: { width: 380, height: 500 }, maxWidth: 876, measureHeight: never })
         .width,
-    ).toBe(784);
+    ).toBe(500);
   });
 
-  it("caps at maxWidth near the page edge", () => {
+  it("caps the side at maxWidth for tall content", () => {
     expect(
-      computePeekSize({ natural: { width: 380, height: 1500 }, maxWidth: 400, maxHeight: 784 })
+      computePeekSize({
+        natural: { width: 380, height: 2000 },
+        maxWidth: 600,
+        measureHeight: never,
+      }).width,
+    ).toBe(600);
+  });
+
+  it("keeps the natural width for content too flat to square up", () => {
+    // A three-line summary: narrowing never makes it as tall as wide.
+    const size = computePeekSize({
+      natural: { width: 380, height: 90 },
+      maxWidth: 600,
+      measureHeight: (w) => (w < 380 ? 120 : 90),
+    });
+    expect(size.width).toBe(380);
+  });
+
+  it("floors at the minimum width for narrow flat content", () => {
+    const size = computePeekSize({
+      natural: { width: 150, height: 100 },
+      maxWidth: 600,
+      measureHeight: () => 100,
+    });
+    expect(size.width).toBe(PEEK_MIN_WIDTH);
+  });
+
+  it("handles a viewport narrower than the width floor", () => {
+    expect(
+      computePeekSize({
+        natural: { width: 100, height: 50 },
+        maxWidth: 200,
+        measureHeight: () => 50,
+      }).width,
+    ).toBe(200);
+  });
+
+  it("is exact when the content is already square", () => {
+    expect(
+      computePeekSize({ natural: { width: 400, height: 400 }, maxWidth: 876, measureHeight: never })
         .width,
     ).toBe(400);
-  });
-
-  it("shrinks to the square when the height bounds it", () => {
-    // Cursor near the top: the square bound (maxHeight) sits below the
-    // natural width; wrappable content reflows into the smaller square.
-    expect(
-      computePeekSize({ natural: { width: 380, height: 1500 }, maxWidth: 876, maxHeight: 300 })
-        .width,
-    ).toBe(300);
-  });
-
-  it("floors at the minimum width", () => {
-    expect(computePeekSize({ natural: { width: 150, height: 100 }, ...MAX }).width).toBe(
-      PEEK_MIN_WIDTH,
-    );
   });
 });
 

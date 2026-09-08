@@ -8,8 +8,9 @@
  * - the card never leaves the viewport (at least `PEEK_PAD` from every edge);
  * - horizontally the card never covers the cursor (at least `PEEK_GAP` away);
  * - vertically the cursor stays clear unless the content is taller than the
- *   page affords — the card prefers a square and only extends an axis to a
- *   page limit (rectangle) before the content scrolls in-card.
+ *   page affords — the card prefers a square sized to its content and only
+ *   extends an axis to a page limit (rectangle) before the content scrolls
+ *   in-card.
  */
 
 /** Minimum distance between the card and any viewport edge. */
@@ -65,26 +66,48 @@ export function computePeekBounds(viewport: PeekViewport, cursor: PeekCursor): P
 }
 
 /**
- * Card width from the content's natural size (max-content width capped at
- * `maxWidth`, and the height at that width): content that fits inside the
- * largest square the page affords keeps its natural width; anything larger
- * — tall text or wide blocks — is shaped into that square and whatever
- * still overflows extends the height to `maxHeight` before scrolling
- * in-card. Wrappable content (prose) reflows to the square; unwrappable
- * blocks (code, tables) scroll horizontally inside it.
+ * Card width from the content's natural size: the card prefers a square.
+ * Content at least as tall as its (page-capped) natural width takes that
+ * height as the square side; flatter content narrows below the natural
+ * width only while narrowing actually makes it taller (prose reflows), so
+ * the width becomes the root of height(w) = w — found by bisecting through
+ * `measureHeight` — and content too flat to ever square up keeps its
+ * natural width. The height then follows the content up to `maxHeight` in
+ * CSS, extending the square into a rectangle at a page limit; whatever
+ * still overflows scrolls in-card.
  */
 export function computePeekSize({
   natural,
   maxWidth,
-  maxHeight,
+  measureHeight,
 }: {
+  /** Natural content size: max-content width capped at `maxWidth`, and the height at that width. */
   natural: { width: number; height: number };
   maxWidth: number;
-  maxHeight: number;
+  measureHeight: (width: number) => number;
 }): { width: number } {
-  const squareSide = Math.min(maxWidth, maxHeight);
-  const fitsSquare = natural.width <= squareSide && natural.height <= squareSide;
-  return { width: clamp(fitsSquare ? natural.width : squareSide, PEEK_MIN_WIDTH, maxWidth) };
+  const minWidth = Math.min(PEEK_MIN_WIDTH, maxWidth);
+  const naturalWidth = Math.min(natural.width, maxWidth);
+  // Taller than wide at the natural width: the height is the square side,
+  // page-capped (a capped side means the rectangle extends heightwise).
+  if (natural.height >= naturalWidth) {
+    return { width: clamp(natural.height, minWidth, maxWidth) };
+  }
+  // Flatter than wide: narrowing squares it up only while the content
+  // reflows taller; code blocks and tables just stay flat.
+  if (measureHeight(minWidth) <= minWidth) {
+    return { width: clamp(naturalWidth, minWidth, maxWidth) };
+  }
+  // The square side lies strictly between the bounds: height(w) is
+  // non-increasing, so height(w) = w has one root — bisect for it.
+  let lo = minWidth;
+  let hi = naturalWidth;
+  for (let iterations = 0; iterations < 8; iterations++) {
+    const mid = (lo + hi) / 2;
+    if (measureHeight(mid) > mid) lo = mid;
+    else hi = mid;
+  }
+  return { width: clamp((lo + hi) / 2, minWidth, maxWidth) };
 }
 
 /**
