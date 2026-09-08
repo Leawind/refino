@@ -160,14 +160,37 @@ describe("computePeekSize", () => {
     ).toBe(600);
   });
 
-  it("keeps the natural width for content too flat to square up", () => {
-    // A three-line summary: narrowing never makes it as tall as wide.
+  it("narrows reflowing flat prose to the width floor", () => {
+    // A one-line CJK premise: natural width ~779 while only ~106 tall, and
+    // still under the floor height at the floor width — the most square
+    // flat shape is the narrowest one, not the full natural width ribbon.
+    const size = computePeekSize({
+      natural: { width: 779, height: 106 },
+      maxWidth: 1264,
+      measureHeight: reflow(50_000),
+    });
+    expect(size.width).toBe(PEEK_MIN_WIDTH);
+  });
+
+  it("keeps the natural width for flat blocks that cannot reflow", () => {
+    // A wide table/code line: narrowing changes no height, so the natural
+    // width is real and kept (the card scrolls it horizontally if capped).
+    const size = computePeekSize({
+      natural: { width: 600, height: 150 },
+      maxWidth: 1264,
+      measureHeight: () => 150,
+    });
+    expect(size.width).toBe(600);
+  });
+
+  it("narrows reflowing text that stays flat at the floor", () => {
+    // Reflowing text that stays flat at the floor width still narrows to it.
     const size = computePeekSize({
       natural: { width: 380, height: 90 },
       maxWidth: 600,
       measureHeight: (w) => (w < 380 ? 120 : 90),
     });
-    expect(size.width).toBe(380);
+    expect(size.width).toBe(PEEK_MIN_WIDTH);
   });
 
   it("floors at the minimum width for narrow flat content", () => {

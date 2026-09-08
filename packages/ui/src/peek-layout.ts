@@ -58,10 +58,11 @@ export function computePeekBounds(viewport: PeekViewport): PeekBounds {
  * height as the square side; flatter content narrows below the natural
  * width only while narrowing actually makes it taller (prose reflows), so
  * the width becomes the root of height(w) = w — found by bisecting through
- * `measureHeight` — and content too flat to ever square up keeps its
- * natural width. The height then follows the content up to `maxHeight` in
- * CSS, extending the square into a rectangle at a page limit; whatever
- * still overflows scrolls in-card.
+ * `measureHeight`; content too flat to ever square up narrows to the width
+ * floor when it reflows (prose) and keeps its natural width when narrowing
+ * changes nothing (code lines, tables). The height then follows the
+ * content up to `maxHeight` in CSS, extending the square into a rectangle
+ * at a page limit; whatever still overflows scrolls in-card.
  */
 export function computePeekSize({
   natural,
@@ -82,8 +83,13 @@ export function computePeekSize({
   }
   // Flatter than wide: narrowing squares it up only while the content
   // reflows taller; code blocks and tables just stay flat.
-  if (measureHeight(minWidth) <= minWidth) {
-    return { width: clamp(naturalWidth, minWidth, maxWidth) };
+  const flatHeight = measureHeight(minWidth);
+  if (flatHeight <= minWidth) {
+    // Flat content. If narrowing reflows the text taller (prose), take the
+    // narrowest width — the most square the flat content allows; blocks
+    // that keep their height (code lines, tables) keep the natural width.
+    const reflows = flatHeight > natural.height + 1;
+    return { width: clamp(reflows ? minWidth : naturalWidth, minWidth, maxWidth) };
   }
   // The square side lies strictly between the bounds: height(w) is
   // non-increasing, so height(w) = w has one root — bisect for it.
