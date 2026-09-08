@@ -33,11 +33,10 @@ afterEach(async () => {
 });
 
 describe("orchestratorCredential", () => {
-  it("takes the credential from the request field, then REFINO_AUTHORIZATION", () => {
-    expect(orchestratorCredential({})).toBeUndefined();
+  it("takes the credential from REFINO_AUTHORIZATION", () => {
+    expect(orchestratorCredential()).toBeUndefined();
     process.env.REFINO_AUTHORIZATION = "/tmp/cred.json";
-    expect(orchestratorCredential({})).toBe("/tmp/cred.json");
-    expect(orchestratorCredential({ authorization: "/explicit.json" })).toBe("/explicit.json");
+    expect(orchestratorCredential()).toBe("/tmp/cred.json");
   });
 });
 

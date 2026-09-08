@@ -66,7 +66,7 @@ export async function resolveAuthorization(
     context: defaultAuthorizationContext(graph).context,
     origin: { source: "default", signedAt: "" },
   };
-  const credential = orchestratorCredential({}, env);
+  const credential = orchestratorCredential(env);
   if (credential === undefined) return fallback;
   try {
     const doc = convergeAuthorization(graph, await readAuthorizationDocument(credential));

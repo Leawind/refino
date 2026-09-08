@@ -64,7 +64,7 @@ export function createSigningCore(deps: SigningDeps): SigningCore {
     const ws = deps.get();
     if (ws === undefined) throw new Error("refino workspace is unavailable");
     const graph = ws.graph;
-    if (orchestratorCredential({}, env) !== undefined) {
+    if (orchestratorCredential(env) !== undefined) {
       return {
         ok: false,
         error:
@@ -126,7 +126,7 @@ export function createSigningCore(deps: SigningDeps): SigningCore {
       frozen_constraints: zone.filter((n) => n.type === "constraint").length,
       frozen_premises: zone.filter((n) => n.type === "premise").length,
       anchors_complete: defaultAuthorizationContext(graph).complete,
-      orchestrator_credential: orchestratorCredential({}, env) !== undefined,
+      orchestrator_credential: orchestratorCredential(env) !== undefined,
     };
   }
 
