@@ -43,7 +43,7 @@
 
 - 位置在系统临时目录（`tmpdir()/refino-cc/`），按 `.refino` 目录路径的哈希分文件；机器本地、不含签发数据、随系统临时目录清理——这是 design.md 不变量中明示豁免的唯一下载外文件。
 - 写入原子（临时文件 + rename）；队列内文本以 chunk 合并（更新文本是单块、不含空行，`\n\n` 分隔无歧义），与已排队 chunk 完全相同的入队被丢弃（identical-text guard 在队列侧的实现）。
-- 消费是先取者得：任一会话的下一条用户消息 drain 整个队列，其余会话不再看到——v1 明示边界。
+- 消费是先取者得：宿主在两个事件点拉起 sync——`PostToolUse` 为主（每次工具调用后 drain，注入附着在工具结果上，模型回合内即可见，即 design.md 预告的 tools/result 触达模式），`UserPromptSubmit` 兜底（覆盖回合结束后、下一条消息前的窗口）。任一会话先 drain 整个队列，其余会话不再看到——v1 明示边界。
 - server 侧的降噪（`DeltaCoalescer`，2s）在入队前合并 watcher 批次。
 
 ## 对话签发
@@ -56,6 +56,6 @@ esbuild 打包 `dist/mcp.js` 与 `dist/hook.js`（platform node、target node20�
 
 ## v1 边界与后续课题
 
-- 外部变更投递颗粒度为“用户消息间”；每会话各得一份需要宿主向 MCP server 提供会话身份（stdio 环境无此通道）。
+- 外部变更投递窗口为“工具调用间隙与用户消息间”，模型纯文本输出期间仍有盲区；每会话各得一份需要宿主向 MCP server 提供会话身份（stdio 环境无此通道）。`PostToolUse` 无 matcher（全部工具）以换取最快触达，每次调用有一次 node 进程启动开销；如需收窄可加 matcher（如仅 `mcp__refino__`）。
 - 把签发批准升级为宿主权限面强制询问（PermissionRequest hook 匹配签发工具名）留作后续增强。
 - marketplace 的发布工程（git 直装免构建、CI 产物）是后续课题。

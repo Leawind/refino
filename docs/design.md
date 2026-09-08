@@ -183,7 +183,7 @@ refino 四项接入需求的通道映射：
 
 - **初始上下文注入**：`SessionStart` 钩子输出 `additionalContext`（startup/clear 注入基线——锚点与前提摘要，超预算时极简引导；resume/compact 注入一行中性状态：当前授权以 context 工具查询为准，不凭会话历史中的授权记忆行动。中性措辞是必然而非折衷：hook 为一次性进程，读不到 MCP server 内存中的会话内签发，任何断言都可能失真）。hook 只读加载图（不开 watcher），失败时 fail-open（stderr 警告、不注入、不阻塞会话）；无 `.refino/` 完全静默。
 - **读写工具**：插件根 `.mcp.json` 声明 stdio MCP server（`node` 运行包内 esbuild 自包含 bundle，工作目录 `${CLAUDE_PROJECT_DIR}`，向上定位 `.refino/`），注册 14 个短名工具，宿主侧呈现为 `mcp__refino__<tool>`。执行核心、结果形状与渲染与 dsh 插件共用 `@refino/harness/host` 单一实现；注入/渲染文本中的工具指称经 `ToolRefs` 参数化，各宿主引用模型侧实际名。工具结果为 markdown 文本（dsh 的 render 投影复用）。
-- **增量 delta 注入**：宿主对插件 MCP server 无推送通道，降级为 touch 驱动——server 监听 `nodes/` 分片目录，外部修改经降噪合并渲染为纯 ID 更新文本后写入机器本地临时目录的注入队列（原子写、同文本去重、不含签发数据），`UserPromptSubmit` 钩子在下一条用户消息时取出注入。颗粒度损失（只在用户消息间投递）与并发会话共享队列（先提示者先取）是明示的 v1 边界。
+- **增量 delta 注入**：宿主对插件 MCP server 无推送通道，降级为 touch 驱动——server 监听 `nodes/` 分片目录，外部修改经降噪合并渲染为纯 ID 更新文本后写入机器本地临时目录的注入队列（原子写、同文本去重、不含签发数据）；宿主在两个事件点拉起消费钩子：`PostToolUse` 为主（每次工具调用后取出，注入附着在工具结果上、模型回合内可见——tools/result 触达模式），`UserPromptSubmit` 兜底（覆盖回合结束后的窗口）。剩余盲区（模型纯文本输出期间）与并发会话共享队列（先取者得）是明示的 v1 边界。
 - **对话签发**：`request_authorization` 的批准门为对话批准协议：工具描述与技能硬规则要求先在对话中呈现完整草案与理由并获用户明确同意，宿主的 MCP 工具权限面是可选的机械层（用户可为该工具开启调用确认）；编排者凭据生效时拒绝。签发状态为 MCP server 进程内存（≈宿主会话生命周期），不落任何文件。
 - **分发**：仓库即 marketplace——仓库根 `marketplace.json` 以相对路径指向插件包；本地目录与 GitHub 两种 marketplace 来源均可用。产物为 esbuild 自包含 bundle（不依赖 npm 发布），要求宿主机器有 Node ≥ 20；git 直装需先构建（发布工程为后续课题）。
 - **技能补充**：`refino-crg` 技能讲解 CRG 概念与工具选用时机；名称与通用形态的 `refino` 技能区分，避免用户级技能遮蔽造成指引错位。
