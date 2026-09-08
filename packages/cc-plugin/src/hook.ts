@@ -8,7 +8,7 @@ import {
 import { resolveAuthorization } from "@refino/harness/host";
 import { findRefinoDir, loadGraph } from "@refino/storage";
 import { drainUpdate } from "./queue.js";
-import { MODEL_TOOLS, MODEL_TOOL_PREFIX } from "./tool-names.js";
+import { TOOLS } from "./tool-names.js";
 
 /**
  * One-shot hook entrypoints for the cc plugin (docs/design.md, cc-plugin
@@ -37,7 +37,8 @@ export interface HookPayload {
   hook_event_name?: string;
 }
 
-const TOOLS = toolRefs(MODEL_TOOL_PREFIX);
+// Bare short-name citations: the host injects full tool names itself.
+const REFS = toolRefs("");
 
 /** Parse stdin as the hook payload; empty or malformed input yields `{}`. */
 async function readPayload(): Promise<HookPayload> {
@@ -106,11 +107,11 @@ export async function sessionStart(
   // startup | clear | unrecognized sources: a fresh baseline.
   if (defaultAuthorizationContext(graph).complete) {
     return {
-      text: initialContextText(graph, resolved.context, TOOLS, resolved.origin),
+      text: initialContextText(graph, resolved.context, REFS, resolved.origin),
       warning: resolved.warning,
     };
   }
-  return { text: orientationText(graph, TOOLS), warning: resolved.warning };
+  return { text: orientationText(graph, REFS), warning: resolved.warning };
 }
 
 /**
@@ -124,8 +125,8 @@ function resumeStatusText(): string {
   return reminderFrame(
     [
       "refino：会话已恢复。",
-      `当前生效授权以 ${MODEL_TOOLS.context} 查询结果为准，不要凭会话历史中的授权记忆行动。`,
-      `需要调整冻结区时，先与用户商定划分，再经 ${MODEL_TOOLS.requestAuthorization} 提议（须经用户批准）。`,
+      `当前生效授权以 ${TOOLS.context} 工具查询结果为准，不要凭会话历史中的授权记忆行动。`,
+      `需要调整冻结区时，先与用户商定划分，再经 ${REFS.requestAuthorization} 提议（须经用户批准）。`,
     ].join(""),
   );
 }

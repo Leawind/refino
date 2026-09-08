@@ -19,10 +19,11 @@ import type { ToolRefs } from "./types.js";
  * Inputs are the schema-loose shapes (plain `string` where the domain has
  * unions), as a host tool schema hands them to `render`.
  *
- * Renderers that name tools (escalation guidance, context status) take the
- * host's tool-name refs, so one host renders `refino_request_authorization`
- * and another `mcp__refino__request_authorization` from the same code —
- * build a kit per host with `createRenderKit`.
+ * Renderers that name tools (escalation guidance, context status) cite them
+ * through the host's tool-name refs — host-owned names (`refino_*`) or bare
+ * short names when the host injects full names itself (MCP hosts) — so one
+ * kit per host renders the right citation from the same code
+ * (`createRenderKit`).
  */
 
 export interface RenderKit {

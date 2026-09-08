@@ -160,7 +160,7 @@ refino 的四项接入需求中，两项只有进程内 Cordis 插件能实现�
 
 - **初始上下文注入**：dsh 的 MCP 支持只桥接 tools（resources 与 prompts 均不支持），无法在会话初始化时注入锚点上下文；Cordis 插件可监听 `agent/session-start` 并经 `agent.inject()` 注入，注入内容为持久化的 user-role 消息，resume/重放/压缩安全。
 - **增量 delta 注入**：dsh 全线按 append-only、KV-cache 前缀稳定设计，`agent.inject()` 排入下一 pre-step 且不唤醒驱动，与 harness 的“稳定前缀 + delta”注入协议同构；MCP 无推送通道。
-- **读写工具**：`ctx.tools.register()` 原生工具的结构化结果与 `output.render` 投影贴合 `QueryGroup` 部分成功语义；MCP 工具强制 `mcp__<server>__<tool>` 命名且结果文本化。
+- **读写工具**：`ctx.tools.register()` 原生工具的结构化结果与 `output.render` 投影贴合 `QueryGroup` 部分成功语义；MCP 工具的模型侧命名由宿主强制决定且结果文本化。
 - **Skill 与工具是两种机制**：工具（`ctx.tools.register()`）是模型可调用的结构化函数接口；Skill 是按需加载的指令包，且支持目录形式捆绑资源——dsh 自身的 `skill-filesystem` 即提供 directory bundle（`resourceBase` 指向目录），Anthropic Agent Skills 生态同样以“SKILL.md + 可执行脚本”为标准形态，dsh 的代码执行能力（`code-runtime`）可以运行包内脚本。因此“只发 Skill”并不必然导致模型直接操作 `.refino/` 文件：Skill 可捆绑受守卫的执行逻辑。dsh 仍不以此承载读写，原因是实现唯一性——受守卫的读写只有一份实现（Store 写路径），Skill 捆绑脚本会派生第二份实现漂移；读写走原生工具注册（结构化结果贴合 `QueryGroup` 部分成功语义），`ctx.skills.register()` 注册讲解 CRG 概念与工具选用时机的技能作为补充。纯 Skill 方案做不了前两项注入，其读写执行体只能是 CLI——即“通用接入形态”。
 
 对 dsh 的依赖保持薄封装：运行时仅 `@deepseek-ai/dsh-tools`（`defineTool`）与 `@deepseek-ai/dsh-llm`（`createUserMessage`，注入消息须经官方工厂生成稳定 id）；`@deepseek-ai/cordis`、`@deepseek-ai/dsh-agent`（`Agent` 接口与 `agent/*` 事件声明）、`@deepseek-ai/dsh-session`（会话头类型）仅作类型依赖。
@@ -182,7 +182,7 @@ ZCode 与 Claude Code 的扩展点不是进程内插件 API，而是 Claude Code
 refino 四项接入需求的通道映射：
 
 - **初始上下文注入**：`SessionStart` 钩子输出 `additionalContext`（startup/clear 注入基线——锚点与前提摘要，超预算时极简引导；resume/compact 注入一行中性状态：当前授权以 context 工具查询为准，不凭会话历史中的授权记忆行动。中性措辞是必然而非折衷：hook 为一次性进程，读不到 MCP server 内存中的会话内签发，任何断言都可能失真）。hook 只读加载图（不开 watcher），失败时 fail-open（stderr 警告、不注入、不阻塞会话）；无 `.refino/` 完全静默。
-- **读写工具**：插件根 `.mcp.json` 声明 stdio MCP server（`node` 运行包内 esbuild 自包含 bundle，工作目录 `${CLAUDE_PROJECT_DIR}`，向上定位 `.refino/`），注册 14 个短名工具，宿主侧呈现为 `mcp__refino__<tool>`。执行核心、结果形状与渲染与 dsh 插件共用 `@refino/harness/host` 单一实现；注入/渲染文本中的工具指称经 `ToolRefs` 参数化，各宿主引用模型侧实际名。工具结果为 markdown 文本（dsh 的 render 投影复用）。
+- **读写工具**：插件根 `.mcp.json` 声明 stdio MCP server（`node` 运行包内 esbuild 自包含 bundle，工作目录 `${CLAUDE_PROJECT_DIR}`，向上定位 `.refino/`），注册 14 个短名工具。宿主会把 MCP 工具连同全名自动注入模型工具清单，模型侧全名由宿主决定（ZCode 实测为 `mcp__plugin_refino_refino__<tool>`），因此注入/渲染/技能文本一律以短名指称工具，不硬编码宿主前缀；工具指称经 `ToolRefs` 参数化（dsh 传实名前缀 `refino_`，cc 传空即短名）。执行核心、结果形状与渲染与 dsh 插件共用 `@refino/harness/host` 单一实现。工具结果为 markdown 文本（dsh 的 render 投影复用）。
 - **增量 delta 注入**：宿主对插件 MCP server 无推送通道，降级为 touch 驱动——server 监听 `nodes/` 分片目录，外部修改经降噪合并渲染为纯 ID 更新文本后写入机器本地临时目录的注入队列（原子写、同文本去重、不含签发数据）；宿主在两个事件点拉起消费钩子：`PostToolUse` 为主（每次工具调用后取出，注入附着在工具结果上、模型回合内可见——tools/result 触达模式），`UserPromptSubmit` 兜底（覆盖回合结束后的窗口）。剩余盲区（模型纯文本输出期间）与并发会话共享队列（先取者得）是明示的 v1 边界。
 - **对话签发**：`request_authorization` 的批准门为对话批准协议：工具描述与技能硬规则要求先在对话中呈现完整草案与理由并获用户明确同意，宿主的 MCP 工具权限面是可选的机械层（用户可为该工具开启调用确认）；编排者凭据生效时拒绝。签发状态为 MCP server 进程内存（≈宿主会话生命周期），不落任何文件。
 - **分发**：仓库即 marketplace——仓库根 `marketplace.json` 以相对路径指向插件包；本地目录与 GitHub 两种 marketplace 来源均可用。产物为 esbuild 自包含 bundle（不依赖 npm 发布），要求宿主机器有 Node ≥ 20；git 直装需先构建（发布工程为后续课题）。

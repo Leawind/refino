@@ -5,8 +5,10 @@ import type { AuthorizationContext, DeltaEvent, ToolRefs } from "./types.js";
 /**
  * Model-facing message texts shared by the tool plugins (docs/design.md,
  * dsh 插件落地形态). Pure rendering: hosts frame these as durable
- * plugin-sourced messages. Texts that name tools take the host's tool-name
- * refs so both plugin forms cite the names the model actually calls.
+ * plugin-sourced messages. Texts that name tools cite them through the
+ * host's tool-name refs — host-owned names (`refino_*`) or bare short names
+ * when the host injects full names itself (MCP hosts); never a hard-coded
+ * host prefix.
  */
 
 /**
@@ -57,7 +59,7 @@ export function initialContextText(
       "以下是与当前任务相关的 CRG（约束细化图）上下文。约束是项目已作出的、会限制后续实现选择空间的决策；前提是项目运作依赖的客观事实。",
       renderContext(graph, context),
       ownershipLine(origin),
-      `以上仅为摘要，初始上下文未列出全部节点。完整内容与上下游经 ${tools.show} 等查询工具按需获取；调整冻结区经 ${tools.requestAuthorization}（须经用户批准）。`,
+      `以上为摘要级内容，正文与理由未包含。完整内容与上下游经 ${tools.show} 等查询工具按需获取；调整冻结区经 ${tools.requestAuthorization}（须经用户批准）。`,
     ].join("\n\n"),
   );
 }

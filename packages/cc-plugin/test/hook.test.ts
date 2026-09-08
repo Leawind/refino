@@ -39,7 +39,7 @@ describe("session-start", () => {
     expect(outcome.text).toContain("## 作用域锚点");
     expect(outcome.text).toContain("R1ROOT [constraint] [冻结] 根约束");
     expect(outcome.text).toContain("P1PREMISE");
-    expect(outcome.text).toContain("mcp__refino__show");
+    expect(outcome.text).toContain("经 show 等查询工具");
     expect(outcome.text).toContain("授权：默认上下文（未签发）");
   });
 
@@ -69,7 +69,7 @@ describe("session-start", () => {
       const outcome = await sessionStart({ cwd: root, source });
       expect(outcome.text).toMatch(/^<system-reminder>\n/);
       expect(outcome.text).toContain("会话已恢复");
-      expect(outcome.text).toContain("以 mcp__refino__context 查询结果为准");
+      expect(outcome.text).toContain("以 context 工具查询结果为准");
       expect(outcome.text).not.toContain("当前授权为默认上下文");
     }
   });

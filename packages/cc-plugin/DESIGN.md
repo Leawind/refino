@@ -28,7 +28,7 @@
 
 三模块分层：`tools.ts` 是协议无关的工具表（名字、JSON Schema、防御性参数矫正、execute/render 对），`server.ts` 把表绑到 MCP 的 `tools/list`/`tools/call`，`mcp.ts` 只是 stdio 入口。测试直接调 `execute`，另有一条经 SDK in-memory transport 的协议往返。
 
-- 工具为 14 个短名（宿主侧 `mcp__refino__<tool>`）；注入/渲染文本中的工具指称经 `ToolRefs` 参数化（`tool-names.ts` 是模型侧名字的单一来源），宿主侧真实全名如与假设不符只改这一处。
+- 工具为 14 个短名；宿主把 MCP 工具连同全名自动注入模型工具清单（ZCode 实测为 `mcp__plugin_refino_refino__<tool>`），注入/渲染文本与技能一律以短名指称（`toolRefs("")`），不硬编码宿主前缀——宿主命名逐宿主漂移，追逐它是持续负担。
 - workspace 惰性打开：首次工具调用时 `RefinoWorkspace.open`（watcher 开），此后复用；找不到 `.refino/` 时所有工具以“未激活”错误文本返回，不接管。
 - 工具结果为 markdown 文本（harness render kit 的投影），MCP `isError` 仅用于执行异常（未知工具、参数形状非法、未激活）。
 - 签发 core 的 `get` 绑定到可变 holder：core 的接口是同步取 workspace，而表的 `obtainWorkspace` 是异步的——每次签发/context 调用前先 `await requireWs` 再写入 holder。
@@ -63,6 +63,6 @@ esbuild 打包 `dist/mcp.js` 与 `dist/hook.js`（platform node、target node20�
 
 ## v1 边界与后续课题
 
-- 外部变更投递窗口为“工具调用间隙与用户消息间”，模型纯文本输出期间仍有盲区；每会话各得一份需要宿主向 MCP server 提供会话身份（stdio 环境无此通道）。`PostToolUse` 无 matcher（全部工具）以换取最快触达，每次调用有一次 node 进程启动开销；如需收窄可加 matcher（如仅 `mcp__refino__`）。
+- 外部变更投递窗口为“工具调用间隙与用户消息间”，模型纯文本输出期间仍有盲区；每会话各得一份需要宿主向 MCP server 提供会话身份（stdio 环境无此通道）。`PostToolUse` 无 matcher（全部工具）以换取最快触达，每次调用有一次 node 进程启动开销；如需收窄可加 matcher（按宿主实际工具前缀，如 ZCode 的 `mcp__plugin_refino_refino`）。
 - 把签发批准升级为宿主权限面强制询问（PermissionRequest hook 匹配签发工具名）留作后续增强。
 - marketplace 的发布工程（git 直装免构建、CI 产物）是后续课题。

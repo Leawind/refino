@@ -113,4 +113,14 @@ describe("skill", () => {
     expect(frontmatter).toContain("name: refino-crg");
     expect(frontmatter).toContain("description:");
   });
+
+  it("cites tools by short name only (host prefixes belong to the host)", () => {
+    // The host injects the full model-side tool names into the tool list
+    // itself; a hard-coded prefix here would drift per host (ZCode does not
+    // surface `mcp__refino__<tool>`).
+    const text = readFileSync(join(pkgRoot, "skills/refino-crg/SKILL.md"), "utf8");
+    expect(text).not.toContain("mcp__");
+    expect(text).toContain("`request_authorization`");
+    expect(text).toContain("`pending_review`");
+  });
 });

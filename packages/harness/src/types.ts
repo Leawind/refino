@@ -94,10 +94,12 @@ export function unknownNodes(graph: Graph, ids: readonly string[]): string[] {
 }
 
 /**
- * Model-facing tool-name references used by injected and rendered texts
- * (docs/design.md, 增量注入与工具指称): each host exposes the CRG tools under
- * its own naming scheme (`refino_show`, `mcp__refino__show`), so shared texts
- * cite tools through these refs instead of hard-coded names.
+ * Tool-name citations used by injected and rendered texts (docs/design.md,
+ * 增量注入与工具指称). A host that owns its tool naming passes the names the
+ * model actually calls (dsh native tools: `refino_show`); a host that surfaces
+ * tools under its own scheme injects the full names into the model's tool list
+ * itself (MCP hosts), so texts cite the bare short names — a hard-coded host
+ * prefix would drift per host.
  */
 export interface ToolRefs {
   search: string;
@@ -106,7 +108,7 @@ export interface ToolRefs {
   requestAuthorization: string;
 }
 
-/** Build refs from a host tool-name prefix (e.g. `refino_` or `mcp__refino__`). */
+/** Build refs from a host citation prefix: `refino_` (host-owned names) or `""` (bare short names). */
 export function toolRefs(prefix: string): ToolRefs {
   return {
     search: `${prefix}search`,

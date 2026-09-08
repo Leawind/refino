@@ -33,7 +33,7 @@ import {
   runSiblings,
   runUpdateNode,
 } from "@refino/harness/host";
-import { MODEL_TOOL_PREFIX, TOOLS } from "./tool-names.js";
+import { TOOLS } from "./tool-names.js";
 
 /**
  * The CRG tool table for the plugin's MCP server (docs/design.md, cc-plugin
@@ -42,7 +42,9 @@ import { MODEL_TOOL_PREFIX, TOOLS } from "./tool-names.js";
  * `server.ts` binds the table to MCP; tests call `execute` directly.
  */
 
-const TOOLS_REFS = toolRefs(MODEL_TOOL_PREFIX);
+// Bare short names: the host injects the full model-side names into the
+// tool list itself, so texts must not cite a host prefix.
+const TOOLS_REFS = toolRefs("");
 const TEXT = createToolText(TOOLS_REFS);
 const kit = createRenderKit(TOOLS_REFS);
 
