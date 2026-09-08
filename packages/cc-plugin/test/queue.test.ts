@@ -1,60 +1,76 @@
-import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { constraint, createRefino, premise, removeRefino } from "@refino/testkit";
-import { drainUpdate, enqueueUpdate, peekUpdate } from "../src/queue.js";
+import {
+  bindSession,
+  drainUpdate,
+  enqueueUpdate,
+  peekUpdate,
+  SESSION_TOKEN_RE,
+  sessionStamp,
+  sessionToken,
+} from "../src/queue.js";
 
-/** Queue keys are arbitrary strings; distinct fake dirs give distinct queues. */
-const KEYS = ["/refino-cc-test/alpha", "/refino-cc-test/beta"];
-/** The `.refino` dir of a fixture project — the real-world key. */
-let fixtureRefino: string | undefined;
+/** Queue keys are server tokens; distinct tokens give distinct queues. */
+const TOKENS = ["aaaaaaaa01", "bbbbbbbb02"];
+const SESSIONS = ["sess-alpha-1", "sess-beta-2"];
 
 afterEach(async () => {
-  for (const key of KEYS) await drainUpdate(key); // clean the shared tmpdir
-  if (fixtureRefino !== undefined) {
-    await drainUpdate(fixtureRefino);
-    fixtureRefino = undefined;
-  }
+  for (const token of TOKENS) await drainUpdate(token); // clean the shared tmpdir
 });
 
 describe("injection queue", () => {
   it("round-trips one update and clears on drain", async () => {
-    await enqueueUpdate(KEYS[0], "update one");
-    expect(await peekUpdate(KEYS[0])).toBe("update one");
-    expect(await drainUpdate(KEYS[0])).toBe("update one");
-    expect(await peekUpdate(KEYS[0])).toBeUndefined();
-    expect(await drainUpdate(KEYS[0])).toBeUndefined();
+    await enqueueUpdate(TOKENS[0]!, "update one");
+    expect(await peekUpdate(TOKENS[0]!)).toBe("update one");
+    expect(await drainUpdate(TOKENS[0]!)).toBe("update one");
+    expect(await peekUpdate(TOKENS[0]!)).toBeUndefined();
+    expect(await drainUpdate(TOKENS[0]!)).toBeUndefined();
   });
 
   it("merges pending texts instead of replacing them", async () => {
-    await enqueueUpdate(KEYS[0], "first");
-    await enqueueUpdate(KEYS[0], "second");
-    expect(await peekUpdate(KEYS[0])).toBe("first\n\nsecond");
+    await enqueueUpdate(TOKENS[0]!, "first");
+    await enqueueUpdate(TOKENS[0]!, "second");
+    expect(await peekUpdate(TOKENS[0]!)).toBe("first\n\nsecond");
   });
 
   it("drops an identical re-enqueue (identical-text guard at the queue)", async () => {
-    await enqueueUpdate(KEYS[0], "same");
-    await enqueueUpdate(KEYS[0], "same");
-    expect(await peekUpdate(KEYS[0])).toBe("same");
+    await enqueueUpdate(TOKENS[0]!, "same");
+    await enqueueUpdate(TOKENS[0]!, "same");
+    expect(await peekUpdate(TOKENS[0]!)).toBe("same");
   });
 
-  it("keeps keys isolated and treats a missing queue as empty", async () => {
-    await enqueueUpdate(KEYS[0], "only alpha");
-    expect(await peekUpdate(KEYS[1])).toBeUndefined();
-    expect(await peekUpdate("/refino-cc-test/never-written")).toBeUndefined();
+  it("keeps tokens isolated and treats a missing queue as empty", async () => {
+    await enqueueUpdate(TOKENS[0]!, "only alpha");
+    expect(await peekUpdate(TOKENS[1]!)).toBeUndefined();
+    expect(await peekUpdate("cccccccc03")).toBeUndefined();
+  });
+});
+
+describe("session binding", () => {
+  it("binds a session to a stamped token and rebinds on overwrite", async () => {
+    await bindSession(SESSIONS[0]!, TOKENS[0]!);
+    expect(await sessionToken(SESSIONS[0]!)).toBe(TOKENS[0]!);
+    // A server restart hands the session a new token; the binding follows.
+    await bindSession(SESSIONS[0]!, TOKENS[1]!);
+    expect(await sessionToken(SESSIONS[0]!)).toBe(TOKENS[1]!);
+    expect(await sessionToken(SESSIONS[1]!)).toBeUndefined();
   });
 
-  it("is keyed by the .refino directory of a real project layout", async () => {
-    const root = await createRefino({
-      "nodes/P1/PREMISE-premise.md": premise("P1PREMISE", "事实一"),
-      "nodes/R1/ROOT-constraint.md": constraint("R1ROOT", undefined, "根约束"),
+  it("captures the stamp from a raw payload regardless of tool_response shape", () => {
+    const token = "c0ffee00";
+    const raw = JSON.stringify({
+      session_id: SESSIONS[0]!,
+      hook_event_name: "PostToolUse",
+      tool_response: {
+        content: [{ type: "text", text: `result text\n${sessionStamp(token)}` }],
+      },
     });
-    try {
-      const refinoDir = join(root, ".refino");
-      fixtureRefino = refinoDir;
-      await enqueueUpdate(refinoDir, "external change");
-      expect(await drainUpdate(refinoDir)).toBe("external change");
-    } finally {
-      await removeRefino(root);
-    }
+    expect(SESSION_TOKEN_RE.exec(raw)?.[1]).toBe(token);
+  });
+
+  it("rejects session ids that are not filename-safe", async () => {
+    expect(await bindSession("../escape", TOKENS[0]!)).toBe(false);
+    expect(await bindSession("with/slash", TOKENS[0]!)).toBe(false);
+    expect(await bindSession("with space", TOKENS[0]!)).toBe(false);
+    expect(await sessionToken("../escape")).toBeUndefined();
   });
 });

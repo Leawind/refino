@@ -7,7 +7,7 @@ import {
 } from "@refino/harness";
 import { resolveAuthorization } from "@refino/harness/host";
 import { findRefinoDir, loadGraph } from "@refino/storage";
-import { drainUpdate } from "./queue.js";
+import { bindSession, drainUpdate, SESSION_TOKEN_RE, sessionToken } from "./queue.js";
 import { TOOLS } from "./tool-names.js";
 
 /**
@@ -20,8 +20,14 @@ import { TOOLS } from "./tool-names.js";
  *   orientation above the auto-anchor budget); resume/compact get a neutral
  *   one-liner deferring to the context tool, because this process cannot
  *   see in-session signings held by the MCP server's process.
- * - `sync` — UserPromptSubmit: drain the cross-process queue and inject the
- *   accumulated updates (external changes, signing deltas) as context.
+ * - `sync` — UserPromptSubmit / PostToolUse: establish or reuse the session's
+ *   queue binding and drain the accumulated updates (external changes,
+ *   signing deltas) as context. The binding handshake: refino tool results
+ *   carry a `refino-session:<token>` stamp, the host copies the response
+ *   into this session's PostToolUse payload, and the raw stdin is searched
+ *   for the stamp (shape-agnostic over tool_response) to bind session_id →
+ *   token. No binding yet (no refino tool called so far) means no known set
+ *   exists and nothing can be pending.
  *
  * Fail-open by design: a failing hook logs to stderr and exits 0 — context
  * injection must never block the session. A workspace without `.refino/`
@@ -31,6 +37,8 @@ import { TOOLS } from "./tool-names.js";
 /** The slice of the hook payload this plugin reads. */
 export interface HookPayload {
   cwd?: string;
+  /** Host session identifier; the per-session queue binding's key. */
+  session_id?: string;
   /** SessionStart source: startup | resume | clear | compact. */
   source?: string;
   /** The event that fired this hook; the output must echo it back. */
@@ -41,10 +49,13 @@ export interface HookPayload {
 const REFS = toolRefs("");
 
 /** Parse stdin as the hook payload; empty or malformed input yields `{}`. */
-async function readPayload(): Promise<HookPayload> {
+async function readStdin(): Promise<string> {
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
-  const raw = Buffer.concat(chunks).toString("utf8").trim();
+  return Buffer.concat(chunks).toString("utf8").trim();
+}
+
+function parsePayload(raw: string): HookPayload {
   if (raw === "") return {};
   try {
     const parsed = JSON.parse(raw) as HookPayload;
@@ -131,15 +142,24 @@ function resumeStatusText(): string {
   );
 }
 
-/** Render the UserPromptSubmit injection: the drained queue, if any. */
-export async function sync(payload: HookPayload): Promise<string | undefined> {
-  const refinoDir = await findRefinoDir(workingDir(payload));
-  if (refinoDir === undefined) return undefined;
-  return drainUpdate(refinoDir);
+/**
+ * Render the UserPromptSubmit / PostToolUse injection: bind the session to
+ * any stamped token found in the raw payload, then drain the session's
+ * queue. The workspace lookup is deliberately absent — the queue key is the
+ * session binding, not the repository.
+ */
+export async function sync(payload: HookPayload, raw: string): Promise<string | undefined> {
+  const sessionId = payload.session_id;
+  if (sessionId === undefined) return undefined;
+  const stamp = SESSION_TOKEN_RE.exec(raw);
+  if (stamp !== null) await bindSession(sessionId, stamp[1]!);
+  const token = await sessionToken(sessionId);
+  if (token === undefined) return undefined;
+  return drainUpdate(token);
 }
 
-async function main(): Promise<void> {
-  const payload = await readPayload();
+async function main(raw: string): Promise<void> {
+  const payload = parsePayload(raw);
   if (command === "session-start") {
     const outcome = await sessionStart(payload);
     if (outcome.warning !== undefined) {
@@ -148,7 +168,7 @@ async function main(): Promise<void> {
     if (outcome.text !== undefined)
       process.stdout.write(emitHookOutput("SessionStart", outcome.text));
   } else if (command === "sync") {
-    const text = await sync(payload);
+    const text = await sync(payload, raw);
     if (text !== undefined) process.stdout.write(emitHookOutput(syncEvent(payload), text));
   }
 }
@@ -158,7 +178,8 @@ async function main(): Promise<void> {
 // free — awaiting stdin here would hang the importer forever.
 const command = process.argv[2];
 if (command === "session-start" || command === "sync") {
-  await main().catch((error: unknown) => {
+  const raw = await readStdin();
+  await main(raw).catch((error: unknown) => {
     // Fail-open: log and leave the session untouched.
     process.stderr.write(
       `refino hook failed: ${error instanceof Error ? error.stack : String(error)}\n`,

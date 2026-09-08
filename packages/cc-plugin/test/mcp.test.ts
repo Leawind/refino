@@ -19,12 +19,13 @@ import { drainUpdate, enqueueUpdate } from "../src/queue.js";
 
 const cleanup: string[] = [];
 const workspaces: RefinoWorkspace[] = [];
-const delivered: Array<{ refinoDir: string; text: string }> = [];
+const delivered: Array<{ token: string; text: string }> = [];
+let queueSeq = 0;
 
 afterEach(async () => {
   while (workspaces.length > 0) workspaces.pop()!.dispose();
   while (delivered.length > 0) {
-    await drainUpdate(delivered.pop()!.refinoDir);
+    await drainUpdate(delivered.pop()!.token);
   }
   while (cleanup.length > 0) {
     await removeRefino(cleanup.pop()!);
@@ -51,7 +52,8 @@ interface Table {
   delivered: string[];
 }
 
-function tableFor(ws: RefinoWorkspace, refinoDir: string): Table {
+function tableFor(ws: RefinoWorkspace): Table {
+  const token = `mcpqueue${++queueSeq}`;
   const texts: string[] = [];
   let approval: () => Promise<ApprovalOutcome> = async () => "allowed-once";
   const deps: ToolTableDeps = {
@@ -60,8 +62,8 @@ function tableFor(ws: RefinoWorkspace, refinoDir: string): Table {
     deliver: (text) => {
       if (text !== undefined) {
         texts.push(text);
-        delivered.push({ refinoDir, text });
-        void enqueueUpdate(refinoDir, text);
+        delivered.push({ token, text });
+        void enqueueUpdate(token, text);
       }
     },
     env: process.env,
@@ -82,7 +84,7 @@ async function call<T>(tool: McpTool, args: Record<string, unknown> = {}): Promi
 describe("tool table", () => {
   it("lists nodes with issue counts and type filters", async () => {
     const ws = await fixtureWorkspace();
-    const { tools } = tableFor(ws, ws.refinoDir);
+    const { tools } = tableFor(ws);
     const all = await call<{ total: number; issue_count: number }>(tools.list);
     expect(all.total).toBe(4);
     expect(all.issue_count).toBe(0);
@@ -92,7 +94,7 @@ describe("tool table", () => {
 
   it("shows full nodes with per-id errors, rendered as text", async () => {
     const ws = await fixtureWorkspace();
-    const { tools } = tableFor(ws, ws.refinoDir);
+    const { tools } = tableFor(ws);
     const value = await call<{ results: { id: string; node?: { grounds?: string[] } }[] }>(
       tools.show,
       { ids: ["C1CHILD", "NOSUCH1"] },
@@ -107,7 +109,7 @@ describe("tool table", () => {
 
   it("writes through the guarded path: frozen targets escalate, modifiable ones persist", async () => {
     const ws = await fixtureWorkspace();
-    const { tools } = tableFor(ws, ws.refinoDir);
+    const { tools } = tableFor(ws);
     const frozen = await call<{ ok: boolean; escalation?: { reason: string } }>(tools.update_node, {
       id: "R1ROOT",
       summary: "改根约束",
@@ -140,7 +142,7 @@ describe("tool table", () => {
 describe("dialogue signing over MCP", () => {
   it("signs on approval, applies in memory and delivers the delta to the queue lane", async () => {
     const ws = await fixtureWorkspace();
-    const table = tableFor(ws, ws.refinoDir);
+    const table = tableFor(ws);
     const result = await call<{
       ok: boolean;
       frontier?: string[];
@@ -161,7 +163,7 @@ describe("dialogue signing over MCP", () => {
 
   it("keeps the authorization untouched when the approval surface rejects", async () => {
     const ws = await fixtureWorkspace();
-    const table = tableFor(ws, ws.refinoDir);
+    const table = tableFor(ws);
     table.approve("rejected");
     const result = await call<{ ok: boolean; outcome?: string }>(
       table.tools.request_authorization,
@@ -175,7 +177,7 @@ describe("dialogue signing over MCP", () => {
 
   it("refuses outright while an orchestrator credential is active", async () => {
     const ws = await fixtureWorkspace();
-    const table = tableFor(ws, ws.refinoDir);
+    const table = tableFor(ws);
     process.env.REFINO_AUTHORIZATION = "/nonexistent/credential.json";
     const result = await call<{ ok: boolean; error?: string }>(table.tools.request_authorization, {
       frozen_frontier: [],
@@ -210,6 +212,8 @@ describe("server protocol round trip", () => {
     const text = (result.content as Array<{ type: string; text: string }>)[0]!.text;
     expect(text).toContain("R1ROOT");
     expect(text).toContain("根约束，无依据");
+    // Every result carries the session stamp — the hook handshake's basis.
+    expect(text).toMatch(/refino-session:[0-9a-f]{18}$/);
 
     const missing = await client.callTool({ name: "no-such-tool", arguments: {} });
     expect(missing.isError).toBe(true);

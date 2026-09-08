@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { constraint, createRefino, premise, removeRefino } from "@refino/testkit";
 import { emitHookOutput, sessionStart, sync, syncEvent } from "../src/hook.js";
-import { enqueueUpdate } from "../src/queue.js";
+import { drainUpdate, enqueueUpdate, sessionStamp } from "../src/queue.js";
 
 /**
  * Hook behavior over fixture workspaces: the session-start branches per
@@ -109,19 +109,28 @@ describe("session-start", () => {
 });
 
 describe("sync", () => {
-  it("drains queued updates for the session's project", async () => {
-    const root = await fixtureRoot();
-    await enqueueUpdate(join(root, ".refino"), "CRG 上下文更新：\n- 变更: R1ROOT");
-    expect(await sync({ cwd: root })).toContain("变更: R1ROOT");
-    expect(await sync({ cwd: root })).toBeUndefined(); // drained
+  it("binds a stamped session and drains its queue", async () => {
+    const token = "hooktest01";
+    await enqueueUpdate(token, "CRG 上下文更新：\n- R1ROOT 正文已更新（如仍需引用请重新获取）");
+    const raw = JSON.stringify({
+      session_id: "sess-hook-1",
+      hook_event_name: "PostToolUse",
+      tool_response: {
+        content: [{ type: "text", text: `tool output\n${sessionStamp(token)}` }],
+      },
+    });
+    const payload = JSON.parse(raw) as Parameters<typeof sync>[0];
+    expect(await sync(payload, raw)).toContain("R1ROOT 正文已更新");
+    expect(await sync(payload, raw)).toBeUndefined(); // drained
+    // The binding persists: an unstamped prompt later still drains.
+    await enqueueUpdate(token, "second update");
+    expect(await sync({ session_id: "sess-hook-1" }, "{}")).toBe("second update");
+    await drainUpdate(token);
   });
 
-  it("stays silent without .refino or without queued updates", async () => {
-    const bare = await mkdtemp(join(tmpdir(), "refino-sync-bare-"));
-    cleanup.push(bare);
-    expect(await sync({ cwd: bare })).toBeUndefined();
-    const root = await fixtureRoot();
-    expect(await sync({ cwd: root })).toBeUndefined();
+  it("stays silent without a session id or without a binding", async () => {
+    expect(await sync({ cwd: "/anywhere" }, "{}")).toBeUndefined();
+    expect(await sync({ session_id: "sess-unbound" }, "{}")).toBeUndefined();
   });
 });
 

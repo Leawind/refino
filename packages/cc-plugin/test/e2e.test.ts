@@ -209,12 +209,14 @@ e2e("hook session-start over dist", () => {
 });
 
 e2e("hook sync over dist", () => {
-  it("echoes the firing event and drains the queue once", async () => {
-    const { enqueueUpdate } = await import("../src/queue.js");
+  it("echoes the firing event and drains the bound session's queue once", async () => {
+    const { bindSession, enqueueUpdate } = await import("../src/queue.js");
     const root = await fixtureRoot();
+    const token = "e2edrain1";
+    await bindSession("s1", token);
     await enqueueUpdate(
-      join(root, ".refino"),
-      "<system-reminder>\nCRG 上下文更新：\n- 变更: R1ROOT\n</system-reminder>",
+      token,
+      "<system-reminder>\nCRG 上下文更新：\n- R1ROOT 正文已更新（如仍需引用请重新获取）\n</system-reminder>",
     );
     const postToolUse = parseHookOutput(
       (
@@ -227,9 +229,13 @@ e2e("hook sync over dist", () => {
       ).stdout,
     );
     expect(postToolUse.hookEventName).toBe("PostToolUse");
-    expect(postToolUse.additionalContext).toContain("变更: R1ROOT");
+    expect(postToolUse.additionalContext).toContain("R1ROOT 正文已更新");
     // First drainer wins: the next event point finds nothing pending.
-    const next = await runHook("sync", { cwd: root, hook_event_name: "UserPromptSubmit" });
+    const next = await runHook("sync", {
+      cwd: root,
+      hook_event_name: "UserPromptSubmit",
+      session_id: "s1",
+    });
     expect(next.stdout).toBe("");
   });
 
@@ -286,18 +292,30 @@ e2e("full delta pipeline over dist", () => {
   it("delivers an external file change to the next sync as injected context", async () => {
     const root = await fixtureRoot();
     const server = new McpProc(root);
+    let token = "";
     try {
       // Any tool call arms the lazily opened watched workspace; show delivers
       // P1PREMISE's body, so the external edit below becomes a known-set
       // content change instead of a silently-unseen body edit.
       await server.call("list", {});
-      await server.call("show", { ids: ["P1PREMISE"] });
+      const shown = (await server.call("show", { ids: ["P1PREMISE"] })) as {
+        content: Array<{ type: string; text: string }>;
+      };
+      token = /refino-session:([0-9a-f]+)/.exec(shown.content[0]!.text)![1]!;
+      // The handshake: the host fires PostToolUse with the stamped response;
+      // the sync hook binds this session to the server's queue.
+      await runHook("sync", {
+        cwd: root,
+        hook_event_name: "PostToolUse",
+        tool_name: "mcp__refino_refino_show",
+        session_id: "e2e-session",
+        tool_response: { content: [{ type: "text", text: shown.content[0]!.text }] },
+      });
       // External edit outside the session, like a user's editor would do.
       await appendFile(join(root, ".refino/nodes/P1/PREMISE-premise.md"), "\n外部改动。\n");
-      const refinoDir = join(root, ".refino");
       await vi.waitFor(
         async () => {
-          expect(await peekUpdate(refinoDir)).toBeDefined();
+          expect(await peekUpdate(token)).toBeDefined();
         },
         { timeout: DELTA_SETTLE_MS, interval: 250 },
       );
@@ -306,11 +324,20 @@ e2e("full delta pipeline over dist", () => {
       await server.exited();
     }
 
+    // The queue is per session: a stranger session's prompt (never bound to
+    // this server's token) drains nothing even while the queue holds text.
+    const stranger = await runHook("sync", {
+      cwd: root,
+      hook_event_name: "UserPromptSubmit",
+      session_id: "e2e-stranger",
+    });
+    expect(stranger.stdout.trim()).toBe("");
+
     const run = await runHook("sync", {
       cwd: root,
       hook_event_name: "PostToolUse",
       tool_name: "Read",
-      session_id: "s1",
+      session_id: "e2e-session",
     });
     const output = parseHookOutput(run.stdout);
     expect(output.hookEventName).toBe("PostToolUse");
