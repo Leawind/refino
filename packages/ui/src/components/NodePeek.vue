@@ -7,10 +7,12 @@
 // Non-interactive by design — pointer-events stay off so the card can never
 // trap the cursor; when the content overflows, wheel anywhere scrolls the
 // card instead of zooming the canvas beneath. Shape and placement are pure
-// geometry (peek-layout.ts) fed by the page size, the cursor and measured
-// content: the card prefers a square (width follows the reflowed content
-// height), extends an axis into a rectangle only at a page limit, and
-// scrolls whatever still overflows.
+// geometry (peek-layout.ts): the size is cursor-independent — it prefers a
+// square (width follows the reflowed content height) against the page
+// bounds alone, so smooth cursor movement never re-wraps the text — while
+// the placement follows the cursor, flips sides when one runs out of room
+// and pins to a page edge (possibly covering the cursor) only when neither
+// side affords the card; whatever still overflows scrolls in-card.
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { injectRequired } from "../context";
@@ -19,7 +21,7 @@ import { renderMarkdown, renderMermaidDiagrams } from "../markdown";
 import { peekState } from "../peek";
 import {
   computePeekBounds,
-  computePeekLayout,
+  computePeekPlacement,
   computePeekSize,
   PEEK_ESTIMATED_SIZE,
 } from "../peek-layout";
@@ -74,10 +76,8 @@ const cardEl = ref<HTMLElement | null>(null);
 const cardSize = ref({ ...PEEK_ESTIMATED_SIZE });
 const viewport = ref({ width: window.innerWidth, height: window.innerHeight });
 
-/** Page-afforded bounds around the cursor; drive both sizing and placement. */
-const bounds = computed(() =>
-  computePeekBounds(viewport.value, { x: peekState.x, y: peekState.y }),
-);
+/** Page-afforded card bounds; the only size inputs besides the content. */
+const pageCaps = computed(() => computePeekBounds(viewport.value));
 /** Explicit card width from the square-preferring size rule; null = auto. */
 const cardWidth = ref<number | null>(null);
 
@@ -122,8 +122,9 @@ function onResize(): void {
   viewport.value = { width: window.innerWidth, height: window.innerHeight };
 }
 
-// Content or bounds changes reshape the card; coalesce into one measurement.
-watch([record, groundSummaries, bounds], scheduleSize);
+// Content or page-size changes reshape the card; cursor movement must not
+// (cursor-independent sizing keeps the text layout stable while following).
+watch([record, groundSummaries, viewport], scheduleSize);
 
 let sizeScheduled = false;
 
@@ -145,12 +146,12 @@ function scheduleSize(): void {
 function refreshSize(): void {
   const el = cardEl.value;
   if (el === null || !peekState.alt || peekState.id === null) return;
-  const max = bounds.value;
+  const caps = pageCaps.value;
   const prevWidth = el.style.width;
   const prevMaxHeight = el.style.maxHeight;
   el.style.maxHeight = "none";
   el.style.width = "max-content";
-  const naturalWidth = Math.min(el.getBoundingClientRect().width, max.maxWidth);
+  const naturalWidth = Math.min(el.getBoundingClientRect().width, caps.maxWidth);
   const measureAt = (width: number): number => {
     el.style.width = `${width}px`;
     return el.getBoundingClientRect().height;
@@ -158,11 +159,11 @@ function refreshSize(): void {
   const naturalHeight = measureAt(naturalWidth);
   const size = computePeekSize({
     natural: { width: naturalWidth, height: naturalHeight },
-    maxWidth: max.maxWidth,
+    maxWidth: caps.maxWidth,
     measureHeight: measureAt,
   });
   el.style.width = `${size.width}px`;
-  el.style.maxHeight = `${max.maxHeight}px`;
+  el.style.maxHeight = `${caps.maxHeight}px`;
   const rect = el.getBoundingClientRect();
   el.style.width = prevWidth;
   el.style.maxHeight = prevMaxHeight;
@@ -202,16 +203,16 @@ onUnmounted(() => {
 
 /** Placement via pure geometry; the shape comes from the measured sizing. */
 const style = computed(() => {
-  const layout = computePeekLayout({
+  const { left, top } = computePeekPlacement({
     viewport: viewport.value,
     cursor: { x: peekState.x, y: peekState.y },
     card: cardSize.value,
   });
   return {
-    left: `${layout.left}px`,
-    top: `${layout.top}px`,
+    left: `${left}px`,
+    top: `${top}px`,
     ...(cardWidth.value === null ? {} : { width: `${cardWidth.value}px` }),
-    maxHeight: `${bounds.value.maxHeight}px`,
+    maxHeight: `${pageCaps.value.maxHeight}px`,
   };
 });
 </script>

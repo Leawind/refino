@@ -1,166 +1,125 @@
 import { describe, expect, it } from "vitest";
 import {
   computePeekBounds,
-  computePeekLayout,
+  computePeekPlacement,
   computePeekSize,
   PEEK_GAP,
   PEEK_MIN_WIDTH,
   PEEK_PAD,
 } from "../src/peek-layout";
-import type { PeekLayoutInput } from "../src/peek-layout";
+import type { PeekPlacementInput } from "../src/peek-layout";
 
 /**
- * Placement invariants (peek-layout.ts): the card stays on the page with at
- * least PEEK_PAD to every edge, and the cursor stays horizontally clear of
- * the card. Vertically the cursor may be covered when the content is taller
- * than both sides of the cursor afford — the height may then use the whole
- * page instead of scrolling earlier. The card the component renders is
- * capped at maxWidth/maxHeight (width starts at fit-content with a
- * PEEK_MIN_WIDTH floor), so the invariants are checked against the capped
- * size.
+ * Sizing invariants (peek-layout.ts): the size depends on the content and
+ * the page bounds only — never on the cursor — so smooth cursor movement
+ * cannot re-wrap the text; the card prefers a square. Placement keeps the
+ * card on the page, gap-clear of the cursor whenever either side affords
+ * the card, pinning to the roomier page edge only when neither does.
  */
 
 const BASE_VIEWPORT = { width: 1280, height: 800 };
 const BASE_CARD = { width: 380, height: 240 };
 
-function placed(input: PeekLayoutInput) {
-  const layout = computePeekLayout(input);
-  return {
-    layout,
-    width: Math.min(input.card.width, layout.maxWidth),
-    height: Math.min(input.card.height, layout.maxHeight),
-  };
-}
+describe("computePeekBounds", () => {
+  it("is cursor-independent: the page minus the pads", () => {
+    expect(computePeekBounds(BASE_VIEWPORT)).toEqual({ maxWidth: 1264, maxHeight: 784 });
+  });
+});
 
-function expectInsidePage(input: PeekLayoutInput): void {
-  const { layout, width, height } = placed(input);
-  expect(layout.left).toBeGreaterThanOrEqual(PEEK_PAD);
-  expect(layout.top).toBeGreaterThanOrEqual(PEEK_PAD);
-  expect(layout.left + width).toBeLessThanOrEqual(input.viewport.width - PEEK_PAD);
-  expect(layout.top + height).toBeLessThanOrEqual(input.viewport.height - PEEK_PAD);
-}
+describe("computePeekPlacement", () => {
+  function placed({ viewport, cursor, card }: PeekPlacementInput) {
+    return computePeekPlacement({ viewport, cursor, card });
+  }
 
-function expectClearOfCursor(input: PeekLayoutInput): void {
-  const { layout, width } = placed(input);
-  // Width grows first up to the roomier side, so the cursor stays clear of
-  // the card horizontally no matter how tall the content is.
-  const coversCursorX = input.cursor.x > layout.left && input.cursor.x < layout.left + width;
-  expect(coversCursorX).toBe(false);
-}
+  function expectInsidePage(input: PeekPlacementInput): void {
+    const { left, top } = placed(input);
+    const width = Math.min(input.card.width, input.viewport.width - 2 * PEEK_PAD);
+    const height = Math.min(input.card.height, input.viewport.height - 2 * PEEK_PAD);
+    expect(left).toBeGreaterThanOrEqual(PEEK_PAD);
+    expect(top).toBeGreaterThanOrEqual(PEEK_PAD);
+    expect(left + width).toBeLessThanOrEqual(input.viewport.width - PEEK_PAD);
+    expect(top + height).toBeLessThanOrEqual(input.viewport.height - PEEK_PAD);
+  }
 
-describe("computePeekLayout", () => {
-  it("places the card at the cursor's lower right by default", () => {
-    const layout = computePeekLayout({
+  function expectCursorClear(input: PeekPlacementInput): void {
+    const { left, top } = placed(input);
+    const width = Math.min(input.card.width, input.viewport.width - 2 * PEEK_PAD);
+    const height = Math.min(input.card.height, input.viewport.height - 2 * PEEK_PAD);
+    const availRight = input.viewport.width - PEEK_PAD - (input.cursor.x + PEEK_GAP);
+    const availLeft = input.cursor.x - PEEK_GAP - PEEK_PAD;
+    if (availRight < width && availLeft < width) return; // pin regime
+    expect(input.cursor.x >= left && input.cursor.x <= left + width).toBe(false);
+    const availBottom = input.viewport.height - PEEK_PAD - (input.cursor.y + PEEK_GAP);
+    const availTop = input.cursor.y - PEEK_GAP - PEEK_PAD;
+    if (availBottom < height && availTop < height) return;
+    expect(input.cursor.y >= top && input.cursor.y <= top + height).toBe(false);
+  }
+
+  it("sits below right of the cursor by default", () => {
+    const { left, top } = placed({
       viewport: BASE_VIEWPORT,
       cursor: { x: 200, y: 150 },
       card: BASE_CARD,
     });
-    expect(layout.left).toBe(200 + PEEK_GAP);
-    expect(layout.top).toBe(150 + PEEK_GAP);
-    expect(layout.maxWidth).toBe(BASE_VIEWPORT.width - PEEK_PAD - (200 + PEEK_GAP));
-  });
-
-  it("caps the height at the whole page so the card may fill it", () => {
-    const layout = computePeekLayout({
-      viewport: BASE_VIEWPORT,
-      cursor: { x: 640, y: 400 },
-      card: BASE_CARD,
-    });
-    expect(layout.maxHeight).toBe(BASE_VIEWPORT.height - 2 * PEEK_PAD);
+    expect(left).toBe(200 + PEEK_GAP);
+    expect(top).toBe(150 + PEEK_GAP);
   });
 
   it("flips to the left near the right edge", () => {
-    const layout = computePeekLayout({
+    const { left, top } = placed({
       viewport: BASE_VIEWPORT,
       cursor: { x: 1200, y: 150 },
       card: BASE_CARD,
     });
-    expect(layout.left).toBe(1200 - PEEK_GAP - BASE_CARD.width);
-    expect(layout.top).toBe(150 + PEEK_GAP);
+    expect(left).toBe(1200 - PEEK_GAP - BASE_CARD.width);
+    expect(top).toBe(150 + PEEK_GAP);
   });
 
   it("flips upward near the bottom edge", () => {
-    const layout = computePeekLayout({
+    const { left, top } = placed({
       viewport: BASE_VIEWPORT,
       cursor: { x: 200, y: 700 },
       card: BASE_CARD,
     });
-    expect(layout.left).toBe(200 + PEEK_GAP);
-    expect(layout.top).toBe(700 - PEEK_GAP - BASE_CARD.height);
+    expect(left).toBe(200 + PEEK_GAP);
+    expect(top).toBe(700 - PEEK_GAP - BASE_CARD.height);
   });
 
   it("flips diagonally in the bottom-right corner", () => {
-    const layout = computePeekLayout({
+    const { left, top } = placed({
       viewport: BASE_VIEWPORT,
       cursor: { x: 1200, y: 700 },
       card: BASE_CARD,
     });
-    expect(layout.left).toBe(1200 - PEEK_GAP - BASE_CARD.width);
-    expect(layout.top).toBe(700 - PEEK_GAP - BASE_CARD.height);
+    expect(left).toBe(1200 - PEEK_GAP - BASE_CARD.width);
+    expect(top).toBe(700 - PEEK_GAP - BASE_CARD.height);
   });
 
-  it("shrinks the width when the viewport cannot afford the base size", () => {
-    const layout = computePeekLayout({
-      viewport: { width: 400, height: 300 },
-      cursor: { x: 200, y: 150 },
-      card: BASE_CARD,
+  it("pins to the roomier edge when neither side affords the card", () => {
+    // Wide card in the middle of a small page: no side fits; the card pins
+    // to the right edge instead of shrinking (position clamps, size stays).
+    const viewport = { width: 640, height: 480 };
+    const { left, top } = placed({
+      viewport,
+      cursor: { x: 320, y: 240 },
+      card: { width: 500, height: 200 },
     });
-    // The cursor splits the tiny viewport in half; the card shrinks to the
-    // half it faces and ends exactly at the page edge.
-    expect(layout.maxWidth).toBe(176);
-    expectInsidePage({
-      viewport: { width: 400, height: 300 },
-      cursor: { x: 200, y: 150 },
-      card: BASE_CARD,
-    });
+    expect(left).toBe(viewport.width - PEEK_PAD - 500);
+    expect(top).toBe(240 + PEEK_GAP);
+    expectInsidePage({ viewport, cursor: { x: 320, y: 240 }, card: { width: 500, height: 200 } });
   });
 
-  it("grows wide before growing tall for short, wide viewports", () => {
-    // Cursor near the top: the roomier side is the right one, and a tall
-    // content block rides on width first — the height stays page-capped.
-    const layout = computePeekLayout({
-      viewport: { width: 1600, height: 600 },
-      cursor: { x: 300, y: 80 },
-      card: { width: 900, height: 500 },
-    });
-    expect(layout.maxWidth).toBe(1600 - PEEK_PAD - (300 + PEEK_GAP));
-    expect(layout.maxHeight).toBe(600 - 2 * PEEK_PAD);
-    expectInsidePage({
-      viewport: { width: 1600, height: 600 },
-      cursor: { x: 300, y: 80 },
-      card: { width: 900, height: 500 },
-    });
-  });
-
-  it("keeps the card on the page and the cursor clear across a cursor grid", () => {
+  it("keeps the card on the page across a cursor grid", () => {
     const viewport = { width: 1024, height: 640 };
     for (const card of [BASE_CARD, { width: 700, height: 500 }]) {
       for (let x = 0; x <= viewport.width; x += 32) {
         for (let y = 0; y <= viewport.height; y += 32) {
-          const input: PeekLayoutInput = { viewport, cursor: { x, y }, card };
+          const input: PeekPlacementInput = { viewport, cursor: { x, y }, card };
           expectInsidePage(input);
-          expectClearOfCursor(input);
+          expectCursorClear(input);
         }
       }
     }
-  });
-
-  it("stays finite and inside on a degenerate viewport", () => {
-    const layout = computePeekLayout({
-      viewport: { width: 40, height: 30 },
-      cursor: { x: 20, y: 15 },
-      card: BASE_CARD,
-    });
-    expect(layout.maxWidth).toBe(0);
-    expect(layout.maxHeight).toBe(30 - 2 * PEEK_PAD);
-    expect(layout.left).toBeGreaterThanOrEqual(PEEK_PAD);
-    expect(layout.top).toBeGreaterThanOrEqual(PEEK_PAD);
-    expect(Number.isFinite(layout.left)).toBe(true);
-    expect(Number.isFinite(layout.top)).toBe(true);
-  });
-
-  it("exposes the minimum width floor to the component", () => {
-    expect(PEEK_MIN_WIDTH).toBeGreaterThan(0);
   });
 });
 
@@ -235,19 +194,5 @@ describe("computePeekSize", () => {
       computePeekSize({ natural: { width: 400, height: 400 }, maxWidth: 876, measureHeight: never })
         .width,
     ).toBe(400);
-  });
-});
-
-describe("computePeekBounds", () => {
-  it("matches the layout maxima", () => {
-    const cursor = { x: 200, y: 150 };
-    const bounds = computePeekBounds(BASE_VIEWPORT, cursor);
-    const layout = computePeekLayout({
-      viewport: BASE_VIEWPORT,
-      cursor,
-      card: { width: 10, height: 10 },
-    });
-    expect(bounds.maxWidth).toBe(layout.maxWidth);
-    expect(bounds.maxHeight).toBe(layout.maxHeight);
   });
 });

@@ -1,16 +1,20 @@
 /**
  * Peek card layout geometry (ui DESIGN.md, "交互"): pure math turning the
  * three inputs the card may consult — page (viewport) size, cursor position
- * and the card's own size — into a shape and a placement. The invariants
- * that always hold (the component caps the card with the returned bounds,
- * so the card size always fits them):
+ * and the content's measured size — into a size and a placement. Sizing is
+ * deliberately cursor-independent (page bounds only), so smoothly moving
+ * the cursor never re-wraps the card's text; the placement absorbs the
+ * cursor instead. The invariants that always hold:
  *
  * - the card never leaves the viewport (at least `PEEK_PAD` from every edge);
- * - horizontally the card never covers the cursor (at least `PEEK_GAP` away);
- * - vertically the cursor stays clear unless the content is taller than the
- *   page affords — the card prefers a square sized to its content and only
- *   extends an axis to a page limit (rectangle) before the content scrolls
- *   in-card.
+ * - the card keeps `PEEK_GAP` from the cursor and never covers it whenever
+ *   either side of the cursor affords the card; only when neither side does
+ *   (a square on a small page) is it pinned to the roomier page edge, where
+ *   covering the cursor is unavoidable — the card is non-interactive;
+ * - vertically the cursor stays clear unless the content is taller than
+ *   the page affords — the card prefers a square sized to its content and
+ *   only extends an axis to a page limit (rectangle) before the content
+ *   scrolls in-card.
  */
 
 /** Minimum distance between the card and any viewport edge. */
@@ -34,33 +38,16 @@ export interface PeekCursor {
   y: number;
 }
 
+/** The card size bounds the page affords, independent of the cursor. */
 export interface PeekBounds {
-  /** Widest the card may be: the roomier horizontal side of the cursor. */
-  maxWidth: number;
-  /** Tallest the card may be: the whole page between the pads. */
-  maxHeight: number;
-}
-
-export interface PeekLayoutInput {
-  viewport: PeekViewport;
-  cursor: PeekCursor;
-  /** Card size — measured when available, estimated on the first frame. */
-  card: { width: number; height: number };
-}
-
-export interface PeekLayout {
-  left: number;
-  top: number;
   maxWidth: number;
   maxHeight: number;
 }
 
-/** Room the page affords the card around the cursor, per axis. */
-export function computePeekBounds(viewport: PeekViewport, cursor: PeekCursor): PeekBounds {
-  const availRight = viewport.width - PEEK_PAD - (cursor.x + PEEK_GAP);
-  const availLeft = cursor.x - PEEK_GAP - PEEK_PAD;
+/** Page-afforded card bounds; the only size inputs besides the content. */
+export function computePeekBounds(viewport: PeekViewport): PeekBounds {
   return {
-    maxWidth: Math.max(availLeft, availRight, 0),
+    maxWidth: Math.max(viewport.width - 2 * PEEK_PAD, 0),
     maxHeight: Math.max(viewport.height - 2 * PEEK_PAD, 0),
   };
 }
@@ -110,37 +97,49 @@ export function computePeekSize({
   return { width: clamp((lo + hi) / 2, minWidth, maxWidth) };
 }
 
+export interface PeekPlacementInput {
+  viewport: PeekViewport;
+  cursor: PeekCursor;
+  /** Card size — measured when available, estimated on the first frame. */
+  card: { width: number; height: number };
+}
+
 /**
  * Place the card at the cursor's lower right by default, flipping each axis
- * to the other side when that side cannot afford the card. The placement
- * depends only on cursor and viewport inputs — never on the card size —
- * so measured sizes cannot feed back and oscillate. Because the card is
- * capped at the bounds, the chosen side always fits: whenever the default
- * side does not, the other side is strictly larger. Vertically the card may
- * pin to the top edge and cover the cursor when the content needs the whole
- * page; horizontally the cursor always stays clear.
+ * to the other side when that side cannot afford the card. When neither
+ * side affords it, the card pins to the edge of the roomier side and may
+ * cover the cursor rather than shrink (its size is cursor-independent, so
+ * moving the pointer never re-wraps the text). The placement depends only
+ * on cursor and viewport inputs — never on anything measured — so it
+ * cannot feed back into itself.
  */
-export function computePeekLayout({ viewport, cursor, card }: PeekLayoutInput): PeekLayout {
-  const { maxWidth, maxHeight } = computePeekBounds(viewport, cursor);
+export function computePeekPlacement({ viewport, cursor, card }: PeekPlacementInput): {
+  left: number;
+  top: number;
+} {
+  const width = Math.min(card.width, viewport.width - 2 * PEEK_PAD);
+  const height = Math.min(card.height, viewport.height - 2 * PEEK_PAD);
   const availRight = viewport.width - PEEK_PAD - (cursor.x + PEEK_GAP);
+  const availLeft = cursor.x - PEEK_GAP - PEEK_PAD;
   const availBottom = viewport.height - PEEK_PAD - (cursor.y + PEEK_GAP);
-  const width = Math.min(card.width, maxWidth);
-  const height = Math.min(card.height, maxHeight);
+  const availTop = cursor.y - PEEK_GAP - PEEK_PAD;
   return {
-    // Defensive clamp: with the cap applied the flips already stay inside,
-    // but the first frame runs on estimated sizes and may exceed the cap.
-    left: clamp(
-      availRight >= width ? cursor.x + PEEK_GAP : cursor.x - PEEK_GAP - width,
-      PEEK_PAD,
-      Math.max(PEEK_PAD, viewport.width - PEEK_PAD - width),
-    ),
-    top: clamp(
-      availBottom >= height ? cursor.y + PEEK_GAP : cursor.y - PEEK_GAP - height,
-      PEEK_PAD,
-      Math.max(PEEK_PAD, viewport.height - PEEK_PAD - height),
-    ),
-    maxWidth,
-    maxHeight,
+    left:
+      availRight >= width
+        ? cursor.x + PEEK_GAP
+        : availLeft >= width
+          ? cursor.x - PEEK_GAP - width
+          : availRight >= availLeft
+            ? viewport.width - PEEK_PAD - width
+            : PEEK_PAD,
+    top:
+      availBottom >= height
+        ? cursor.y + PEEK_GAP
+        : availTop >= height
+          ? cursor.y - PEEK_GAP - height
+          : availBottom >= availTop
+            ? viewport.height - PEEK_PAD - height
+            : PEEK_PAD,
   };
 }
 
