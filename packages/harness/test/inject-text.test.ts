@@ -139,28 +139,54 @@ describe("orientationText", () => {
 });
 
 describe("updateText", () => {
-  it("renders changed/deleted ids, delta events and pending ids without summaries", () => {
+  it("renders known-set field changes, delta events and pending ids", () => {
     const graph = fixtureGraph();
     const text = updateText(
       [
         { type: "frozen_added", id: "R1ROOT" },
         { type: "anchor_removed", id: "P1PREMISE" },
       ],
-      ["C1CHILD", "C2GRAND"],
-      ["P1PREMISE"],
+      [
+        { id: "P1PREMISE", kind: "deleted", summary: "事实一" },
+        { id: "C1CHILD", kind: "summary", from: "旧摘要", to: "新摘要" },
+        { id: "C2GRAND", kind: "grounds", added: ["R2NEW1"], removed: ["R1ROOT"] },
+        { id: "C2GRAND", kind: "children", added: ["C3NEW1"], removed: [] },
+        { id: "R1ROOT", kind: "content" },
+        { id: "A1IDONLY", kind: "touched" },
+        { id: "B1REBUIL", kind: "rebuilt", fromType: "constraint", toType: "premise" },
+      ],
       [graph.nodes.get("C1CHILD")!],
     );
     expect(text).toContain("CRG 上下文更新");
-    expect(text).toContain("- 变更: C1CHILD, C2GRAND");
-    expect(text).toContain("- 删除: P1PREMISE");
+    expect(text).toContain("- P1PREMISE 已删除（原摘要：事实一）");
+    expect(text).toContain("- C1CHILD 摘要变更：旧摘要 → 新摘要");
+    expect(text).toContain("- C2GRAND 依据变更：新增 R2NEW1；移除 R1ROOT");
+    expect(text).toContain("- C2GRAND 直接下游变更：新增 C3NEW1");
+    expect(text).toContain("- R1ROOT 正文已更新（如仍需引用请重新获取）");
+    expect(text).toContain("- A1IDONLY 已变更");
+    expect(text).toContain("- B1REBUIL 以另一类型重建（constraint → premise），此前信息已失效");
     expect(text).toContain("- 新增冻结约束（只读）: R1ROOT");
     expect(text).toContain("- 移除作用域锚点: P1PREMISE");
-    expect(text).toContain("- 待审查（直接依赖上述节点，修改前先复核）: C1CHILD");
-    // Pure ids only: the pending node's summary must not ride along.
+    expect(text).toContain("- 待审查（其直接上游已变化，修改前先复核）: C1CHILD");
+    // Known changes carry their own old→new values; the pending line stays id-only.
     expect(text).not.toContain(graph.nodes.get("C1CHILD")!.summary);
   });
 
+  it("orders known lines deterministically by id then kind", () => {
+    const text = updateText(
+      [],
+      [
+        { id: "Z9LAST1", kind: "touched" },
+        { id: "A1FIRST", kind: "summary", from: "a", to: "b" },
+        { id: "A1FIRST", kind: "content" },
+      ],
+      [],
+    )!;
+    const lines = text.split("\n").filter((line) => line.startsWith("- "));
+    expect(lines.map((line) => line.slice(2, 9))).toEqual(["A1FIRST", "A1FIRST", "Z9LAST1"]);
+  });
+
   it("returns undefined when nothing changed", () => {
-    expect(updateText([], [], [], [])).toBeUndefined();
+    expect(updateText([], [], [])).toBeUndefined();
   });
 });

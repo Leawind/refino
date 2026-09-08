@@ -1,7 +1,13 @@
 import { getDependents, ID_RE, RefinoError, type NodeWithDepth, type RefinoNode } from "refino";
 import { checkModification } from "./boundary.js";
 import { HarnessError } from "./errors.js";
-import { confirmedToMs, isValidConfirmed, WriteRejected, type NodeContent } from "@refino/storage";
+import {
+  confirmedToMs,
+  isValidConfirmed,
+  WriteRejected,
+  type NodeContent,
+  type StoreChange,
+} from "@refino/storage";
 import { depthLite, issueLite, lite, type WriteResult } from "./shapes.js";
 import type { RefinoWorkspace } from "./workspace.js";
 
@@ -13,7 +19,10 @@ import type { RefinoWorkspace } from "./workspace.js";
  * tool result, never an error. The modification space closes downwards along
  * dependents (docs/crg.md 2.4), so no downstream-freeze check exists. The
  * target's own sync runs after persisting; its pending-review set rides the
- * result instead of being injected.
+ * result instead of being injected. Successful writes absorb into the
+ * session known set (docs/design.md, 会话已知集): the author knows what it
+ * wrote, and the one-hop neighborhood snapshots re-sync silently so the
+ * next external sync never reports the write back.
  */
 
 export interface CreatePremiseArgs {
@@ -35,7 +44,7 @@ export async function runCreatePremise(
       ...args,
       confirmed: args.confirmed === undefined ? undefined : confirmedToMs(args.confirmed),
     });
-    return { ok: true, id: outcome.id, pending: ws.pendingOf(outcome.change).map(lite) };
+    return harvested(ws, outcome.id, undefined, outcome.change);
   } catch (error) {
     return writeFailure(error);
   }
@@ -63,7 +72,7 @@ export async function runCreateConstraint(
     // Grounds validation runs inside the store's write method; a
     // rejected change never touches the disk.
     const outcome = await ws.store.createConstraint(args);
-    return { ok: true, id: outcome.id, pending: ws.pendingOf(outcome.change).map(lite) };
+    return harvested(ws, outcome.id, undefined, outcome.change);
   } catch (error) {
     return writeFailure(error);
   }
@@ -105,6 +114,37 @@ export async function runUpdateNode(
   return updateConstraintNode(ws, node, args);
 }
 
+/**
+ * Harvest a persisted write into the known set and frame its result: the
+ * pending set's summaries were delivered in the result, the written node is
+ * recorded full, and the one-hop neighborhood re-syncs silently. `prev` is
+ * the pre-write neighborhood (undefined for creates; grounds-only suffices
+ * for deletes — a node with dependents is never deletable).
+ */
+async function harvested(
+  ws: RefinoWorkspace,
+  id: string,
+  prev: { grounds: string[]; children: string[] } | undefined,
+  change: StoreChange | undefined,
+): Promise<WriteResult> {
+  const pending = ws.pendingOf(change);
+  ws.known.recordSummaries(pending);
+  await ws.absorbOwnWrite(id, prev);
+  return { ok: true, id, pending: pending.map(lite) };
+}
+
+/** Pre-write one-hop neighborhood snapshot, from the graph the write is about to detach. */
+function neighborhoodOf(
+  ws: RefinoWorkspace,
+  id: string,
+): { grounds: string[]; children: string[] } {
+  const node = ws.graph.nodes.get(id);
+  return {
+    grounds: node === undefined || node.type !== "constraint" ? [] : [...node.grounds],
+    children: node === undefined ? [] : [...node.children],
+  };
+}
+
 export async function runDeleteNode(ws: RefinoWorkspace, id: string): Promise<WriteResult> {
   const node = ws.graph.nodes.get(id);
   if (node === undefined) {
@@ -122,12 +162,13 @@ export async function runDeleteNode(ws: RefinoWorkspace, id: string): Promise<Wr
       dependents: dependents.map((dependent) => lite(dependent.node)),
     };
   }
+  const prev = neighborhoodOf(ws, node.id);
   try {
     await ws.store.deleteNode(node.id);
   } catch (error) {
     return writeFailure(error);
   }
-  return { ok: true, id: node.id, pending: [] };
+  return harvested(ws, node.id, prev, undefined);
 }
 
 // ---- shared write helpers ----
@@ -172,6 +213,7 @@ async function updatePremiseNode(
   // policy they are silently ignored instead of rejected.
   const read = await readForUpdate(ws, node.id, args);
   if ("ok" in read) return read;
+  const prev = neighborhoodOf(ws, node.id);
   try {
     const outcome = await ws.store.updatePremise(node.id, {
       body: args.body ?? read.content.body,
@@ -183,7 +225,7 @@ async function updatePremiseNode(
             ? undefined
             : confirmedToMs(args.confirmed),
     });
-    return { ok: true, id: node.id, pending: ws.pendingOf(outcome.change).map(lite) };
+    return harvested(ws, node.id, prev, outcome.change);
   } catch (error) {
     return writeFailure(error);
   }
@@ -202,6 +244,7 @@ async function updateConstraintNode(
   // inside the store's write method; a rejected change never touches the disk.
   const read = await readForUpdate(ws, node.id, args);
   if ("ok" in read) return read;
+  const prev = neighborhoodOf(ws, node.id);
   try {
     const outcome = await ws.store.updateConstraint(node.id, {
       body: args.body ?? read.content.body,
@@ -214,7 +257,7 @@ async function updateConstraintNode(
             : args.rationale,
       grounds: args.grounds ?? node.grounds,
     });
-    return { ok: true, id: node.id, pending: ws.pendingOf(outcome.change).map(lite) };
+    return harvested(ws, node.id, prev, outcome.change);
   } catch (error) {
     return writeFailure(error);
   }

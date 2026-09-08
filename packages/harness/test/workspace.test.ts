@@ -78,12 +78,9 @@ describe("RefinoWorkspace.open", () => {
 describe("external changes", () => {
   it("derive anchor delta events for externally added nodes", async () => {
     const root = await fixture();
-    const { externalChange, outcomes } = await openListening(root);
-    let id = "";
-    await externalChange([], async () => {
-      id = await createPremise(root + "/.refino", { body: "新前提" });
-    });
-    await externalChange([id], async () => {});
+    const { ws, outcomes } = await openListening(root);
+    const id = await createPremise(root + "/.refino", { body: "新前提" });
+    await ws.store.applyChange({ changed: [id], origin: "file" });
     expect(outcomes).toHaveLength(1);
     expect(outcomes[0]!.delta).toContainEqual({ type: "anchor_added", id });
     expect(outcomes[0]!.changed).toEqual([id]);
@@ -106,12 +103,9 @@ describe("external changes", () => {
 
   it("derive frozen-zone delta events when a new root constraint appears", async () => {
     const root = await fixture();
-    const { externalChange, outcomes } = await openListening(root);
-    let id = "";
-    await externalChange([], async () => {
-      id = await createConstraint(root + "/.refino", { body: "新根约束" });
-    });
-    await externalChange([id], async () => {});
+    const { ws, outcomes } = await openListening(root);
+    const id = await createConstraint(root + "/.refino", { body: "新根约束" });
+    await ws.store.applyChange({ changed: [id], origin: "file" });
     expect(outcomes).toHaveLength(1);
     expect(outcomes[0]!.delta).toContainEqual({ type: "anchor_added", id });
     expect(outcomes[0]!.delta).toContainEqual({ type: "frozen_added", id });
@@ -158,14 +152,17 @@ describe("RefinoWorkspace.signContext", () => {
     expect(ws.session.checkModification(["C1CHILD"])[0]!.allowed).toBe(false);
     expect(ws.anchorsComplete).toBe(true); // untouched by signing; defaults-only signal
 
-    // A context-preserving external change emits no delta (nothing to
-    // inject), so no outcome arrives for it.
-    let id = "";
-    await externalChange([], async () => {
-      id = await createPremise(root + "/.refino", { body: "签名后的新前提" });
-    });
-    await externalChange([id], async () => {});
-    expect(outcomes).toHaveLength(1);
+    // A context-preserving external change still reaches the listener (the
+    // known-set diff at fire time decides what to inject), but carries no
+    // delta and no pending set.
+    const id = await createPremise(root + "/.refino", { body: "签名后的新前提" });
+    await ws.store.applyChange({ changed: [id], origin: "file" });
+    expect(outcomes).toHaveLength(2);
+    expect(outcomes[1]!.delta).toEqual([]);
+    expect(outcomes[1]!.pending).toEqual([]);
+    // C2GRAND's deletion earlier in the test is still unreported (the diff
+    // drains per fire); the new node is unknown to the session and silent.
+    expect(await ws.knownDiff()).toEqual([{ id: "C2GRAND", kind: "deleted", summary: "孙约束" }]);
     // Convergence only drops dead ids: a newly created node never joins a
     // signed context on its own.
     expect(ws.authorizationContext.anchors).not.toContain(id);
@@ -197,17 +194,23 @@ describe("RefinoWorkspace.signContext", () => {
 });
 
 describe("delta coalescing", () => {
-  it("merges bursts into one emission after the interval", async () => {
+  it("merges bursts into one emission; the known diff is taken at fire time", async () => {
     const { DeltaCoalescer } = await import("../src/coalesce.js");
-    const emitted: Array<{
-      delta: unknown[];
-      changed: string[];
-      deleted: string[];
-      pending: string[];
-    }> = [];
-    const coalescer = new DeltaCoalescer(20, (delta, changed, deleted, pending) =>
-      emitted.push({ delta, changed, deleted, pending: pending.map((node) => node.id) }),
-    );
+    const emitted: Array<{ delta: unknown[]; pending: string[]; known: string[] }> = [];
+    const knownScript: string[][] = [[]];
+    const diffCalls: number[] = [];
+    const coalescer = new DeltaCoalescer(20, {
+      knownDiff: async () => {
+        diffCalls.push(Date.now());
+        return knownScript[0]!.map((id) => ({ id, kind: "touched" }));
+      },
+      emit: (delta, pending, known) =>
+        emitted.push({
+          delta,
+          pending: pending.map((node) => node.id),
+          known: known.map((change) => change.id),
+        }),
+    });
     const pendingNode = { id: "C2GRAND" } as never; // the coalescer only reads id
     coalescer.push({
       delta: [{ type: "anchor_added", id: "A" }],
@@ -217,23 +220,37 @@ describe("delta coalescing", () => {
     });
     coalescer.push({
       delta: [{ type: "anchor_removed", id: "A" }],
-      changed: ["B", "A2GONE"],
-      deleted: ["A2GONE"], // changed-then-deleted within the window reports as deleted only
-      pending: [pendingNode],
+      changed: ["B"],
+      deleted: [],
+      pending: [pendingNode, pendingNode], // deduped by id within the window
     });
     await new Promise((resolve) => setTimeout(resolve, 60));
     expect(emitted).toHaveLength(1);
     expect(emitted[0]!.delta).toHaveLength(2);
-    expect(emitted[0]!.changed).toEqual(["A", "B"]);
-    expect(emitted[0]!.deleted).toEqual(["A2GONE"]);
     expect(emitted[0]!.pending).toEqual(["C2GRAND"]);
+    expect(diffCalls).toHaveLength(1); // one diff per fire, not per push
     coalescer.dispose();
+  });
+
+  it("does not emit when the delta, pending and known diff are all empty", async () => {
+    const { DeltaCoalescer } = await import("../src/coalesce.js");
+    const emitted: unknown[] = [];
+    const coalescer = new DeltaCoalescer(10, {
+      knownDiff: async () => [],
+      emit: () => emitted.push(1),
+    });
+    coalescer.push({ delta: [], changed: ["A"], deleted: [], pending: [] });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(emitted).toHaveLength(0);
   });
 
   it("does not emit when nothing was pushed; dispose drops buffered state", async () => {
     const { DeltaCoalescer } = await import("../src/coalesce.js");
     const emitted: unknown[] = [];
-    const coalescer = new DeltaCoalescer(10, () => emitted.push(1));
+    const coalescer = new DeltaCoalescer(10, {
+      knownDiff: async () => [{ id: "X", kind: "touched" }],
+      emit: () => emitted.push(1),
+    });
     coalescer.push({
       delta: [{ type: "anchor_added", id: "A" }],
       changed: ["A"],

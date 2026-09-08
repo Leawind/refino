@@ -17,7 +17,14 @@ export {
   type ResolvedAuthorization,
   type SyncOutcome,
 } from "./workspace.js";
-export { DeltaCoalescer } from "./coalesce.js";
+export { DeltaCoalescer, type CoalescerDeps } from "./coalesce.js";
+export {
+  SessionKnownSet,
+  contentHash,
+  type KnownChange,
+  type KnownDiffRead,
+  type KnownEntry,
+} from "./known-set.js";
 export {
   runAncestors,
   runDependents,

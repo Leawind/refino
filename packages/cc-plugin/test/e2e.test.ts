@@ -287,8 +287,11 @@ e2e("full delta pipeline over dist", () => {
     const root = await fixtureRoot();
     const server = new McpProc(root);
     try {
-      // Any tool call arms the lazily opened watched workspace.
+      // Any tool call arms the lazily opened watched workspace; show delivers
+      // P1PREMISE's body, so the external edit below becomes a known-set
+      // content change instead of a silently-unseen body edit.
       await server.call("list", {});
+      await server.call("show", { ids: ["P1PREMISE"] });
       // External edit outside the session, like a user's editor would do.
       await appendFile(join(root, ".refino/nodes/P1/PREMISE-premise.md"), "\n外部改动。\n");
       const refinoDir = join(root, ".refino");
@@ -311,11 +314,13 @@ e2e("full delta pipeline over dist", () => {
     });
     const output = parseHookOutput(run.stdout);
     expect(output.hookEventName).toBe("PostToolUse");
-    // Pure-id update: the changed id, never its summary; the pending line
-    // carries P1PREMISE's direct dependents — C1CHILD grounds on it, while
-    // R1ROOT is a root constraint in this fixture and must not appear.
-    expect(output.additionalContext).toContain("- 变更: P1PREMISE");
+    // Known-set semantics: the model saw P1PREMISE's body via show, so the
+    // body edit surfaces as a content flag (never the body text itself);
+    // the pending line carries P1PREMISE's direct dependents — C1CHILD
+    // grounds on it, while R1ROOT is a root constraint and must not appear.
+    expect(output.additionalContext).toContain("- P1PREMISE 正文已更新");
     expect(output.additionalContext).not.toContain("事实一");
+    expect(output.additionalContext).not.toContain("外部改动");
     expect(output.additionalContext).toContain("- 待审查");
     expect(output.additionalContext).toContain("C1CHILD");
     expect(output.additionalContext).not.toContain("R1ROOT");

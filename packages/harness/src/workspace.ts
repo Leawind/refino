@@ -1,6 +1,8 @@
 import { authorizationContextOf, convergeAuthorization } from "./authorization.js";
 import { defaultAuthorizationContext } from "./default.js";
 import { frozenZone, validateContext } from "./boundary.js";
+import { contentHash, SessionKnownSet, type KnownChange } from "./known-set.js";
+import { orientationRoots } from "./inject-text.js";
 import { HarnessSession } from "./session.js";
 import { byId } from "./types.js";
 import { orchestratorCredential, readAuthorizationDocument } from "./state.js";
@@ -88,6 +90,10 @@ export class RefinoWorkspace {
   #complete: boolean;
   /** Constraint ids of the frozen zone under the current context — the delta basis. */
   #zoneIds: Set<string>;
+  /** What node information has reached the model (docs/design.md, 会话已知集). */
+  #known: SessionKnownSet;
+  /** False until the first signContext; the first signing re-seeds the known set. */
+  #signedOnce = false;
   #unsubscribe: () => void = () => {};
 
   private constructor(store: RefinoStore) {
@@ -99,6 +105,7 @@ export class RefinoWorkspace {
       defaultAuthorizationContext(store.graph).context,
     );
     this.#zoneIds = constraintZoneIds(store.graph, this.#session.authorizationContext);
+    this.#known = new SessionKnownSet();
   }
 
   /** Open the store (watching `nodes/`) and build the initial session. */
@@ -110,10 +117,13 @@ export class RefinoWorkspace {
     await store.ready();
     const workspace = new RefinoWorkspace(store);
     workspace.#rebuildSession();
+    workspace.#seedKnown();
     workspace.#unsubscribe = store.onChange((change) => {
       const outcome = workspace.#absorb(change);
       if (change.origin !== "file") return; // own writes report through the write result
-      if (outcome.delta.length > 0 || outcome.pending.length > 0) onExternalSync?.(outcome);
+      // Push every file-origin change: with no anchors pending and no context
+      // delta, the known-set diff at fire time is the only thing left to say.
+      onExternalSync?.(outcome);
     });
     return workspace;
   }
@@ -157,6 +167,61 @@ export class RefinoWorkspace {
     return this.#session;
   }
 
+  /** The session known set; tool cores harvest their results into it. */
+  get known(): SessionKnownSet {
+    return this.#known;
+  }
+
+  /**
+   * Field-level changes of known nodes against the live graph; snapshots
+   * re-sync in the same pass, so each drained diff is the increment since
+   * the previous one. Async: body-seen nodes need the paged content hash to
+   * separate real edits from mtime-only rewrites.
+   */
+  knownDiff(): Promise<KnownChange[]> {
+    return this.#known.drainDiff(this.#store.graph, {
+      revisionOf: (id) => this.#store.entry(id)?.revision,
+      hashOf: async (id) => {
+        const content = await this.content(id);
+        return content === undefined ? undefined : contentHash(content);
+      },
+    });
+  }
+
+  /** Id-level harvest for ids a tool result listed without node fields. */
+  recordKnownIds(ids: readonly string[]): void {
+    for (const id of ids) {
+      const node = this.#store.graph.nodes.get(id);
+      this.#known.recordIdOnly(id, node?.type, this.#store.entry(id)?.revision);
+    }
+  }
+
+  /**
+   * Absorb a successful own write into the known set: the written node is
+   * recorded full (the model authored it) and its one-hop neighborhoods —
+   * before and after the write — re-sync silently, so a later external sync
+   * never reports the write back to its author. A deleted id drops its entry.
+   */
+  async absorbOwnWrite(
+    id: string,
+    prev?: { grounds: readonly string[]; children: readonly string[] },
+  ): Promise<void> {
+    const graph = this.#store.graph;
+    const node = graph.nodes.get(id);
+    if (node === undefined) {
+      this.#known.drop(id);
+      this.#known.reabsorb(graph, prev?.grounds ?? []);
+      return;
+    }
+    const content = await this.content(id);
+    this.#known.recordFull(
+      node,
+      this.#store.entry(id)?.revision,
+      content === undefined ? contentHash({ body: "" }) : contentHash(content),
+    );
+    this.#known.reabsorb(graph, [id, ...(prev?.grounds ?? []), ...(prev?.children ?? [])]);
+  }
+
   /** Paged node content on demand (body, rationale); the resident graph never holds it. */
   content(id: string) {
     return this.#store.content(id);
@@ -178,6 +243,10 @@ export class RefinoWorkspace {
    * authorization console, a user command or a model-initiated confirmation.
    * Unknown ids or non-constraint frozen ids throw `HarnessError`. Returns
    * the delta events the host injects to keep the prompt-cache prefix stable.
+   * The first signing while the known set is still pristine (a host adopting
+   * the resolved startup context before any tool ran) re-seeds it to the
+   * signed baseline; any later signing harvests the delta's ids — the model
+   * saw those ids in the injected events.
    */
   signContext(context: AuthorizationContext): DeltaEvent[] {
     validateContext(this.#store.graph, context);
@@ -186,7 +255,14 @@ export class RefinoWorkspace {
     this.#signed = true;
     this.#session = new HarnessSession(this.#store.graph, context);
     this.#zoneIds = constraintZoneIds(this.#store.graph, context);
-    return contextDelta(prevAnchors, prevZone, context, this.#zoneIds);
+    const delta = contextDelta(prevAnchors, prevZone, context, this.#zoneIds);
+    if (this.#signedOnce || this.#known.touched) {
+      this.recordKnownIds(delta.map((event) => event.id));
+    } else {
+      this.#seedSigned(context);
+    }
+    this.#signedOnce = true;
+    return delta;
   }
 
   /** Stop watching; the workspace stays readable but no longer syncs. */
@@ -231,6 +307,33 @@ export class RefinoWorkspace {
     this.#complete = defaultAuthorizationContext(graph).complete;
     this.#session = new HarnessSession(graph, next);
     this.#zoneIds = constraintZoneIds(graph, next);
+  }
+
+  /**
+   * Seed the known set to match the baseline injection: under the auto-anchor
+   * budget the anchor block covers every node; above it, the orientation's
+   * root-constraint set. Runs once at open, over the then-current graph — a
+   * change between the host's baseline render and this point is fail-soft
+   * miss territory (docs/design.md, cc 插件落地形态 boundaries).
+   */
+  #seedKnown(): void {
+    const graph = this.#store.graph;
+    this.#known.seedSummaries(this.#complete ? [...graph.nodes.values()] : orientationRoots(graph));
+  }
+
+  /**
+   * Re-seed to a signed context's baseline (anchors plus premises, the same
+   * set the initial injection rendered). Only used by the first signing:
+   * while untouched, the defaults seed still reflects nothing the model saw
+   * under the signed context.
+   */
+  #seedSigned(context: AuthorizationContext): void {
+    const graph = this.#store.graph;
+    const ids = new Set(context.anchors);
+    const nodes = [...graph.nodes.values()].filter(
+      (node) => ids.has(node.id) || node.type === "premise",
+    );
+    this.#known.seedSummaries(nodes);
   }
 
   /** The current context, for convergence reads (kept private to the class). */

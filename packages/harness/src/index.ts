@@ -38,11 +38,15 @@ export type {
 export {
   authorizationStatusText,
   initialContextText,
+  orientationRoots,
   orientationText,
   reminderFrame,
   updateText,
 } from "./inject-text.js";
 export type { AuthorizationOrigin } from "./inject-text.js";
+// Type-only: the known set itself is node-bound (content hashing), but its
+// change vocabulary rides the browser-safe updateText signature.
+export type { KnownChange, KnownEntry } from "./known-set.js";
 export { createRenderKit, type RenderKit } from "./render.js";
 export { createToolText, PARAM_TEXT, type ToolText } from "./descriptions.js";
 export { depthLite, fullLite, issueLite, lite } from "./shapes.js";

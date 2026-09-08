@@ -38,14 +38,20 @@ export function createRefinoServer(options: ServerOptions): Server {
     refinoDir ??= await findRefinoDir(options.projectDir);
     if (refinoDir === undefined) return undefined;
     const dir = refinoDir;
-    const coalescer = new DeltaCoalescer(
-      EXTERNAL_SYNC_INTERVAL_MS,
-      (delta, changed, deleted, pending) => {
-        const text = updateText(delta, changed, deleted, pending);
+    // Late-bound through the holder: the coalescer needs the workspace for
+    // fire-time known-set diffs, and the workspace's sync listener needs the
+    // coalescer. No event can interleave between open() resolving and the
+    // holder assignment (no await in between).
+    const sync: { coalescer?: DeltaCoalescer } = {};
+    const workspace = await RefinoWorkspace.open(dir, (outcome) => sync.coalescer?.push(outcome));
+    sync.coalescer = new DeltaCoalescer(EXTERNAL_SYNC_INTERVAL_MS, {
+      knownDiff: () => workspace.knownDiff(),
+      emit: (delta, pending, known) => {
+        const text = updateText(delta, known, pending);
         if (text !== undefined) void enqueueUpdate(dir, text);
       },
-    );
-    return RefinoWorkspace.open(dir, (outcome) => coalescer.push(outcome));
+    });
+    return workspace;
   };
 
   const table = createToolTable({

@@ -180,8 +180,9 @@ describe("plugin mounting on a real Cordis context", () => {
       timeout: SYNC_SETTLE_MS,
     });
     const text = fake.injected.join("\n");
-    // Pure-id update: the change source rides along, the summary does not.
-    expect(text).toContain("- 变更: P2NEW");
+    // The new node is unknown to the session: no field-level line for it and
+    // the summary never rides along — only the anchor-membership delta.
+    expect(text).toContain("- 新增作用域锚点: P2NEW");
     expect(text).not.toContain("新前提");
   });
 
@@ -197,7 +198,10 @@ describe("plugin mounting on a real Cordis context", () => {
 
       // The incident repro: a rewrite wave (e.g. a formatter) fires one batch,
       // then a second content-identical rewrite fires another beyond the
-      // coalescing window. Both render identically — only the first injects.
+      // coalescing window. The known-set diff recognizes byte-identical
+      // content (hash equal), so no field-level line fires — the pending
+      // reminder is all the first batch injects; the second renders the
+      // same text and drops.
       const { writeFile } = await import("node:fs/promises");
       const premisePath = join(root, ".refino/nodes/P1/PREMISE-premise.md");
       for (let i = 0; i < 2; i++) {
@@ -205,7 +209,9 @@ describe("plugin mounting on a real Cordis context", () => {
         await new Promise((resolve) => setTimeout(resolve, SYNC_SETTLE_MS));
       }
       expect(fake.injected).toHaveLength(1);
-      expect(fake.injected[0]).toContain("P1PREMISE");
+      expect(fake.injected[0]).toContain("- 待审查");
+      expect(fake.injected[0]).toContain("C1CHILD");
+      expect(fake.injected[0]).not.toContain("正文已更新");
     },
   );
 

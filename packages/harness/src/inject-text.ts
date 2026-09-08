@@ -1,4 +1,5 @@
 import { renderContext } from "./context.js";
+import type { KnownChange } from "./known-set.js";
 import type { Graph, RefinoNode } from "refino";
 import type { AuthorizationContext, DeltaEvent, ToolRefs } from "./types.js";
 
@@ -91,15 +92,24 @@ export function authorizationStatusText(origin: AuthorizationOrigin, tools: Tool
 const ORIENTATION_ROOTS = 8;
 
 /**
+ * Root constraints shown in the over-budget orientation (docs/design.md, dsh
+ * 插件落地形态: 超预算时不静默). Shared with the known-set seeding so the
+ * session's tracked baseline matches what the orientation actually injected.
+ */
+export function orientationRoots(graph: Graph): RefinoNode[] {
+  return [...graph.nodes.values()]
+    .filter((node) => node.type === "constraint" && node.grounds.length === 0)
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    .slice(0, ORIENTATION_ROOTS);
+}
+
+/**
  * Minimal orientation for graphs above the auto-anchor budget (docs/design.md,
  * dsh 插件落地形态: 超预算时不静默) — enough for the model to locate nodes by
  * search instead of working without any project context.
  */
 export function orientationText(graph: Graph, tools: ToolRefs): string {
-  const roots = [...graph.nodes.values()]
-    .filter((node) => node.type === "constraint" && node.grounds.length === 0)
-    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
-    .slice(0, ORIENTATION_ROOTS);
+  const roots = orientationRoots(graph);
   const lines = [
     `已连接 CRG（约束细化图，共 ${graph.nodes.size} 个节点）。图超过自动锚点预算，本次未注入全图摘要。`,
   ];
@@ -118,32 +128,77 @@ export function orientationText(graph: Graph, tools: ToolRefs): string {
 }
 
 /**
- * One injected update: changed/deleted node ids, authorization-context delta
- * events and pending-review ids — pure ids only; summaries live in the anchor
- * block and full records ride the show tool, so re-sending them here is pure
- * duplication. The rendered text is a pure function of its inputs, which the
- * injection-side identical-text guard relies on.
+ * One injected update: session-known-set field-level changes, authorization
+ * delta events and the pending-review set. Known changes carry old→new and
+ * added/removed values because they are the only place the model learns what
+ * shifted since it last looked; nodes never seen stay silent (the known set
+ * is the notification's reference frame, docs/design.md 增量更新与缓存友好).
+ * Pending review stays change-source-derived and unfiltered: it is write
+ * safety (re-check upstream before modifying), independent of what the
+ * model has read. The rendered text is a pure function of its inputs, which
+ * the injection-side identical-text guard relies on.
  */
 export function updateText(
   delta: DeltaEvent[],
-  changed: string[],
-  deleted: string[],
+  known: KnownChange[],
   pending: RefinoNode[],
 ): string | undefined {
   const lines: string[] = [];
-  if (changed.length > 0) lines.push(`- 变更: ${changed.join(", ")}`);
-  if (deleted.length > 0) lines.push(`- 删除: ${deleted.join(", ")}`);
+  for (const change of [...known].sort(CHANGE_ORDER)) {
+    lines.push(knownLine(change));
+  }
   for (const event of delta) {
     const label = DELTA_LABELS[event.type];
     if (label) lines.push(`- ${label}: ${event.id}`);
   }
   if (pending.length > 0) {
     lines.push(
-      `- 待审查（直接依赖上述节点，修改前先复核）: ${pending.map((node) => node.id).join(", ")}`,
+      `- 待审查（其直接上游已变化，修改前先复核）: ${pending.map((node) => node.id).join(", ")}`,
     );
   }
   if (lines.length === 0) return undefined;
   return frame(["CRG 上下文更新：", ...lines].join("\n"));
+}
+
+const CHANGE_ORDER = (a: KnownChange, b: KnownChange): number =>
+  a.id < b.id ? -1 : a.id > b.id ? 1 : KIND_RANK[a.kind] - KIND_RANK[b.kind];
+
+const KIND_RANK: Record<KnownChange["kind"], number> = {
+  deleted: 0,
+  rebuilt: 1,
+  summary: 2,
+  grounds: 3,
+  children: 4,
+  content: 5,
+  touched: 6,
+} as const;
+
+function knownLine(change: KnownChange): string {
+  switch (change.kind) {
+    case "deleted":
+      return change.summary === undefined
+        ? `- ${change.id} 已删除`
+        : `- ${change.id} 已删除（原摘要：${change.summary}）`;
+    case "rebuilt":
+      return `- ${change.id} 以另一类型重建（${change.fromType} → ${change.toType}），此前信息已失效`;
+    case "summary":
+      return `- ${change.id} 摘要变更：${change.from} → ${change.to}`;
+    case "grounds":
+      return `- ${change.id} 依据变更：${listChange(change.added, change.removed)}`;
+    case "children":
+      return `- ${change.id} 直接下游变更：${listChange(change.added, change.removed)}`;
+    case "content":
+      return `- ${change.id} 正文已更新（如仍需引用请重新获取）`;
+    case "touched":
+      return `- ${change.id} 已变更`;
+  }
+}
+
+function listChange(added: string[], removed: string[]): string {
+  const parts: string[] = [];
+  if (added.length > 0) parts.push(`新增 ${added.join("、")}`);
+  if (removed.length > 0) parts.push(`移除 ${removed.join("、")}`);
+  return parts.join("；");
 }
 
 const DELTA_LABELS: Record<DeltaEvent["type"], string> = {

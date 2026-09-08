@@ -98,7 +98,7 @@ export function createSigningCore(deps: SigningDeps): SigningCore {
       anchors: ws.authorizationContext.anchors,
       frozen: doc.frozenFrontier,
     });
-    deps.inject(updateText(delta, [], [], []));
+    deps.inject(updateText(delta, [], []));
     deps.setOrigin({ source: "session", signedAt: doc.signedAt });
 
     return {
@@ -119,10 +119,13 @@ export function createSigningCore(deps: SigningDeps): SigningCore {
     const graph = ws.graph;
     const zone = frozenZone(graph, ws.authorizationContext);
     const origin = deps.origin();
+    const frontier = [...ws.authorizationContext.frozen];
+    // The result lists frontier ids without node fields; harvest id-level.
+    ws.recordKnownIds(frontier);
     return {
       source: origin.source,
       signed_at: origin.signedAt,
-      frontier: [...ws.authorizationContext.frozen],
+      frontier,
       frozen_constraints: zone.filter((n) => n.type === "constraint").length,
       frozen_premises: zone.filter((n) => n.type === "premise").length,
       anchors_complete: defaultAuthorizationContext(graph).complete,

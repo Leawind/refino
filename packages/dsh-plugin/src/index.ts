@@ -73,7 +73,7 @@ async function startSession(
   if (refinoDir === undefined) return;
 
   // Identical-text guard over injected updates (docs/design.md, delta 注入
-  // 降噪): the rendered update is a pure function of changed/deleted/delta/
+  // 降噪): the rendered update is a pure function of known changes/delta/
   // pending, so an identical text carries zero new information (e.g. an
   // mtime-only rewrite re-firing the same batch) and is dropped. Shared by
   // the external-sync and signing lanes so the two cannot duplicate either.
@@ -83,15 +83,20 @@ async function startSession(
     lastUpdateText = text;
     inject(agent, text);
   };
-  const coalescer = new DeltaCoalescer(
-    EXTERNAL_SYNC_INTERVAL_MS,
-    (delta, changed, deleted, pending) => {
-      injectUpdate(updateText(delta, changed, deleted, pending));
-    },
+  // Late-bound through the holder: the coalescer needs the workspace for
+  // fire-time known-set diffs, and the workspace's sync listener needs the
+  // coalescer. No event can interleave between open() resolving and the
+  // holder assignment (no await in between).
+  const sync: { coalescer?: DeltaCoalescer } = {};
+  const workspace = await RefinoWorkspace.open(refinoDir, (outcome) =>
+    sync.coalescer?.push(outcome),
   );
-  const workspace = await RefinoWorkspace.open(refinoDir, (outcome) => coalescer.push(outcome));
+  sync.coalescer = new DeltaCoalescer(EXTERNAL_SYNC_INTERVAL_MS, {
+    knownDiff: () => workspace.knownDiff(),
+    emit: (delta, pending, known) => injectUpdate(updateText(delta, known, pending)),
+  });
   workspaces.set(agent, workspace);
-  coalescers.set(agent, coalescer);
+  coalescers.set(agent, sync.coalescer);
   if (workspace.issues.length > 0) {
     ctx.logger.warn(
       "refino: graph loaded with %d issue(s) for %s",
