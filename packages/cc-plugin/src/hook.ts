@@ -33,6 +33,8 @@ export interface HookPayload {
   cwd?: string;
   /** SessionStart source: startup | resume | clear | compact. */
   source?: string;
+  /** The event that fired this hook; the output must echo it back. */
+  hook_event_name?: string;
 }
 
 const TOOLS = toolRefs(MODEL_TOOL_PREFIX);
@@ -51,11 +53,24 @@ async function readPayload(): Promise<HookPayload> {
   }
 }
 
+/** Events this plugin answers with an injection. */
+export type InjectableEvent = "SessionStart" | "UserPromptSubmit" | "PostToolUse";
+
 /** The Claude Code hook-output frame: one additionalContext injection. */
-export function emitHookOutput(event: "SessionStart" | "UserPromptSubmit", text: string): string {
+export function emitHookOutput(event: InjectableEvent, text: string): string {
   return `${JSON.stringify({
     hookSpecificOutput: { hookEventName: event, additionalContext: text },
   })}\n`;
+}
+
+/**
+ * The event name a sync output must carry: the host validates the echoed
+ * `hookEventName` against the event that fired the hook and drops mismatches,
+ * so the same `sync` command serves both UserPromptSubmit and PostToolUse
+ * only by echoing the payload's own event name.
+ */
+export function syncEvent(payload: HookPayload): InjectableEvent {
+  return payload.hook_event_name === "PostToolUse" ? "PostToolUse" : "UserPromptSubmit";
 }
 
 /** Resolve the working directory of the hooking session. */
@@ -133,7 +148,7 @@ async function main(): Promise<void> {
       process.stdout.write(emitHookOutput("SessionStart", outcome.text));
   } else if (command === "sync") {
     const text = await sync(payload);
-    if (text !== undefined) process.stdout.write(emitHookOutput("UserPromptSubmit", text));
+    if (text !== undefined) process.stdout.write(emitHookOutput(syncEvent(payload), text));
   }
 }
 

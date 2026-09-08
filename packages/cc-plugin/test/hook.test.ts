@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { constraint, createRefino, premise, removeRefino } from "@refino/testkit";
-import { emitHookOutput, sessionStart, sync } from "../src/hook.js";
+import { emitHookOutput, sessionStart, sync, syncEvent } from "../src/hook.js";
 import { enqueueUpdate } from "../src/queue.js";
 
 /**
@@ -131,5 +131,16 @@ describe("emitHookOutput", () => {
     expect(output).toEqual({
       hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: "text" },
     });
+    expect(JSON.parse(emitHookOutput("PostToolUse", "text")).hookSpecificOutput.hookEventName).toBe(
+      "PostToolUse",
+    );
+  });
+
+  it("echoes the firing event for sync outputs (the host drops mismatches)", () => {
+    // The same sync command is mounted on both events; the output must carry
+    // the event that actually fired or the host discards it.
+    expect(syncEvent({ hook_event_name: "PostToolUse" })).toBe("PostToolUse");
+    expect(syncEvent({ hook_event_name: "UserPromptSubmit" })).toBe("UserPromptSubmit");
+    expect(syncEvent({})).toBe("UserPromptSubmit");
   });
 });
