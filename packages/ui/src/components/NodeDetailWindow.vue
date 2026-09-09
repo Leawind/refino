@@ -90,18 +90,16 @@ watch([renderedBody, () => store.state.theme, previewBody] as const, ([, theme, 
 });
 
 /**
- * Save is only meaningful when something actually changed (or when a new
- * node has the required content), so the button stays disabled otherwise.
+ * Save is only meaningful when something actually changed, so the button
+ * stays disabled otherwise. The body may be empty (creation included).
  */
 const dirty = computed(() => {
   const node = selected.value;
-  if (node === null) return form.body.trim() !== "";
+  if (node === null) return true;
   return changedFields(toEditorFields(node), form).length > 0;
 });
 
-const canSave = computed(() =>
-  creating.value ? form.body.trim() !== "" : dirty.value && form.body.trim() !== "",
-);
+const canSave = computed(() => (creating.value ? true : dirty.value));
 
 function payload(): NodePayload {
   return {

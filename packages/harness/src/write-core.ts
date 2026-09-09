@@ -203,9 +203,6 @@ async function updatePremiseNode(
   node: RefinoNode & { type: "premise" },
   args: UpdateNodeArgs,
 ): Promise<WriteResult> {
-  if (args.body !== undefined && args.body === "") {
-    return { ok: false, error: "body 不能为空" };
-  }
   if (args.confirmed !== undefined && args.confirmed !== "" && !isValidConfirmed(args.confirmed)) {
     return invalidConfirmed(args.confirmed);
   }
@@ -236,9 +233,6 @@ async function updateConstraintNode(
   node: RefinoNode & { type: "constraint" },
   args: UpdateNodeArgs,
 ): Promise<WriteResult> {
-  if (args.body !== undefined && args.body === "") {
-    return { ok: false, error: "body 不能为空" };
-  }
   // `confirmed` does not apply to constraints; per the misplaced-field policy
   // it is silently ignored instead of rejected. Grounds validation runs
   // inside the store's write method; a rejected change never touches the disk.

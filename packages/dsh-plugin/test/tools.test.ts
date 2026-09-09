@@ -186,6 +186,17 @@ describe("write tools", () => {
     expect(ws.graph.nodes.get(ok.id)!.type).toBe("premise");
   });
 
+  it("refino_create_premise accepts an empty body", async () => {
+    const ws = await fixtureWorkspace();
+    const tools = toolset(ws);
+    const ok = await run<{ ok: boolean; id: string }>(tools.refino_create_premise, {
+      body: "",
+    });
+    expect(ok.ok).toBe(true);
+    const reloaded = await readNode(ws.refinoDir, ok.id);
+    expect(reloaded.content?.body).toBe("");
+  });
+
   it("refino_create_constraint validates grounds against a prospective graph", async () => {
     const ws = await fixtureWorkspace();
     const tools = toolset(ws);
@@ -279,14 +290,16 @@ describe("write tools", () => {
       grounds: ["NOSUCH1"],
     });
     expect(badGrounds.ok).toBe(false);
-    // Nothing to do is an error; so is an empty body.
+    // Nothing to do is an error; an empty body clears the content.
     const nothing = await run<{ ok: boolean }>(tools.refino_update_node, { id: "C1CHILD" });
     expect(nothing.ok).toBe(false);
     const emptyBody = await run<{ ok: boolean }>(tools.refino_update_node, {
       id: "C1CHILD",
       body: "",
     });
-    expect(emptyBody.ok).toBe(false);
+    expect(emptyBody.ok).toBe(true);
+    const emptied = await readNode(ws.refinoDir, "C1CHILD");
+    expect(emptied.content?.body).toBe("");
   });
 
   it("refino_delete_node refuses frozen targets and nodes with dependents", async () => {

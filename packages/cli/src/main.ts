@@ -238,7 +238,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
       new Command("premise")
         .description("create a premise node")
         .option("--id <text>", "explicit node id (3-16 characters: A-Z, 0-9, _)")
-        .requiredOption("--body <text>", "fact content (markdown body)")
+        .option("--body <text>", "fact content (markdown body); may be empty")
         .option("--summary <text>", "short summary for relevance checks (stored in frontmatter)")
         .option("--confirmed <timestamp>", "RFC 3339 timestamp with an explicit UTC offset")
         .option("--now", 'confirm now: use the current UTC time as "confirmed"')
@@ -246,7 +246,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
           run(cmd, async (opts) => {
             const { id, body, summary, confirmed, now } = cmd.opts() as {
               id?: string;
-              body: string;
+              body?: string;
               summary?: string;
               confirmed?: string;
               now?: boolean;
@@ -264,7 +264,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
             return withStoreForWrite(io, opts, async (store) => {
               const outcome = await store.createPremise({
                 id,
-                body,
+                body: body ?? "",
                 summary,
                 confirmed:
                   now === true
@@ -283,7 +283,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
       new Command("constraint")
         .description("create a constraint node")
         .option("--id <text>", "explicit node id (3-16 characters: A-Z, 0-9, _)")
-        .requiredOption("--body <text>", "decision content (markdown body)")
+        .option("--body <text>", "decision content (markdown body); may be empty")
         .option("--grounds <ids>", "comma-separated ground node ids")
         .option("--rationale <text>", "why the decision was made")
         .option("--summary <text>", "short summary for relevance checks (stored in frontmatter)")
@@ -291,7 +291,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
           run(cmd, async (opts) => {
             const { id, body, grounds, rationale, summary } = cmd.opts() as {
               id?: string;
-              body: string;
+              body?: string;
               grounds?: string;
               rationale?: string;
               summary?: string;
@@ -312,7 +312,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
               // pre-existing parse issues elsewhere do not block creation.
               const outcome = await store.createConstraint({
                 id,
-                body,
+                body: body ?? "",
                 grounds: groundIds.length > 0 ? groundIds : undefined,
                 rationale,
                 summary,

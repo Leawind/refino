@@ -665,6 +665,20 @@ describe("refino cli", () => {
     }
   });
 
+  it("new premise without --body creates a node with empty content", async () => {
+    const emptyRoot = await adoptedRoot();
+    try {
+      const { code } = await run(["--root", emptyRoot, "new", "premise", "--id", "1A2B3C4D"]);
+      expect(code).toBe(0);
+      const show = await run(["--root", emptyRoot, "--json", "show", "1A2B3C4D"]);
+      expect(show.code).toBe(0);
+      const [group] = JSON.parse(show.out) as Array<{ results: Array<{ body: string }> }>;
+      expect(group!.results[0]!.body).toBe("");
+    } finally {
+      await removeRefino(emptyRoot);
+    }
+  });
+
   it("new constraint creates a constraint node with grounds and rationale", async () => {
     const emptyRoot = await adoptedRoot();
     try {
