@@ -31,8 +31,7 @@
 - 所有包都必须是跨平台的，不能假设文件路径是 Unix 或 Windows 风格：平台相关的路径操作一律通过 `node:path` 等平台抽象完成
 - 提交信息用英语写
 - 文档用中文，代码注释用英文
-- refino 接入 harness 的方式不止一种：针对特定 harness 开发的插件（如 `@refino/dsh-plugin`），以及基于 agent skill 的通用方式（见 docs/design.md“通用接入形态”）。设计与实现一种方式时须考虑对另一种方式的影响，不得默认唯一接入方式
-- 面向用户复制的指令（如根 README 的接入指令）按环境分支、同时覆盖两种接入方式（特定 harness 装插件、其余生成通用 skill），不得预设唯一方式或遗漏任一方式
+- refino 接入 harness 的唯一方式是针对特定 harness 开发的插件（当前为 `@refino/dsh-plugin`）；不设通用兜底接入方式
 - 修改文件时注意单个源码文件通常不多于500行，若过长可考虑拆分、重构相关逻辑，但若理由充分也可保留较长的文件
 - 若踩到值得记录的坑，可在任务完成后报告
 
@@ -41,7 +40,7 @@
 采用 Conventional Commits，格式为 `type(scope): subject`，scope 可省略。
 
 - type 取值：`feat`、`fix`、`docs`、`refactor`、`chore`、`build`、`ci`、`test`、`style`
-- scope 取值：包名（`ui`、`cli`、`storage`、`refino`、`harness`、`dsh-plugin`、`cc-plugin`、`testkit`）或流程/文档名（`design`、`crg`、`agents`、`release`、`npm`）；多包联动用逗号并列，如 `refactor(harness,cli)!:`
+- scope 取值：包名（`ui`、`cli`、`storage`、`refino`、`harness`、`dsh-plugin`、`testkit`）或流程/文档名（`design`、`crg`、`agents`、`release`、`npm`）；多包联动用逗号并列，如 `refactor(harness,cli)!:`
 - 破坏性变更：在 `:` 前加 `!`，并在 body 末尾附 `BREAKING CHANGE:` 脚注说明破坏内容
 - subject 用英语，小写开头（专有名词、包名除外），祈使或一般现在时，结尾不加句号；多个要点可用分号或破折号串联
 - body 约 72 字符折行，先动机后行为，可用 `-` 列表
