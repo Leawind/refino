@@ -50,16 +50,14 @@ export default {
     sign: "签发",
   },
   review: {
-    bell: "变更与待审查",
+    bell: "变更记录",
     title: "审阅",
     changes: "最近变更",
-    pending: "待审查约束",
     none: "暂无",
     deleted: "已删除",
     originApi: "界面写入",
     originFile: "外部写入",
     locate: "定位",
-    ack: "已复核",
   },
   inline: {
     toggle: "展开 / 收起详情",

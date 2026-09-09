@@ -24,17 +24,13 @@
 
 ```
 .refino/
-├── .gitignore
-├── nodes/
-│   └── <id_1>/
-│       └── <id_2>-<node_type>.md
-└── state/            （通用接入形态的机器本地审核台账，git 忽略，非本包职责）
-    └── review.json
+└── nodes/
+    └── <id_1>/
+        └── <id_2>-<node_type>.md
 ```
 
 - 所有节点放入单一顶层目录 `nodes/`，不区分前提与约束子目录。
-- `.gitignore` 由 `refino init` 创建，内容为锚定规则 `/state/`，将状态车道排除出版本控制；该文件本身随 git 版本化，克隆自动继承。写入路径不管理它：规则被移除后 `state/` 以未跟踪文件显形于 `git status`，恢复规则或改由上层管理由用户决定。
-- `state/` 由 `@refino/cli` 的审核状态车道读写，存储层不感知其存在；`.refino/` 目录名专属仓库内 CRG 存储，不存在仓库外的用户级 refino 目录。
+- `.refino/` 目录名专属仓库内 CRG 存储，不存在仓库外的用户级 refino 目录；存储层不感知仓库内除 `nodes/` 之外的任何文件。
 - `id_1` 为节点 ID 的前 2 个字符，作为分片目录名；`id_2` 为 ID 的剩余字符。`<node_type>` 取 `premise` 或 `constraint`。
 - `-` 是 `id_2` 与 `node_type` 之间的专属分隔符：节点 ID 不含 `-`，因此该分隔符无歧义。
 - Windows 保留设备名规避：文件名主段 `<id_2>-<node_type>` 必含连字符，而所有保留名均不含连字符，故不可能命中；`id_1` 固定 2 字符，亦不可能命中保留名。

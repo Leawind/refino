@@ -1,15 +1,11 @@
 import { join } from "node:path";
-import { rm } from "node:fs/promises";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createWebApp } from "../src/web/server.js";
-import { RefinoStore } from "@refino/storage";
-import { WebState } from "../src/web/web-state.js";
 import { constraint, createRefino, premise, removeRefino } from "@refino/testkit";
 
 /**
- * Project-overview and review endpoints (docs/design.md, "后端 API 契约"):
- * /api/stats counts, the roots filter on /api/search, and the derived
- * pending-review set served by /api/pending.
+ * Project-overview endpoints (docs/design.md, "后端 API 契约"): /api/stats
+ * counts and the roots/unreferenced filters on /api/search.
  */
 
 const P1 = "1A2B3C4D";
@@ -86,92 +82,5 @@ describe("GET /api/search unreferenced filter", () => {
     expect(body.nodes).toHaveLength(1);
     expect(body.nodes[0]!.type).toBe("premise");
     expect(body.nodes[0]!.id).not.toBe("1A2B3C4D");
-  });
-});
-
-describe("GET /api/pending", () => {
-  // All tests share one fixture repository, hence one review ledger; each
-  // starts by acknowledging leftovers so assertions see a known state.
-  const newApp = (): ReturnType<typeof createWebApp> => createWebApp({ refinoDir });
-
-  async function ack(ids: string[]): Promise<void> {
-    const res = await app().request("/api/pending/ack", {
-      method: "POST",
-      body: JSON.stringify({ ids }),
-    });
-    expect(res.status).toBe(200);
-  }
-
-  it("records the direct dependents of API writes into the ledger", async () => {
-    await ack([C1]);
-    const target = newApp();
-    const initial = await target.request("/api/pending");
-    expect(((await initial.json()) as { nodes: unknown[] }).nodes).toEqual([]);
-
-    const updated = await target.request(`/api/nodes/${R1}`, {
-      method: "PUT",
-      body: JSON.stringify({ body: "根约束一（修订）。", summary: "根约束一。", grounds: [] }),
-    });
-    expect(updated.status).toBe(200);
-
-    const pending = await target.request("/api/pending");
-    const body = (await pending.json()) as {
-      revision: number;
-      nodes: Array<{ id: string; type: string; source: string; kind: string }>;
-    };
-    expect(body.nodes.map((n) => n.id)).toEqual([C1]);
-    expect(body.nodes[0]).toMatchObject({ type: "constraint", source: R1, kind: "update" });
-  });
-
-  it("persists across reloads; acknowledgement clears entries", async () => {
-    await ack([C1]);
-    const target = newApp();
-    const touched = await target.request(`/api/nodes/${R1}`, {
-      method: "PUT",
-      body: JSON.stringify({ body: "根约束一（再修订）。", summary: "根约束一。", grounds: [] }),
-    });
-    expect(touched.status).toBe(200);
-    const before = (await (await target.request("/api/pending")).json()) as {
-      nodes: Array<{ id: string }>;
-    };
-    expect(before.nodes.map((n) => n.id)).toEqual([C1]);
-
-    // Review obligations survive reloads — they resolve by acknowledgement,
-    // not by restarting the accumulation window.
-    const reloaded = await target.request("/api/reload", { method: "POST" });
-    expect(reloaded.status).toBe(200);
-    const afterReload = (await (await target.request("/api/pending")).json()) as {
-      nodes: Array<{ id: string }>;
-    };
-    expect(afterReload.nodes.map((n) => n.id)).toEqual([C1]);
-
-    await ack([C1]);
-    const pending = await target.request("/api/pending");
-    expect(((await pending.json()) as { nodes: unknown[] }).nodes).toEqual([]);
-  });
-});
-
-describe("pending derivation for externally deleted nodes", () => {
-  it("adds the pre-mutation dependents of a deleted change target", async () => {
-    // A fresh web state over the same directory shares the ledger.
-    const store = RefinoStore.open(refinoDir);
-    const web = new WebState(store, refinoDir);
-    try {
-      await store.ready();
-      await web.ack([C1]);
-      expect(await web.pending()).toHaveLength(0);
-
-      // Deleting P1 externally leaves C1 (its dependent, captured pre-mutation)
-      // reviewing the removal.
-      await rm(join(refinoDir, "nodes", "1A", "2B3C4D-premise.md"));
-      const event = await store.applyChange({ deleted: [P1], origin: "file" });
-      expect(event?.deleted).toEqual([P1]);
-      const pending = await web.pending();
-      expect(pending.map((n) => n.id)).toEqual([C1]);
-      expect(pending[0]).toMatchObject({ source: P1, kind: "delete" });
-    } finally {
-      web.close();
-      store.close();
-    }
   });
 });

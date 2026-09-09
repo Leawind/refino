@@ -21,8 +21,6 @@ import {
 import {
   getSearch,
   getStats,
-  getPending,
-  postPendingAck,
   postQueryExpand,
   postQueryGrounds,
   postQueryNeighbors,
@@ -109,7 +107,6 @@ function createWeb(options: WebAppOptions): WebParts {
           RefinoStore.open(options.refinoDir, {
             watch: { debounceMs: options.watchDebounceMs ?? 500 },
           }),
-          options.refinoDir,
         )
       : undefined;
 
@@ -188,19 +185,11 @@ function createWeb(options: WebAppOptions): WebParts {
     "/api/stats",
     api((c, web) => getStats(c, web)),
   );
-  app.get(
-    "/api/pending",
-    api((c, web) => getPending(c, web)),
-  );
-  app.post(
-    "/api/pending/ack",
-    api((c, web) => postPendingAck(c, web)),
-  );
 
   // SSE change feed: an initial snapshot event, then one event per applied
   // change batch. Reconnecting clients compare revisions and refresh
   // wholesale (docs/design.md, "外部变更同步"). The wire event keeps the
-  // documented shape: affected stays store-internal (it feeds /api/pending).
+  // documented shape: affected stays store-internal.
   app.get("/api/events", (c) => {
     if (web === undefined) return unavailable(c);
     return streamSSE(c, async (stream) => {
@@ -251,8 +240,8 @@ function createWeb(options: WebAppOptions): WebParts {
 
 /**
  * The SSE wire event: the documented shape (docs/design.md, "外部变更同步").
- * The change's `affected` stays store-internal — it feeds /api/pending, not
- * the client feed.
+ * The change's `affected` stays store-internal — it is write-path metadata,
+ * not part of the client feed.
  */
 function toWireEvent(change: StoreChange): Omit<StoreChange, "affected"> {
   return {

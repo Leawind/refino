@@ -25,7 +25,6 @@ function fakeClient(): RefinoClient {
       throw new Error("not used");
     },
     fetchIssues: async () => ({ ok: true, issues: [], revision: 0 }),
-    fetchPending: async () => ({ revision: 0, nodes: [] }),
     reloadGraph: async () => ({ revision: 0, changed: [], deleted: [] }),
     createNode: async () => {
       throw new Error("not used");

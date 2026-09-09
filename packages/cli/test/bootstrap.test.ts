@@ -1,36 +1,23 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdirSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { constraint, createRefino, premise, removeRefino } from "@refino/testkit";
 import { main } from "../src/main.js";
 import type { CliIo } from "../src/format.js";
 
 /**
- * Bootstrap commands: init, context, search, guide, skill. Workspace state
- * lands inside each fixture's own .refino/, so fixtures cannot leak into
- * each other.
+ * Adoption: `refino init` scaffolds the bare skeleton; an existing .refino/
+ * is refused so an adopted repository is never mistaken for a fresh one.
  */
-const P1 = "1A2B3C4D";
-const A1 = "A1B2C3D4";
-const D4 = "D4E5F6G7";
-const Z9 = "Z9Y8X7W6";
 
-let graphRoot: string;
 let bareRoot: string;
 
 beforeAll(async () => {
-  graphRoot = await createRefino({
-    "nodes/1A/2B3C4D-premise.md": premise(P1, "PostgreSQL 16 is in use."),
-    "nodes/A1/B2C3D4-constraint.md": constraint(A1, undefined, "All data lives in PostgreSQL."),
-    "nodes/D4/E5F6G7-constraint.md": constraint(D4, [P1, A1], "Access goes through repositories."),
-    "nodes/Z9/Y8X7W6-constraint.md": constraint(Z9, undefined, "No stored procedures."),
-  });
   bareRoot = await mkdtemp(join(tmpdir(), "refino-bare-"));
 });
 
 afterAll(async () => {
-  await removeRefino(graphRoot);
   await rm(bareRoot, { recursive: true, force: true });
 });
 
@@ -50,100 +37,11 @@ describe("refino init", () => {
     const { code, out } = await run(["--root", bareRoot, "init"]);
     expect(code).toBe(0);
     expect(out).toContain("initialized");
-    await expect(readFile(join(bareRoot, ".refino", "nodes"), "utf8")).rejects.toMatchObject({
-      code: "EISDIR",
-    });
-    // The committed gitignore keeps the state lane out of version control.
-    const gitignore = await readFile(join(bareRoot, ".refino", ".gitignore"), "utf8");
-    expect(gitignore).toContain("/state/");
+    // The skeleton is the nodes/ graph directory; the CRG starts empty.
+    expect(() => mkdirSync(join(bareRoot, ".refino", "nodes"))).toThrow(/EEXIST/);
 
     const again = await run(["--root", bareRoot, "init"]);
     expect(again.code).toBe(1);
     expect(again.err).toContain("already exists");
-  });
-});
-
-describe("refino context", () => {
-  it("renders the graph overview with root constraints", async () => {
-    const { code, out } = await run(["--root", graphRoot, "context"]);
-    expect(code).toBe(0);
-    expect(out).toContain("# CRG 概览");
-    expect(out).toContain("3 个约束、1 个前提");
-    // Roots are the grounds-less constraints; D4 grounds on [P1, A1] and is
-    // therefore not listed.
-    expect(out).toContain(`${A1}  constraint  All data lives in PostgreSQL.`);
-    expect(out).toContain(`${Z9}  constraint  No stored procedures.`);
-    expect(out).not.toContain(D4);
-    expect(out).toContain("refino search");
-    expect(out).toContain("refino guide");
-  });
-});
-
-describe("refino search", () => {
-  it("matches id prefixes and summary substrings with pagination", async () => {
-    const { code, out } = await run(["--root", graphRoot, "search", "PostgreSQL"]);
-    expect(code).toBe(0);
-    expect(out).toContain(A1);
-    expect(out).toContain(P1);
-
-    const page = await run(["--root", graphRoot, "search", "--limit", "1"]);
-    expect(page.out).toContain("--cursor");
-    const cursor = /--cursor ([0-9A-HJKMNP-TV-Z]{8})/.exec(page.out)![1]!;
-
-    const resumed = await run(["--root", graphRoot, "search", "--limit", "1", "--cursor", cursor]);
-    expect(resumed.code).toBe(0);
-    // The second page must not repeat the first page's row.
-    const firstRow = /^([0-9A-HJKMNP-TV-Z]{8})\s/m.exec(page.out)![1]!;
-    const secondRow = /^([0-9A-HJKMNP-TV-Z]{8})\s/m.exec(resumed.out)![1]!;
-    expect(secondRow).not.toBe(firstRow);
-  });
-
-  it("supports the roots and unreferenced filters", async () => {
-    const roots = await run(["--root", graphRoot, "search", "--roots"]);
-    expect(roots.out).toContain(A1);
-    expect(roots.out).toContain(Z9);
-    expect(roots.out).not.toContain(D4);
-
-    const unreferenced = await run(["--root", graphRoot, "search", "--unreferenced"]);
-    // P1 is grounded on by D4; the fixture has no unreferenced premise.
-    expect(unreferenced.out).toContain("(no matches)");
-  });
-
-  it("prints human-readable output and a continuation hint", async () => {
-    const { code, out } = await run(["--root", graphRoot, "search", "--limit", "1"]);
-    expect(code).toBe(0);
-    expect(out).toContain("--cursor");
-  });
-});
-
-describe("refino guide and skill", () => {
-  it("guide prints the full protocol", async () => {
-    const { code, out } = await run(["--root", graphRoot, "guide"]);
-    expect(code).toBe(0);
-    expect(out).toContain("# refino 工作协议");
-    expect(out).toContain("Git 流程审核");
-    expect(out).toContain("refino context");
-    expect(out).toContain("refino pending");
-    expect(out).toContain("refino review ack");
-    expect(out).not.toContain("auth apply");
-  });
-
-  it("skill prints install guidance pointing at --output", async () => {
-    const { code, out } = await run(["--root", graphRoot, "skill"]);
-    expect(code).toBe(0);
-    expect(out).toContain("## 为 Harness 接入 refino");
-    expect(out).toContain("npx -y @refino/cli");
-    expect(out).toContain("refino/SKILL.md");
-    // Guidance only: the SKILL.md content itself is written by --output.
-    expect(out).not.toContain("name: refino");
-  });
-
-  it("skill --output writes <dir>/refino/SKILL.md", async () => {
-    const outDir = join(bareRoot, "skills");
-    const { code, out } = await run(["--root", graphRoot, "skill", "--output", outDir]);
-    expect(code).toBe(0);
-    const file = join(outDir, "refino", "SKILL.md");
-    expect(await readFile(file, "utf8")).toContain("name: refino");
-    expect(out).toContain(file);
   });
 });

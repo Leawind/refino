@@ -100,19 +100,19 @@ CLI、Web 服务与工具插件一律经 Store 访问 `.refino/`，不再各自�
 
 ## 任务层归属
 
-任务界定层概念（作用域锚点、冻结区、修改空间、授权上下文）以及冲突检测与越界升级，仅在与 vibe coding 工作流结合时才有意义，不进入引擎：由 `@refino/harness` 与各工具插件实现，引擎为其提供受影响约束集等纯图查询原语。通用接入形态不实现任务界定层（无授权上下文与冻结区，见“通用接入形态”）：模型直接读写，约束保障是引擎 grounds 校验加 Git 事后审核。
+任务界定层概念（作用域锚点、冻结区、修改空间、授权上下文）以及冲突检测与越界升级，仅在与 vibe coding 工作流结合时才有意义，不进入引擎：由 `@refino/harness` 与各工具插件实现，引擎为其提供受影响约束集等纯图查询原语。
 
 引擎的受影响约束集查询（`getDependents`，CLI 命令 `refino dependents <id>`）返回某节点变化后可能受影响的所有约束的传递闭包：CRG 中只有约束携带 `grounds` 边，因此依赖闭包中的节点必然全是约束，无需额外过滤。
 
 ## harness 与工具插件功能设计
 
-集成 refino 后，agent 需要面向用户与 AI 模型两组能力。本节确定 `@refino/harness` 与各工具插件（`@refino/cordis-plugin-refino`、`@refino/cc-plugin`）的功能边界。接入形态有两种：深度集成宿主的工具插件，以及仅依赖 SKILL 与 CLI 的通用接入形态（见“通用接入形态”）。
+集成 refino 后，agent 需要面向用户与 AI 模型两组能力。本节确定 `@refino/harness` 与各工具插件（`@refino/cordis-plugin-refino`、`@refino/cc-plugin`）的功能边界。接入形态为深度集成宿主的工具插件。
 
 ### 用户侧：授权上下文的签发
 
 签发有两套机制：**对话签发**为基础，**授权控制台**为增强（后继课题）。对话签发只签冻结区——锚点是注入策略参数，由运行时自动推导（见“上下文注入协议”），不进入签发：模型为确定锚点须先知晓任务相关节点内容，属循环论证。
 
-**对话签发**：模型凭图知识起草冻结区划分，在对话中向用户呈现草案与理由（冻结计数、解冻根约束警告等预演信息），经宿主的审批面获得人的明确批准后由工具落签。人只有对话，模型拥有协议，机器守住批准门：批准不可由模型伪造。dsh 的机械批准门是原生审批服务（`ctx.approval.request()`：fail-closed，仅显式允许生效，无应答者或 CI 策略下一律拒绝）。签发是插件形态的机制；通用接入形态无签发（见“通用接入形态”）。
+**对话签发**：模型凭图知识起草冻结区划分，在对话中向用户呈现草案与理由（冻结计数、解冻根约束警告等预演信息），经宿主的审批面获得人的明确批准后由工具落签。人只有对话，模型拥有协议，机器守住批准门：批准不可由模型伪造。dsh 的机械批准门是原生审批服务（`ctx.approval.request()`：fail-closed，仅显式允许生效，无应答者或 CI 策略下一律拒绝）。签发是插件形态的机制。
 
 **授权控制台**：锚点与冻结区的选择统一为单个控制台组件，不再分设两个选择器。控制台是"上下文编译器的前端"：人签发的授权上下文与模型收到的注入上下文是同一对象的两种投影。同一交互覆盖三个时机——开局签发、任务中途调整、越界升级的裁决（升级的解法就是再签发：调整冻结区后以 delta 续行任务）。
 
@@ -162,7 +162,7 @@ refino 的四项接入需求中，两项只有进程内 Cordis 插件能实现�
 - **初始上下文注入**：dsh 的 MCP 支持只桥接 tools（resources 与 prompts 均不支持），无法在会话初始化时注入锚点上下文；Cordis 插件可监听 `agent/session-start` 并经 `agent.inject()` 注入，注入内容为持久化的 user-role 消息，resume/重放/压缩安全。
 - **增量 delta 注入**：dsh 全线按 append-only、KV-cache 前缀稳定设计，`agent.inject()` 排入下一 pre-step 且不唤醒驱动，与 harness 的“稳定前缀 + delta”注入协议同构；MCP 无推送通道。
 - **读写工具**：`ctx.tools.register()` 原生工具的结构化结果与 `output.render` 投影贴合 `QueryGroup` 部分成功语义；MCP 工具的模型侧命名由宿主强制决定且结果文本化。
-- **Skill 与工具是两种机制**：工具（`ctx.tools.register()`）是模型可调用的结构化函数接口；Skill 是按需加载的指令包，且支持目录形式捆绑资源——dsh 自身的 `skill-filesystem` 即提供 directory bundle（`resourceBase` 指向目录），Anthropic Agent Skills 生态同样以“SKILL.md + 可执行脚本”为标准形态，dsh 的代码执行能力（`code-runtime`）可以运行包内脚本。因此“只发 Skill”并不必然导致模型直接操作 `.refino/` 文件：Skill 可捆绑受守卫的执行逻辑。dsh 仍不以此承载读写，原因是实现唯一性——受守卫的读写只有一份实现（Store 写路径），Skill 捆绑脚本会派生第二份实现漂移；读写走原生工具注册（结构化结果贴合 `QueryGroup` 部分成功语义），`ctx.skills.register()` 注册讲解 CRG 概念与工具选用时机的技能作为补充。纯 Skill 方案做不了前两项注入，其读写执行体只能是 CLI——即“通用接入形态”。
+- **Skill 与工具是两种机制**：工具（`ctx.tools.register()`）是模型可调用的结构化函数接口；Skill 是按需加载的指令包，且支持目录形式捆绑资源——dsh 自身的 `skill-filesystem` 即提供 directory bundle（`resourceBase` 指向目录），Anthropic Agent Skills 生态同样以“SKILL.md + 可执行脚本”为标准形态，dsh 的代码执行能力（`code-runtime`）可以运行包内脚本。因此“只发 Skill”并不必然导致模型直接操作 `.refino/` 文件：Skill 可捆绑受守卫的执行逻辑。dsh 仍不以此承载读写，原因是实现唯一性——受守卫的读写只有一份实现（Store 写路径），Skill 捆绑脚本会派生第二份实现漂移；读写走原生工具注册（结构化结果贴合 `QueryGroup` 部分成功语义），`ctx.skills.register()` 注册讲解 CRG 概念与工具选用时机的技能作为补充。
 
 对 dsh 的依赖保持薄封装：运行时仅 `@deepseek-ai/dsh-tools`（`defineTool`）与 `@deepseek-ai/dsh-llm`（`createUserMessage`，注入消息须经官方工厂生成稳定 id）；`@deepseek-ai/cordis`、`@deepseek-ai/dsh-agent`（`Agent` 接口与 `agent/*` 事件声明）、`@deepseek-ai/dsh-session`（会话头类型）仅作类型依赖。
 
@@ -189,53 +189,21 @@ refino 四项接入需求的通道映射：
 - **分发**：仓库即 marketplace——仓库根 `marketplace.json` 以相对路径指向插件包；本地目录与 GitHub 两种 marketplace 来源均可用。产物为 esbuild 自包含 bundle（不依赖 npm 发布），要求宿主机器有 Node ≥ 20；git 直装需先构建（发布工程为后续课题）。
 - **技能补充**：`refino-crg` 技能讲解 CRG 概念与工具选用时机；名称与通用形态的 `refino` 技能区分，避免用户级技能遮蔽造成指引错位。
 
-#### 通用接入形态（Skill + CLI）
+#### 采用契约
 
-dsh 插件是深度集成宿主的完整形态；面向扩展能力受限的 harness，refino 另提供一套仅依赖 SKILL 与 CLI 的通用接入形态作为保底层。前提与范围：只考虑支持 SKILL 与 MCP 的 harness——不支持者要么已被更好的方案取代，要么欠缺维护，不予考虑；MCP 因配置繁琐暂不做，留作出现真实需求时的通用工具适配层。设计原则：模型拥有智能，机制只提供最薄的正交原语；人只有对话，模型拥有协议，机器守住底线。
+安装与采用是两层正交的事：工具安装（CLI、插件）是用户/机器级的，装了不意味着任何仓库都要用；采用是仓库级的，唯一信号是仓库内存在版本化的 `.refino/` 目录，随 git 提交、协作者克隆即继承。信号在两处执行：dsh 插件以定位到 `.refino/` 为激活前提，找不到则不接管；CLI 读写命令一律要求 `.refino/` 存在，缺失即拒绝并指路 `refino init`——采用是显式动作，经 harness 命令审批面，模型不得在未采用的仓库中立户。`refino init` 创建 `.refino/` 骨架（`nodes/` 图目录），已存在则拒绝。`dev generate` 是开发工具，豁免于契约（可向裸目录生成）。
 
-通用形态不实现任务界定层（作用域锚点、冻结区、授权上下文、越界升级，见“任务层归属”）——这些概念由插件形态实现。通用形态的约束保障是引擎 grounds 校验加上 Git：模型经 CLI 自由读写，一切节点变更都是可 diff、可回滚的普通项目变更，人工审核发生在事后而非写入前（见“审核工作流”）。协议自持：通用形态的工作协议由 `refino guide` 单一来源承载，不与插件共享协议文本。
+#### 不变量
 
-**自举**——人的唯一动作是复制一段固定指令给 agent（文本放在仓库根 README，供人复制），指令按环境直接分支：
-
-1. dsh：安装 `@refino/cordis-plugin-refino` 插件（harness 级，装一次即可），以插件形态接入（完整形态，见 dsh 定案）；
-2. ZCode、Claude Code 及兼容 Claude Code 插件规范的 harness：将 refino 仓库添加为插件 marketplace，安装 `refino` 插件（完整形态，见 cc 定案；从源码安装需先构建插件包的 dist）；
-3. 其余 harness：运行 `npx -y @refino/cli skill --output <技能目录>`，把生成的 `refino/` 技能目录（仅 SKILL.md，纯指令）登记进宿主技能机制——登记作用域两可：宿主级（一次安装，对所有采用 refino 的仓库生效；技能仅在含 `.refino/` 的仓库激活）或仓库级（随 git 分发，协作者免装），由模型按宿主约定判断；refino 不探测宿主，只写模型显式给出的路径。
-
-提示词只承载接入动作：它仅存在于被复制的那个会话，此后不会在任何地方注入给 agent。接入后的持续行为由持久载体承载，不占提示词：开局 `refino context` → 按需遍历 → 直接读写（写入前经 grounds 校验）→ 影响面与硬规则由技能指引；协议细节随时 `refino guide` 现取（单一来源在代码里，随命令一起演进，不会过期）；仓库尚无 `.refino/` 时一切 refino 命令拒绝并指路 `refino init`（显式采用）。
-
-工具获取即 npm 本身，无安装门槛：默认经 `npx -y @refino/cli` 运行（首次需网络，此后走 npx 本地缓存），全局安装降级为人类可选优化，不再是自举步骤。
-
-**采用契约**——安装与采用是两层正交的事：工具安装（CLI、技能、插件）是用户/机器级的，装了不意味着任何仓库都要用；采用是仓库级的，唯一信号是仓库内存在版本化的 `.refino/` 目录。信号在三处执行：技能描述以“遇到 `.refino/` 目录”为触发条件，未采用的仓库技能静默；dsh 插件以定位到 `.refino/` 为激活前提，找不到则不接管；CLI 读写命令一律要求 `.refino/` 存在，缺失即拒绝并指路 `refino init`——采用是显式动作，经 harness 命令审批面，模型不得在未采用的仓库中立户。`.refino/` 随 git 提交，采用状态随仓库分发，协作者克隆即继承。`dev generate` 是开发工具，豁免于契约（可向裸目录生成）。
-
-**Skill 内容规范**——技能只承载指令，不捆绑任何脚本或工具：refino 与 CRG 的概念介绍（指向 crg.md）、调用方式（终端可直接运行 `refino` 时直接用，否则 `npx -y @refino/cli`）、硬规则（仅在已有 `.refino/` 的仓库使用、为仓库接入须经用户明确要求；不直接编辑 `.refino/nodes/`，一切读写经 `refino` 命令；变更后主动向用户报告影响面，待审查项的复核由人完成）、自取指引（`refino guide` / `refino context`）。技能触发描述须覆盖“遇到 `.refino/` 目录”与“任务涉及项目约束 / 决策谱系”，使装好的技能能被任意 refino 项目唤起。具体工作原理与用法不进 Skill，由模型执行 `refino` 命令自取。不设“内容几乎不变”的约束：skill 文本由 CLI 单一来源生成、随版本演进，更新即重跑 `refino skill` 重装；装进宿主的旧文本无碍——协议真相源是每次现跑的 `guide`，漂移自愈。
-
-**发布**——skill 无独立分发工件，npm 是唯一通道：skill 文本由 CLI 现场生成（`refino skill`），不存在离于 CLI 包的 skill 产物。曾评估随 skill 捆绑可执行脚本（Anthropic 文档技能的模式），否决：安装 skill 的渠道（npm）本身就交付了可执行 CLI，捆绑是同一交付机制的重复；且捆绑把工具冻结在安装时点，refino 预发布期允许破坏性变更，旧捆绑工具可能读不了新 CLI 写出的图——经 npx 取最新反而更安全。生态背景：Agent Skills 规范只定义工件、不管分发；业界通行“git 仓库 + 宿主 marketplace / `npx skills add`”双轨，适用于把 skill 目录提交进 git 的纯指令仓库，refino 不入此轨；将来若登宿主 marketplace，同仓库加 manifest 即可，现阶段不作承诺。
-
-**审核工作流**在事后完成，无签发、无写入拦截。写入命令（`update` / `delete`）成功后，将受影响下游（存储层 `StoreChange.affected`：变更节点的直接下游、被删节点删除前的下游，即 crg.md 1.6 的待审查原料）记入审核台账（见“审核状态的作用域”），并在命令输出中同步报告影响面。`refino pending` 汇总两类待审查项：git 基线派生（未提交或指定基线以来的已改节点及其下游闭包）与台账条目（变更已提交但尚未经人确认）。人工复核经 `refino review ack` 确认，条目从台账移除；确认是人的动作，Skill 硬规则禁止模型代替用户执行。台账条目按 id 去重（保留最早记录时间、刷新致因），读取侧按当前图收敛——图中已不存在的节点静默剔除，与插件形态签发列表的收敛哲学一致。
-
-**审核状态的作用域**——通用形态没有授权状态：模型经 CLI 直接读写，写入路径只有引擎 grounds 校验，冻结区与越界概念不适用（由插件形态实现，插件形态的签发是会话状态；编排者凭据 `REFINO_AUTHORIZATION` 也仅由插件形态消费，通用形态的 CLI 不识别）。通用形态的工作区状态车道（`<root>/.refino/state/`，由 `refino init` 创建的 `.refino/.gitignore`（锚定规则 `/state/`，随 git 版本化）排除出版本控制，机器本地、随工作区生灭）承载**审核台账**（`review.json`）：记录受影响节点的待审查条目与确认进度。台账是审核工作的进度记录，不是权限——不校验、不阻止任何读写。并发任务交给 git 结构：CRG 随 git 版本化，并发任务走 worktree/分支，各工作目录的 `.refino/state/` 物理隔离，审核进度天然隔离。
-
-**安全立场**：通用形态写路径只有引擎 grounds 校验（结构正确性），没有授权校验——这是明示的取舍：CRG 随 git 版本化，一切变更在 diff 中可审可回滚，人工审核发生在事后（`refino pending` 呈现影响面、`refino review` 记录确认），而非写入前拦截。全自动（免审批）模式下的兜底依次是 harness 的命令审批面（针对 `refino init` 等立户动作）、Skill 硬规则、以及 Git 审核。插件形态仍保留冻结区写路径强制（见各插件定案）。
-
-**不变量**：refino 的全部产出 = CRG 节点（版本化）+ `.refino/.gitignore`（版本化，排除状态车道）+ 通用形态的审核台账（`.refino/state/review.json`，机器本地、git 忽略、随工作区生灭）+ cc 形态的注入队列（机器本地临时目录下的投递通道，每会话一个，只承载待注入的更新文本，不含签发数据，随系统临时目录清理；连同 `session_id → 会话令牌` 的 sessions 映射文件，见“cc 插件落地形态”）；除此之外，插件形态不产生任何状态文件，签发状态与已知集随会话进程生灭。`.refino/` 目录名专属仓库内 CRG 存储，不存在仓库外的用户级 refino 目录。refino 不探测任何 harness 的配置、技能或插件目录，唯一的仓库外文件写入是 `refino skill --output` 按模型显式给出的路径生成技能目录——把技能登记进宿主这一步始终由模型执行。
-
-**明确不做**（通用形态）：会话已知集与任何 harness 适配、自动安装逻辑——CLI 一次性运行、无会话进程，增量同步是插件形态的能力（`@refino/harness/host` 单一实现）。（曾在此声明不做 `refino pending`、由模型拼 `git diff` 与 `dependents` 推导；已改判固化成命令——“路径即身份”的映射属于存储层，不应作为协议细节泄漏进模型侧的每次组合调用。）
-
-**命令面**（除 `init` 外均为模型面向）：
-
-- 已有：`show` / `grounds` / `ancestors` / `dependents` / `new` / `update` / `delete`（批量 + 部分成功语义）；
-- 通用接入形态：`init`（显式采用：创建 `.refino/` 骨架，已存在则拒绝）、`context`（开局概览：图规模、根约束、待审查概要）、`search`（分页搜索，语义与 Web `GET /api/search` 对齐）、`guide`（完整协议与命令用法，写给模型读）、`skill`（输出接入指引；`--output <dir>` 在 `<dir>/refino/` 下生成 SKILL.md，目录名固定与 `name` 一致）、`pending`（git 基线以来的已改节点与下游待审查约束，合并审核台账条目，见 crg.md 1.6；路径→id 映射走存储层单点定义）、`review`（审核台账：无参列出待审查条目及致因，`ack <ids...>` / `--all` 确认移除——确认是人的动作，模型不得代替执行）。
+refino 的全部产出 = CRG 节点（版本化）+ `refino init` 创建的 `.refino/` 骨架；除此之外，插件形态不产生任何状态文件，签发状态与已知集随会话进程生灭。`.refino/` 目录名专属仓库内 CRG 存储，不存在仓库外的用户级 refino 目录。refino 不探测任何 harness 的配置、技能或插件目录。
 
 ## 命名约定
 
 vibe coding 工具插件的包名遵循宿主生态自身的插件命名约定，在此登记以避免命名漂移：
 
-| 缩写  | 包名                           | 工具                                                                                                                             |
-| ----- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
-| `dsh` | `@refino/cordis-plugin-refino` | DeepSeek harness（Cordis 生态以 `cordis-plugin-<name>` 命名插件）                                                                |
-| `cc`  | `@refino/cc-plugin`            | ZCode 与 Claude Code（兼容 Claude Code 插件规范的 harness；插件名 `refino`，插件目录经 marketplace 分发，该生态无 npm 前缀约定） |
-
-通用接入形态（见“harness 与工具插件功能设计”）由 CLI 命令 + Skill 承载，不占工具插件的包名。
+| 缩写  | 包名                           | 工具                                                              |
+| ----- | ------------------------------ | ----------------------------------------------------------------- |
+| `dsh` | `@refino/cordis-plugin-refino` | DeepSeek harness（Cordis 生态以 `cordis-plugin-<name>` 命名插件） |
 
 ## 前端技术栈
 
@@ -273,7 +241,6 @@ Web 层只保留 HTTP 语义：
 
 - **revision 与乐观并发**：Store 的全局 revision 与 per-node revision 驱动 SSE 推送与 PUT 的 409 判定；纯 body 编辑对常驻字段不可见，mtime 保证这类修改同样递增 revision 并经 SSE 推送，使乐观并发覆盖正文级外部修改。
 - **变更来源**：SSE 事件的 `origin: "api" | "file"` 标注变更入口（界面/API 写入或外部文件事件），供变更审阅标注来源，不承诺区分具体客户端。
-- **待审查集合**：审核台账（见“通用接入形态”）——API 写入在响应前把变更批的 `affected` 记入台账，外部文件事件经同一索引入口尽力记录；被删除的变更节点以其旧图下游计入。确认经 `POST /api/pending/ack` 写入台账（与 CLI 的 `refino review ack` 共享同一状态），跨重载与服务重启持久，不进图数据。
 
 当前 `@refino/storage` 的全量目录扫描只适合小规模图；大规模索引的方案（持久化索引等）是后续设计课题，落地前以 Store 的常驻内存投影为 v1 实现。
 
@@ -291,8 +258,6 @@ Web 层只保留 HTTP 语义：
     返回的节点序列只含约束节点与两个端点自身（端点为前提时保留）。
 - `GET /api/search`：资源浏览器、命令面板与依据选择器的分页搜索，`?q=&type=&limit=&cursor=&roots=`，轻量返回（id、类型、摘要）；`roots` 过滤仅返回 grounds 为空的约束，供画布冷启动种子。
 - `GET /api/stats`：项目计数（节点总数、约束数、前提数、根约束数），常驻索引直接聚合。
-- `GET /api/pending`：待审查清单，即审核台账（派生入账、持久于 `.refino/state/`，见“通用接入形态”）中收敛后的条目，轻量返回（id、类型、摘要、致因与入账时间）。
-- `POST /api/pending/ack`：`{ ids }` 确认条目并从台账移除（人的动作，与 CLI 的 `refino review ack` 同一状态）。
 
 资源浏览器与命令面板不得全量渲染，须经 `/api/search` 分页。
 

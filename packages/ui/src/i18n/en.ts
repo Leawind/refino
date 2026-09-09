@@ -50,16 +50,14 @@ export default {
     sign: "Sign",
   },
   review: {
-    bell: "Changes and pending review",
+    bell: "Changes",
     title: "Review",
     changes: "Recent changes",
-    pending: "Pending review",
     none: "Nothing here",
     deleted: "Deleted",
     originApi: "UI write",
     originFile: "External write",
     locate: "Locate",
-    ack: "Reviewed",
   },
   inline: {
     toggle: "Expand / collapse details",

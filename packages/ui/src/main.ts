@@ -14,7 +14,7 @@ import { createWorkspace, workspaceKey } from "./workspace";
 const client = createHttpClient();
 const workspace = createWorkspace(client);
 const store = createStore(client, workspace);
-const review = createReview(client, workspace);
+const review = createReview(workspace);
 const i18n = createRefinoI18n(store.state.locale);
 
 createApp(App)

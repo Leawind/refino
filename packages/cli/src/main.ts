@@ -24,12 +24,6 @@ import { processIo, renderFullRecord, renderIssues, renderNodeTable } from "./fo
 import type { CliIo } from "./format.js";
 import { createDevCommand } from "./dev.js";
 import { createInitCommand } from "./commands/init.js";
-import { createContextCommand } from "./commands/context.js";
-import { createSearchCommand } from "./commands/search.js";
-import { createPendingCommand } from "./commands/pending.js";
-import { createReviewCommand } from "./commands/review.js";
-import { createGuideCommand, createSkillCommand } from "./commands/selfdoc.js";
-import { recordWriteOutcome } from "./review-state.js";
 import { fail, refinoDir, withStore, withStoreForWrite } from "./shared.js";
 import type { GlobalOptions } from "./shared.js";
 import { DEFAULT_WEB_PORT, startWebServer } from "./web/server.js";
@@ -393,13 +387,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
               grounds: grounds ?? node.grounds,
             });
           }
-          const affected = await recordWriteOutcome(
-            io,
-            opts.root,
-            id,
-            "update",
-            outcome.change?.affected,
-          );
+          const affected = outcome.change?.affected;
           emitWritten(io, id, node.type, "updated", affected);
           return 0;
         });
@@ -438,13 +426,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
             }
             try {
               const outcome = await store.deleteNode(id);
-              const affected = await recordWriteOutcome(
-                io,
-                opts.root,
-                id,
-                "delete",
-                outcome.change?.affected,
-              );
+              const affected = outcome.change?.affected ?? [];
               results.push(affected.length > 0 ? { id, pendingReview: affected } : { id });
             } catch (error) {
               results.push({
@@ -460,7 +442,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
                 if (r.error !== undefined) return [`error: ${r.error}`];
                 const lines = [`deleted ${r.id}`];
                 if (r.pendingReview !== undefined && r.pendingReview.length > 0) {
-                  lines.push(`待审查（下游受影响，已记入审核台账）：${r.pendingReview.join(", ")}`);
+                  lines.push(`下游受影响，建议复核：${r.pendingReview.join(", ")}`);
                 }
                 return lines;
               })
@@ -507,12 +489,6 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
     );
 
   program.addCommand(createInitCommand(io, run));
-  program.addCommand(createContextCommand(io, run));
-  program.addCommand(createSearchCommand(io, run));
-  program.addCommand(createPendingCommand(io, run));
-  program.addCommand(createReviewCommand(io, run));
-  program.addCommand(createGuideCommand(io, run));
-  program.addCommand(createSkillCommand(io, run));
 
   // Hidden dev tooling: registered only when explicitly enabled, so without
   // REFINO_DEV=true the command does not exist at all — help output, unknown
@@ -546,7 +522,7 @@ function emitWritten(
   // emit backslashes on Windows.
   io.stdout.write(`${verb} ${id} (.refino/${file})\n`);
   if (affected !== undefined && affected.length > 0) {
-    io.stdout.write(`待审查（下游受影响，已记入审核台账）：${affected.join(", ")}\n`);
+    io.stdout.write(`下游受影响，建议复核：${affected.join(", ")}\n`);
   }
 }
 

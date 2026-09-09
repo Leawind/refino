@@ -149,22 +149,6 @@ export async function getStats(c: Context, web: WebState): Promise<Response> {
   return c.json({ revision: web.store.revision, ...web.store.stats() });
 }
 
-/** GET /api/pending — the review ledger's pending entries (docs/crg.md 1.6). */
-export async function getPending(c: Context, web: WebState): Promise<Response> {
-  return c.json({ revision: web.store.revision, nodes: await web.pending() });
-}
-
-/** POST /api/pending/ack — acknowledge reviewed entries (a human action). */
-export async function postPendingAck(c: Context, web: WebState): Promise<Response> {
-  try {
-    const payload = await readPayload(c);
-    await web.ack(readIds(payload));
-    return c.json({ ok: true });
-  } catch (error) {
-    return errorResponse(c, error);
-  }
-}
-
 /** First index position at or after the cursor; keyset pages resume strictly after it. */
 function startIndex(all: readonly string[], cursor: string | undefined): number {
   if (cursor === undefined) return 0;

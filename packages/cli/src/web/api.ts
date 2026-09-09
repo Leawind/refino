@@ -184,20 +184,18 @@ export async function putNode(c: Context, web: WebState): Promise<Response> {
     }
 
     if (entry.node.type === "premise") {
-      const outcome = await web.store.updatePremise(id, {
+      await web.store.updatePremise(id, {
         body,
         summary,
         confirmed: readConfirmed(payload),
       });
-      await web.recordAffected(id, "update", outcome.change?.affected);
     } else {
-      const outcome = await web.store.updateConstraint(id, {
+      await web.store.updateConstraint(id, {
         body,
         summary,
         rationale: readString(payload, "rationale"),
         grounds: resolveGrounds(payload),
       });
-      await web.recordAffected(id, "update", outcome.change?.affected);
     }
     return c.json({ id, revision: web.store.entry(id)?.revision });
   } catch (error) {
@@ -222,8 +220,7 @@ export async function removeNode(c: Context, web: WebState): Promise<Response> {
         409,
       );
     }
-    const outcome = await web.store.deleteNode(id);
-    await web.recordAffected(id, "delete", outcome.change?.affected);
+    await web.store.deleteNode(id);
     return c.json({ id });
   } catch (error) {
     return errorResponse(c, error);

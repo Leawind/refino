@@ -1,6 +1,6 @@
 # @refino/cli
 
-`refino` 引擎的命令行接口：对 Constraint Refinement Graph 的查询、校验与节点读写，以及面向 agent 的通用接入命令（开局概览、审核台账、自文档）与本地 Web 界面服务（`refino web`）。
+`refino` 引擎的命令行接口：对 Constraint Refinement Graph 的查询、校验与节点读写，以及本地 Web 界面服务（`refino web`）。
 
 ```txt
 Usage: refino [options] [command]
@@ -9,9 +9,8 @@ Parse, validate and query a Constraint Refinement Graph stored in .refino/.
 
 Options:
   -V, --version              output the version number
-  --root <dir>               project root directory containing .refino/ (default:
-                             "/home/leawind/Workspace/github.com/Leawind/refino-worktrees/examples")
-  -h, --help                 display help for commander
+  --root <dir>               project root directory containing .refino/ (default: current working directory)
+  -h, --help                 display help for command
 
 Commands:
   validate                   build the graph and report all validation issues
@@ -25,11 +24,10 @@ Commands:
   delete [options] <ids...>  delete one or more nodes; refuses while other nodes ground on the target
   web [options]              start the web UI server
   init                       create the .refino/ directory skeleton (pure scaffolding)
-  context                    render the project overview (the task's opening context)
-  search [options] [query]   paginated search over id prefixes and summaries
-  pending [options]          nodes changed since a git baseline and their downstream pending-review constraints
-  review [command]           the pending-review ledger: list entries, or acknowledge them (a human action)
-  guide                      print the full working protocol (written for models)
-  skill [options]            print the SKILL.md content with install guidance
   help [command]             display help for command
 ```
+
+## 了解更多
+
+- 包内设计细节：[DESIGN.md](./DESIGN.md)
+- Web 界面与 API 契约：[docs/design.md](../../docs/design.md)
