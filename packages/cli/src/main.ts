@@ -588,7 +588,9 @@ function emitWritten(
     });
     return;
   }
-  io.stdout.write(`${verb} ${id} (${join(".refino", file)})\n`);
+  // Display keeps the canonical forward-slash form, matching the --json
+  // `file` field; node:path join would emit backslashes on Windows.
+  io.stdout.write(`${verb} ${id} (.refino/${file})\n`);
   if (affected !== undefined && affected.length > 0) {
     io.stdout.write(`待审查（下游受影响，已记入审核台账）：${affected.join(", ")}\n`);
   }
