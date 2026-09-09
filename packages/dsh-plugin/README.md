@@ -34,4 +34,4 @@ dsh plugin --profile <profile> add /path/to/refino/packages/dsh-plugin
 
 ## 职责边界
 
-图数据的解析、校验与边界计算来自 [`refino`](../refino)、[`@refino/storage`](../storage)、[`@refino/harness`](../harness)；工具执行核心与注入文本经 `@refino/harness/host` 与 cc 插件单一实现。本包只含 dsh 宿主绑定，对宿主的依赖保持薄封装。
+图数据的解析、校验与边界计算来自 [`refino`](../refino)、[`@refino/storage`](../storage)、[`@refino/harness`](../harness)；工具执行核心与注入文本经 `@refino/harness/host` 单一实现。本包只含 dsh 宿主绑定，对宿主的依赖保持薄封装。

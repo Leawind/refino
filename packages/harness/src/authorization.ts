@@ -8,10 +8,10 @@ import type { AuthorizationContext } from "./types.js";
 
 /**
  * A signed authorization document: the persistable form of a task's frozen
- * zone (docs/design.md, "通用接入形态"). One schema serves three origins with
- * decreasing precedence — an orchestrator credential (env var or explicit
- * path), the tool-managed workspace state written by `refino auth apply` (or
- * a plugin's signing tool), and the materialized default. Whatever the
+ * zone (docs/design.md, "harness 与工具插件功能设计"). One schema serves three
+ * origins with decreasing precedence — an orchestrator credential (env var
+ * or explicit path), a plugin's in-session signing, and the materialized
+ * default. Whatever the
  * origin, the effective context is re-derived against the current graph at
  * read time: zone closure follows the live `grounds` edges, so ancestors
  * that grow after signing join the zone without re-signing, and entries

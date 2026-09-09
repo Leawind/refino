@@ -7,18 +7,17 @@
 
 ## 包结构
 
-| 包                             | 职责                                                                                                                                                                                            | 状态           |
-| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
-| `refino`                       | 纯引擎：常驻图数据模型（拓扑 + 摘要）、图组装与内存变更原语、结构校验、查询、最长路径分层、ID 生成与校验、批量查询结果形状、写入前图级校验原语                                                  | 已有           |
-| `@refino/storage`              | CRG 文件系统存储格式（目录结构、节点文件格式、解析与序列化、摘要提取规则）的定义与实现；Node 存储适配器（常驻投影 Store、内容分页、加载、创建、更新、删除、原子写、变更监听）                   | 已有           |
-| `@refino/cli`                  | `refino` 引擎的命令行薄封装                                                                                                                                                                     | 已有           |
-| `@refino/testkit`              | 各包测试共用的夹具与工具函数                                                                                                                                                                    | 已有           |
-| `@refino/ui`                   | CRG 可视化编辑组件库（Vue 3）                                                                                                                                                                   | 已有（脚手架） |
-| `@refino/harness`              | 任务界定层（作用域锚点、冻结区与修改空间、授权上下文、冲突检测与越界升级）与 vibe coding 工具插件的公共逻辑（上下文增量生成、模型技能、注入协议）                                               | 已有           |
-| `@refino/cordis-plugin-refino` | vibe coding 工具的适配插件（包名遵循各宿主生态的插件命名约定，登记见“命名约定”），首个为 dsh 适配：以 Cordis 插件形式接入，bundle 形式分发                                                      | 已有（未验证） |
-| `@refino/cc-plugin`            | vibe coding 工具的适配插件，Claude Code 插件规范形态（hooks + 插件 MCP server + skill，插件目录经 marketplace 分发）；首个宿主为 ZCode，Claude Code 及兼容该规范的 harness 设计上支持（未验证） | 已有           |
-| `@refino/desktop`              | 桌面应用                                                                                                                                                                                        | 未来           |
-| `@refino/vscode`               | VSCode 插件                                                                                                                                                                                     | 未来           |
+| 包                             | 职责                                                                                                                                                                          | 状态           |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
+| `refino`                       | 纯引擎：常驻图数据模型（拓扑 + 摘要）、图组装与内存变更原语、结构校验、查询、最长路径分层、ID 生成与校验、批量查询结果形状、写入前图级校验原语                                | 已有           |
+| `@refino/storage`              | CRG 文件系统存储格式（目录结构、节点文件格式、解析与序列化、摘要提取规则）的定义与实现；Node 存储适配器（常驻投影 Store、内容分页、加载、创建、更新、删除、原子写、变更监听） | 已有           |
+| `@refino/cli`                  | `refino` 引擎的命令行薄封装                                                                                                                                                   | 已有           |
+| `@refino/testkit`              | 各包测试共用的夹具与工具函数                                                                                                                                                  | 已有           |
+| `@refino/ui`                   | CRG 可视化编辑组件库（Vue 3）                                                                                                                                                 | 已有（脚手架） |
+| `@refino/harness`              | 任务界定层（作用域锚点、冻结区与修改空间、授权上下文、冲突检测与越界升级）与 vibe coding 工具插件的公共逻辑（上下文增量生成、模型技能、注入协议）                             | 已有           |
+| `@refino/cordis-plugin-refino` | vibe coding 工具的适配插件（包名遵循各宿主生态的插件命名约定，登记见“命名约定”），首个为 dsh 适配：以 Cordis 插件形式接入，bundle 形式分发                                    | 已有（未验证） |
+| `@refino/desktop`              | 桌面应用                                                                                                                                                                      | 未来           |
+| `@refino/vscode`               | VSCode 插件                                                                                                                                                                   | 未来           |
 
 在满足公共部分抽离的前提下，包的总数尽量少：只在确实出现第二个消费方时才抽公共包。
 
@@ -106,7 +105,7 @@ CLI、Web 服务与工具插件一律经 Store 访问 `.refino/`，不再各自�
 
 ## harness 与工具插件功能设计
 
-集成 refino 后，agent 需要面向用户与 AI 模型两组能力。本节确定 `@refino/harness` 与各工具插件（`@refino/cordis-plugin-refino`、`@refino/cc-plugin`）的功能边界。接入形态为深度集成宿主的工具插件。
+集成 refino 后，agent 需要面向用户与 AI 模型两组能力。本节确定 `@refino/harness` 与工具插件（`@refino/cordis-plugin-refino`）的功能边界。接入形态为深度集成宿主的工具插件。
 
 ### 用户侧：授权上下文的签发
 
@@ -173,21 +172,8 @@ refino 的四项接入需求中，两项只有进程内 Cordis 插件能实现�
 - **会话初始化**：监听 `agent/session-start`，取会话 cwd 定位 `.refino/`，经 `@refino/storage` 的 Store 打开图，按解析出的授权上下文（编排者凭据 → 默认值）构造 `HarnessSession`，按两级策略渲染并以 `<system-reminder>` 框架注入（锚点与前提，冻结锚点标注 `[冻结]`，随附协议声明“标注 `[冻结]` 者只读，未列出者属修改空间”）。开局注入随附授权状态一行（来源与 signedAt），编排者凭据场景据此核对签发归属。图超自动锚点预算时不静默：注入极简引导（图已连接、节点数、根约束摘要、以搜索定位），模型按需展开工作，需要调整冻结区时经签署工具提议。resume 不重放基线，仅注入一行当前授权状态。
 - **工具**：`refino_list` / `refino_search`（按摘要/ID 分页搜索，语义与 Web `GET /api/search` 对齐，大规模图下的定位手段）/ `refino_show` / `refino_grounds` / `refino_ancestors` / `refino_dependents` / `refino_siblings`（强兄弟，供细化时参考同级决策）/ `refino_pending_review` 与写入工具；`refino_update_node` 采用部分更新语义（与 CLI `update` 对齐：省略即不变，传空串即清除），grounds 仍整体替换并经校验。`refino_context` 重述生效授权（默认或已签发、frontier、冻结计数、注入策略、编排凭据是否生效）。`refino_request_authorization` 承载对话签发：模型起草冻结区划分（frontier 整体替换）并在对话中呈现草案，工具执行中经 dsh 原生审批服务（`ctx.approval.request()`）请求人的明确批准，批准后签署并在会话内即时生效、以 delta 注入新冻结区，不落任何文件；编排者凭据生效时拒绝签发。写入内部走 Store 的写入方法（grounds 校验、原子写与投影更新内建）+ harness `checkModification`，越界（目标落在冻结区）返回结构化升级报告（正常工具结果，非报错）。修改空间沿细化方向向下封闭（见 crg.md 2.4），写入无需下游波及冻结区的检查。
 - **增量同步**：经 Store 的变更事件（`onChange`）获得受影响节点与待审查原料，产出待审查集与 delta 事件后注入；无监听能力时降级为 touch 驱动（参照 dsh `agent-instructions` 的 `tools/result` 模式）。delta 注入降噪：合并多批事件并设最小注入间隔。更新通知为会话已知集的字段级差分（见“增量更新与缓存友好”）：在降噪窗口发射时刻对当前图计算，仅覆盖已知集内节点；待审查集仍按变更源全量派生。渲染文本是变更集合的纯函数，与上一次注入相同时（如仅 mtime 变化的重写再次触发事件）不注入。
-- **冻结区签发（对话签发）**：主交互面为签署工具 `refino_request_authorization`（见“工具”）——模型起草冻结区划分并在对话中呈现草案，工具执行中经 dsh 原生审批服务（`ctx.approval.request()`，`@deepseek-ai/dsh-user-approval`）请求人的明确批准：fail-closed，仅显式允许生效，无应答者或 `'never'` 策略下一律拒绝并维持当前授权。批准即签署：会话内即时生效、以 delta 注入新冻结区、返回生效结果——不落任何文件，会话内签发不跨 resume。授权控制台组件（`@refino/ui`，见“用户侧：授权上下文的签发”）是后继增强，经 dsh Web Client 的 slots/Conversation 节点扩展点挂载后作为人在图上直接圈选的界面。不设用户命令面：信息类需求由模型工具与对话承担，签发由签署工具承担，两套接入形态的交互保持同构。升级报告在宿主支持结构化渲染时呈现为升级卡片（阻挡约束、原因、受影响下游），无宿主 UI 时降级为文本：模型向用户报告升级内容与建议，用户裁决为调整冻结区时经签署工具提议再签发，以 delta 续行任务。
+- **冻结区签发（对话签发）**：主交互面为签署工具 `refino_request_authorization`（见“工具”）——模型起草冻结区划分并在对话中呈现草案，工具执行中经 dsh 原生审批服务（`ctx.approval.request()`，`@deepseek-ai/dsh-user-approval`）请求人的明确批准：fail-closed，仅显式允许生效，无应答者或 `'never'` 策略下一律拒绝并维持当前授权。批准即签署：会话内即时生效、以 delta 注入新冻结区、返回生效结果——不落任何文件，会话内签发不跨 resume。授权控制台组件（`@refino/ui`，见“用户侧：授权上下文的签发”）是后继增强，经 dsh Web Client 的 slots/Conversation 节点扩展点挂载后作为人在图上直接圈选的界面。不设用户命令面：信息类需求由模型工具与对话承担，签发由签署工具承担。升级报告在宿主支持结构化渲染时呈现为升级卡片（阻挡约束、原因、受影响下游），无宿主 UI 时降级为文本：模型向用户报告升级内容与建议，用户裁决为调整冻结区时经签署工具提议再签发，以 delta 续行任务。
 - **版本策略**：dsh 处于 developer preview，`@deepseek-ai/*` 依赖锁精确版本，CI 对 dsh 升级跑插件冒烟。
-
-#### cc 插件落地形态
-
-ZCode 与 Claude Code 的扩展点不是进程内插件 API，而是 Claude Code 插件规范（插件目录 + `.claude-plugin/plugin.json` manifest、hooks、插件根 `.mcp.json`、skill）。ZCode 在协议层原生消费该格式（事件名、hook payload 与输出协议、`${CLAUDE_PLUGIN_ROOT}` 展开均兼容，已在本机验证：`anthropics/claude-plugins-official` 在 ZCode 中正常安装运行）；Claude Code 及其他兼容该规范的 harness 设计上支持，未验证。据此定案：**以 Claude Code 插件规范形态接入，插件目录经 marketplace 分发**。
-
-refino 四项接入需求的通道映射：
-
-- **初始上下文注入**：`SessionStart` 钩子输出 `additionalContext`（startup/clear 注入基线——锚点与前提摘要，超预算时极简引导；resume/compact 注入一行中性状态：当前授权以 context 工具查询为准，不凭会话历史中的授权记忆行动。中性措辞是必然而非折衷：hook 为一次性进程，读不到 MCP server 内存中的会话内签发，任何断言都可能失真）。hook 只读加载图（不开 watcher），失败时 fail-open（stderr 警告、不注入、不阻塞会话）；无 `.refino/` 完全静默。
-- **读写工具**：插件根 `.mcp.json` 声明 stdio MCP server（`node` 运行包内 esbuild 自包含 bundle，工作目录 `${CLAUDE_PROJECT_DIR}`，向上定位 `.refino/`），注册 14 个短名工具。宿主会把 MCP 工具连同全名自动注入模型工具清单，模型侧全名由宿主决定（ZCode 实测为 `mcp__plugin_refino_refino__<tool>`），因此注入/渲染/技能文本一律以短名指称工具，不硬编码宿主前缀；工具指称经 `ToolRefs` 参数化（dsh 传实名前缀 `refino_`，cc 传空即短名）。执行核心、结果形状与渲染与 dsh 插件共用 `@refino/harness/host` 单一实现。工具结果为 markdown 文本（dsh 的 render 投影复用）。
-- **增量 delta 注入**：宿主对插件 MCP server 无推送通道，降级为 touch 驱动——server 监听 `nodes/` 分片目录，外部修改经降噪合并渲染为会话已知集的字段级差分文本（见“增量更新与缓存友好”）后写入机器本地临时目录的注入队列（原子写、同文本去重、不含签发数据）。队列**每会话一个**，会话归属经令牌握手确定：server 启动时生成会话令牌并盖在每个工具结果末行（`refino-session:<token>`），宿主把工具响应原文放进该会话的 `PostToolUse` hook payload，sync 钩子从 stdin 原文识别令牌并写入 `session_id → 令牌` 映射，此后排空只取本会话队列——工具响应是唯一无竞态的会话↔server 相关性通道（宿主不给 MCP server 传会话标识；按“有无 refino 工具被调”认领会把并发会话的 server 绑到同一会话，时间窗消歧在调用交错时同样会绑错）。宿主在两个事件点拉起消费钩子：`PostToolUse` 为主（每次工具调用后取出，注入附着在工具结果上、模型回合内可见——tools/result 触达模式），`UserPromptSubmit` 兜底（覆盖回合结束后的窗口）。已知集随 server 进程生灭：开局基线由 SessionStart hook 渲染，server 打开工作区时按相同推导播种（预算内锚点+前提，超预算取根约束引导集），两者之间窗口内的变更可能漏报（fail-soft，读始终新鲜）；server 重启后已知集回落为种子。剩余盲区（模型纯文本输出期间）与存储层同毫秒重写的既有漏检为明示的 v1 边界。
-- **对话签发**：`request_authorization` 的批准门为对话批准协议：工具描述与技能硬规则要求先在对话中呈现完整草案与理由并获用户明确同意，宿主的 MCP 工具权限面是可选的机械层（用户可为该工具开启调用确认）；编排者凭据生效时拒绝。签发状态为 MCP server 进程内存（≈宿主会话生命周期），不落任何文件。
-- **分发**：仓库即 marketplace——仓库根 `marketplace.json` 以相对路径指向插件包；本地目录与 GitHub 两种 marketplace 来源均可用。产物为 esbuild 自包含 bundle（不依赖 npm 发布），要求宿主机器有 Node ≥ 20；git 直装需先构建（发布工程为后续课题）。
-- **技能补充**：`refino-crg` 技能讲解 CRG 概念与工具选用时机；名称与通用形态的 `refino` 技能区分，避免用户级技能遮蔽造成指引错位。
 
 #### 采用契约
 

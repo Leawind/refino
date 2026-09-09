@@ -10,7 +10,7 @@
 - 模型侧工具的宿主声明（`query-tools.ts` / `write-tools.ts` / `signing.ts`）：dsh DSL 的参数/输出 schema 与工具名，execute/render 转发到 harness 执行核心与渲染套件
 - 审批面调用（`index.ts` 的 `requestApproval`）与消息注入（`createUserMessage` + `agent.inject()`）
 
-会话工作区（`RefinoWorkspace`）、外部变更降噪（`DeltaCoalescer`）、工具执行核心、签发链、注入文本与结果形状/渲染均来自 `@refino/harness/host` 子路径——与 cc 插件单一实现，本包不再持有这些模块。
+会话工作区（`RefinoWorkspace`）、外部变更降噪（`DeltaCoalescer`）、工具执行核心、签发链、注入文本与结果形状/渲染均来自 `@refino/harness/host` 单一实现，本包不再持有这些模块。
 
 本包不提供：
 
