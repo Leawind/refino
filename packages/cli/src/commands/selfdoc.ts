@@ -2,7 +2,6 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Command } from "commander";
 import { guideText, skillMarkdown, skillText } from "../selfdoc.js";
-import { emit } from "../shared.js";
 import type { GlobalOptions, RunFn } from "../shared.js";
 import type { CliIo } from "../format.js";
 
@@ -46,11 +45,9 @@ export function createSkillCommand(io: CliIo, run: RunFn): Command {
         const file = join(dir, "SKILL.md");
         await mkdir(dir, { recursive: true });
         await writeFile(file, skillMarkdown(), "utf8");
-        if (opts.json) emit(io, { wrote: file });
-        else
-          io.stdout.write(
-            `wrote ${file} (register it with your skill mechanism, then run "refino guide")\n`,
-          );
+        io.stdout.write(
+          `wrote ${file} (register it with your skill mechanism, then run "refino guide")\n`,
+        );
         return 0;
       }),
     );

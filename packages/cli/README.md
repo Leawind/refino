@@ -11,7 +11,6 @@ Options:
   -V, --version              output the version number
   --root <dir>               project root directory containing .refino/ (default:
                              "/home/leawind/Workspace/github.com/Leawind/refino-worktrees/examples")
-  --json                     emit machine-readable JSON on stdout (default: false)
   -h, --help                 display help for commander
 
 Commands:

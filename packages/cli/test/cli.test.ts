@@ -79,14 +79,6 @@ describe("refino cli", () => {
     expect(out).toContain("A1B2C3D4 -> B2C3D4E5 -> A1B2C3D4");
   });
 
-  it("validate emits JSON with --json", async () => {
-    const { code, out } = await run(["--root", invalidRoot, "--json", "validate"]);
-    expect(code).toBe(1);
-    const payload = JSON.parse(out) as { ok: boolean; issues: Array<{ code: string }> };
-    expect(payload.ok).toBe(false);
-    expect(payload.issues.map((i) => i.code)).toContain("CYCLE");
-  });
-
   it("fails with a clear error when .refino is missing", async () => {
     const emptyRoot = await createRefino({});
     try {
@@ -237,10 +229,6 @@ describe("refino cli", () => {
       ]);
       expect(constraintType.code).toBe(1);
       expect(constraintType.err).toContain("--unreferenced only applies to premises");
-
-      const json = await run(["--root", root, "--json", "list", "--unreferenced"]);
-      const nodes = JSON.parse(json.out) as Array<{ id: string }>;
-      expect(nodes.map((n) => n.id)).toEqual(["1A2B3C4D"]);
     } finally {
       await removeRefino(root);
     }
@@ -291,26 +279,18 @@ describe("refino cli", () => {
         expect(code).toBe(0);
         expect(out).toContain("updated D4E5F6G7");
 
-        const show = await run(["--root", emptyRoot, "--json", "show", "D4E5F6G7"]);
-        const [group] = JSON.parse(show.out) as Array<{
-          results: Array<{ body: string; grounds: string[]; rationale?: string; summary: string }>;
-        }>;
-        const node = group!.results[0]!;
-        expect(node.body).toBe("New decision.");
-        expect(node.grounds).toEqual(["2B3C4D5E"]);
-        expect(node.rationale).toBe("Because.");
-        expect(node.summary).toBe("A summary.");
+        const show = await run(["--root", emptyRoot, "show", "D4E5F6G7"]);
+        expect(show.out).toContain("grounds=[2B3C4D5E]");
+        expect(show.out).toContain("summary: A summary.");
+        expect(show.out).toContain("rationale: Because.");
+        expect(show.out).toContain("New decision.");
 
         // premise field update via --now
         const now = await run(["--root", emptyRoot, "update", "1A2B3C4D", "--now"]);
         expect(now.code).toBe(0);
-        const premiseShow = await run(["--root", emptyRoot, "--json", "show", "1A2B3C4D"]);
-        const [premiseGroup] = JSON.parse(premiseShow.out) as Array<{
-          results: Array<{ confirmed?: number }>;
-        }>;
-        // Confirmed is epoch milliseconds on the wire.
-        expect(premiseGroup!.results[0]!.confirmed).toBeTypeOf("number");
-        expect(premiseGroup!.results[0]!.confirmed as number).toBeGreaterThan(0);
+        const premiseShow = await run(["--root", emptyRoot, "show", "1A2B3C4D"]);
+        // Confirmed is stored as epoch milliseconds and rendered as RFC 3339.
+        expect(premiseShow.out).toMatch(/confirmed: \d{4}-\d{2}-\d{2}T/);
       } finally {
         await removeRefino(emptyRoot);
       }
@@ -443,7 +423,7 @@ describe("refino cli", () => {
         expect(blocked.code).toBe(1);
         expect(blocked.out).toContain("grounded on by E5F6G7H8");
         expect(blocked.out).toContain("--force");
-        const stillThere = await run(["--root", emptyRoot, "--json", "show", "D4E5F6G7"]);
+        const stillThere = await run(["--root", emptyRoot, "show", "D4E5F6G7"]);
         expect(stillThere.code).toBe(0);
 
         const leaf = await run(["--root", emptyRoot, "delete", "E5F6G7H8"]);
@@ -464,10 +444,6 @@ describe("refino cli", () => {
         expect(code).toBe(1);
         expect(out).toContain("deleted 1A2B3C4D");
         expect(out).toContain('error: node "D4E5F6G7" not found');
-
-        const json = await run(["--root", emptyRoot, "--json", "delete", "D4E5F6G7"]);
-        const results = JSON.parse(json.out) as Array<{ id: string; error?: string }>;
-        expect(results).toEqual([{ id: "D4E5F6G7", error: 'node "D4E5F6G7" not found' }]);
       } finally {
         await removeRefino(emptyRoot);
       }
@@ -518,18 +494,16 @@ describe("refino cli", () => {
   });
 
   it("ancestors and dependents traverse transitively", async () => {
-    const ancestors = await run(["--root", validRoot, "--json", "ancestors", "E5F6G7H8"]);
+    const ancestors = await run(["--root", validRoot, "ancestors", "E5F6G7H8"]);
     expect(ancestors.code).toBe(0);
-    const [group] = JSON.parse(ancestors.out) as Array<{
-      id: string;
-      results: Array<{ id: string; depth: number }>;
-    }>;
-    expect(group.id).toBe("E5F6G7H8");
-    expect(group.results).toEqual([
-      expect.objectContaining({ id: "1A2B3C4D", depth: 1 }),
-      expect.objectContaining({ id: "D4E5F6G7", depth: 1 }),
-      expect.objectContaining({ id: "A1B2C3D4", depth: 2 }),
-    ]);
+    // Direct grounds first (depth 1, both of them), then the transitive one.
+    const rows = ancestors.out
+      .split("\n")
+      .filter((line) => /^(1A2B3C4D|D4E5F6G7|A1B2C3D4)\s/.test(line));
+    expect(rows).toHaveLength(3);
+    expect(rows[0]).toMatch(/^1A2B3C4D\s+premise\s+1\s+/);
+    expect(rows[1]).toMatch(/^D4E5F6G7\s+constraint\s+1\s+/);
+    expect(rows[2]).toMatch(/^A1B2C3D4\s+constraint\s+2\s+/);
 
     const dependents = await run(["--root", validRoot, "dependents", "A1B2C3D4"]);
     expect(dependents.code).toBe(0);
@@ -537,26 +511,14 @@ describe("refino cli", () => {
     expect(dependents.out).toContain("E5F6G7H8");
   });
 
-  it("batch queries group results under each queried id", async () => {
-    const { code, out } = await run([
-      "--root",
-      validRoot,
-      "--json",
-      "dependents",
-      "A1B2C3D4",
-      "D4E5F6G7",
-    ]);
+  it("batch queries report per-id sections with per-group depths", async () => {
+    const { code, out } = await run(["--root", validRoot, "dependents", "A1B2C3D4", "D4E5F6G7"]);
     expect(code).toBe(0);
-    const groups = JSON.parse(out) as Array<{
-      id: string;
-      results: Array<{ id: string; depth: number }>;
-    }>;
-    expect(groups.map((g) => g.id)).toEqual(["A1B2C3D4", "D4E5F6G7"]);
-    expect(groups[0]!.results.map((r) => [r.id, r.depth])).toEqual([
-      ["D4E5F6G7", 1],
-      ["E5F6G7H8", 2],
-    ]);
-    expect(groups[1]!.results.map((r) => [r.id, r.depth])).toEqual([["E5F6G7H8", 1]]);
+    expect(out).toContain("A1B2C3D4:");
+    expect(out).toContain("D4E5F6G7:");
+    // The same node appears under both sections with its per-query depth.
+    expect(out).toMatch(/^E5F6G7H8\s+constraint\s+2\s+/m);
+    expect(out).toMatch(/^E5F6G7H8\s+constraint\s+1\s+/m);
   });
 
   it("batch human-readable output prints one section per queried id", async () => {
@@ -568,18 +530,13 @@ describe("refino cli", () => {
   });
 
   it("show prints several full records when given multiple ids", async () => {
-    const { code, out } = await run([
-      "--root",
-      validRoot,
-      "--json",
-      "show",
-      "E5F6G7H8",
-      "1A2B3C4D",
-    ]);
+    const { code, out } = await run(["--root", validRoot, "show", "E5F6G7H8", "1A2B3C4D"]);
     expect(code).toBe(0);
-    const groups = JSON.parse(out) as Array<{ id: string; results: Array<{ body?: string }> }>;
-    expect(groups.map((g) => g.id)).toEqual(["E5F6G7H8", "1A2B3C4D"]);
-    expect(groups.every((g) => typeof g.results[0]?.body === "string")).toBe(true);
+    expect(out.indexOf("constraints(id=E5F6G7H8")).toBeLessThan(
+      out.indexOf("premises(id=1A2B3C4D"),
+    );
+    expect(out).toContain("不使用 extension X，改用手写 SQL。");
+    expect(out).toContain("当前 PostgreSQL 版本不支持 extension X。");
   });
 
   it("queries refuse to run on an invalid graph", async () => {
@@ -593,43 +550,15 @@ describe("refino cli", () => {
     expect(code).toBe(1);
     expect(err).toBe("");
     expect(out).toContain('error: Node "9M8N7P6Q" not found');
-
-    const asJson = await run(["--root", validRoot, "--json", "show", "9M8N7P6Q"]);
-    expect(asJson.code).toBe(1);
-    expect(JSON.parse(asJson.out)).toEqual([
-      { id: "9M8N7P6Q", error: 'Node "9M8N7P6Q" not found' },
-    ]);
   });
 
   it("batch queries still return results for the ids that exist", async () => {
-    const { code, out } = await run([
-      "--root",
-      validRoot,
-      "--json",
-      "dependents",
-      "A1B2C3D4",
-      "9M8N7P6Q",
-    ]);
+    const { code, out } = await run(["--root", validRoot, "dependents", "A1B2C3D4", "9M8N7P6Q"]);
     expect(code).toBe(1);
-    const groups = JSON.parse(out) as Array<{
-      id: string;
-      results?: Array<{ id: string }>;
-      error?: string;
-    }>;
-    expect(groups).toHaveLength(2);
-    expect(groups[0]).toEqual({
-      id: "A1B2C3D4",
-      results: [
-        expect.objectContaining({ id: "D4E5F6G7" }),
-        expect.objectContaining({ id: "E5F6G7H8" }),
-      ],
-    });
-    expect(groups[1]).toEqual({ id: "9M8N7P6Q", error: 'Node "9M8N7P6Q" not found' });
-
-    const human = await run(["--root", validRoot, "dependents", "A1B2C3D4", "9M8N7P6Q"]);
-    expect(human.code).toBe(1);
-    expect(human.out).toContain("A1B2C3D4:");
-    expect(human.out).toContain('error: Node "9M8N7P6Q" not found');
+    expect(out).toContain("A1B2C3D4:");
+    expect(out).toContain("D4E5F6G7");
+    expect(out).toContain("E5F6G7H8");
+    expect(out).toContain('error: Node "9M8N7P6Q" not found');
   });
 
   it("returns usage errors with exit code 1", async () => {
@@ -657,9 +586,8 @@ describe("refino cli", () => {
       const id = match![1]!;
       expect(out).toContain(`.refino/nodes/${id.slice(0, 2)}/${id.slice(2)}-premise.md`);
 
-      const list = await run(["--root", emptyRoot, "--json", "list", "--type", "premise"]);
-      const nodes = JSON.parse(list.out) as Array<{ id: string }>;
-      expect(nodes.map((n) => n.id)).toEqual([id]);
+      const list = await run(["--root", emptyRoot, "list", "--type", "premise"]);
+      expect(list.out).toContain(id);
     } finally {
       await removeRefino(emptyRoot);
     }
@@ -670,10 +598,11 @@ describe("refino cli", () => {
     try {
       const { code } = await run(["--root", emptyRoot, "new", "premise", "--id", "1A2B3C4D"]);
       expect(code).toBe(0);
-      const show = await run(["--root", emptyRoot, "--json", "show", "1A2B3C4D"]);
-      expect(show.code).toBe(0);
-      const [group] = JSON.parse(show.out) as Array<{ results: Array<{ body: string }> }>;
-      expect(group!.results[0]!.body).toBe("");
+      const source = await readFile(
+        join(emptyRoot, ".refino", "nodes", "1A", "2B3C4D-premise.md"),
+        "utf8",
+      );
+      expect(source.trim()).toBe("");
     } finally {
       await removeRefino(emptyRoot);
     }
@@ -698,9 +627,9 @@ describe("refino cli", () => {
       expect(code).toBe(0);
       expect(out).toContain(".refino/nodes/");
 
-      const validate = await run(["--root", emptyRoot, "--json", "validate"]);
+      const validate = await run(["--root", emptyRoot, "validate"]);
       expect(validate.code).toBe(0);
-      expect((JSON.parse(validate.out) as { ok: boolean }).ok).toBe(true);
+      expect(validate.out).toContain("valid:");
     } finally {
       await removeRefino(emptyRoot);
     }
@@ -724,8 +653,9 @@ describe("refino cli", () => {
       expect(err).toContain("[UNKNOWN_GROUND]");
       expect(err).toContain("2B3C4D5E");
 
-      const validate = await run(["--root", emptyRoot, "--json", "validate"]);
+      const validate = await run(["--root", emptyRoot, "validate"]);
       expect(validate.code).toBe(0); // nothing was written
+      expect(validate.out).toContain("valid:");
     } finally {
       await removeRefino(emptyRoot);
     }
@@ -766,18 +696,15 @@ describe("refino cli", () => {
       ]);
       expect(code).toBe(0);
 
-      const validate = await run(["--root", emptyRoot, "--json", "validate"]);
+      const validate = await run(["--root", emptyRoot, "validate"]);
       expect(validate.code).toBe(0);
-      const payload = JSON.parse(validate.out) as { ok: boolean };
-      expect(payload.ok).toBe(true);
+      expect(validate.out).toContain("valid:");
 
-      const list = await run(["--root", emptyRoot, "--json", "list", "--type", "premise"]);
-      const nodes = JSON.parse(list.out) as Array<{ id: string }>;
-      const show = await run(["--root", emptyRoot, "--json", "show", nodes[0]!.id]);
-      const [group] = JSON.parse(show.out) as Array<{ results: Array<{ confirmed?: number }> }>;
-      // Confirmed is epoch milliseconds on the wire.
-      expect(group!.results[0]!.confirmed).toBeTypeOf("number");
-      expect(group!.results[0]!.confirmed as number).toBeGreaterThan(0);
+      const list = await run(["--root", emptyRoot, "list", "--type", "premise"]);
+      const id = /^([0-9A-HJKMNP-TV-Z]{8})\s/m.exec(list.out)![1]!;
+      const show = await run(["--root", emptyRoot, "show", id]);
+      // Confirmed is stored as epoch milliseconds and rendered as RFC 3339.
+      expect(show.out).toMatch(/confirmed: \d{4}-\d{2}-\d{2}T/);
     } finally {
       await removeRefino(emptyRoot);
     }
@@ -804,29 +731,6 @@ describe("refino cli", () => {
     }
   });
 
-  it("new emits JSON with --json", async () => {
-    const emptyRoot = await adoptedRoot();
-    try {
-      const { code, out } = await run([
-        "--root",
-        emptyRoot,
-        "--json",
-        "new",
-        "constraint",
-        "--body",
-        "Root decision.",
-      ]);
-      expect(code).toBe(0);
-      const payload = JSON.parse(out) as { id: string; file: string };
-      expect(payload.id).toMatch(/^[0-9A-HJKMNP-TV-Z]{8}$/);
-      expect(payload.file).toBe(
-        `nodes/${payload.id.slice(0, 2)}/${payload.id.slice(2)}-constraint.md`,
-      );
-    } finally {
-      await removeRefino(emptyRoot);
-    }
-  });
-
   it("new constraint rejects malformed --grounds ids before creating", async () => {
     const root = await createRefino({ "nodes/1A/2B3C4D-premise.md": premise("1A2B3C4D") });
     try {
@@ -843,9 +747,8 @@ describe("refino cli", () => {
       expect(code).toBe(1);
       expect(err).toContain('invalid ground id "ilou2345"');
 
-      const list = await run(["--root", root, "--json", "list"]);
-      const nodes = JSON.parse(list.out) as Array<{ id: string }>;
-      expect(nodes.map((n) => n.id)).toEqual(["1A2B3C4D"]);
+      const list = await run(["--root", root, "list"]);
+      expect(list.out).toContain("1A2B3C4D");
     } finally {
       await removeRefino(root);
     }
@@ -928,9 +831,8 @@ describe("refino cli", () => {
         "Short summary.",
       ]);
       expect(code).toBe(0);
-      const list = await run(["--root", emptyRoot, "--json", "list"]);
-      const [node] = JSON.parse(list.out) as Array<{ id: string; summary: string }>;
-      expect(node.summary).toBe("Short summary.");
+      const list = await run(["--root", emptyRoot, "list"]);
+      expect(list.out).toContain("Short summary.");
     } finally {
       await removeRefino(emptyRoot);
     }

@@ -1,6 +1,6 @@
 import type { Graph, RefinoNode } from "refino";
 import { Command } from "commander";
-import { emit, withStore } from "../shared.js";
+import { withStore } from "../shared.js";
 import type { GlobalOptions, RunFn } from "../shared.js";
 import { renderNodeTable } from "../format.js";
 import type { CliIo } from "../format.js";
@@ -39,15 +39,6 @@ async function renderOverview(io: CliIo, opts: GlobalOptions, graph: Graph): Pro
     pendingReview = (await readLedger(opts.root, graph)).pending.length;
   } catch (error) {
     io.stderr.write(`warning: ${error instanceof Error ? error.message : String(error)}\n`);
-  }
-
-  if (opts.json) {
-    emit(io, {
-      counts,
-      pendingReview,
-      roots: roots.map((node) => ({ id: node.id, type: node.type, summary: node.summary })),
-    });
-    return;
   }
 
   const parts = [`# CRG 概览`, `- 节点：${counts.constraints} 个约束、${counts.premises} 个前提`];

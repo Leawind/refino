@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Command } from "commander";
-import { emit, refinoDir } from "../shared.js";
+import { refinoDir } from "../shared.js";
 import type { GlobalOptions, RunFn } from "../shared.js";
 import type { CliIo } from "../format.js";
 
@@ -57,8 +57,7 @@ export function createInitCommand(io: CliIo, run: RunFn): Command {
         }
         await mkdir(join(dir, "nodes"), { recursive: true });
         await ensureStateIgnored(dir);
-        if (opts.json) emit(io, { refinoDir: dir, created: true });
-        else io.stdout.write(`initialized ${dir} (empty graph; create nodes with "refino new")\n`);
+        io.stdout.write(`initialized ${dir} (empty graph; create nodes with "refino new")\n`);
         return 0;
       }),
     );

@@ -195,13 +195,6 @@ describe("review workflow through the cli", () => {
     expect(listed.out).toContain("审核台账（1 项待审查");
     expect(listed.out).toContain(`- ${D4} [constraint] Access goes through repositories.`);
 
-    const json = await run(["--json", "review"]);
-    const payload = JSON.parse(json.out) as {
-      pending: Array<{ id: string; source: string; kind: string; summary: string }>;
-    };
-    expect(payload.pending).toHaveLength(1);
-    expect(payload.pending[0]).toMatchObject({ id: D4, source: P1, kind: "update" });
-
     // Once the change is committed, git-derived pending goes quiet while the
     // ledger keeps the review obligation alive.
     await git(repo, ["add", "-A"]);
@@ -215,9 +208,6 @@ describe("review workflow through the cli", () => {
   it("context carries the pending count", async () => {
     const text = await run(["context"]);
     expect(text.out).toContain("审核台账 1 项");
-    const json = await run(["--json", "context"]);
-    const payload = JSON.parse(json.out) as { pendingReview: number };
-    expect(payload.pendingReview).toBe(1);
   });
 
   it("review ack resolves entries; unknown ids fail partially", async () => {
@@ -232,10 +222,10 @@ describe("review workflow through the cli", () => {
   });
 
   it("forced delete records the removed node's pre-mutation dependents", async () => {
-    const { code, out } = await run(["--json", "delete", A1, "--force"]);
+    const { code, out } = await run(["delete", A1, "--force"]);
     expect(code).toBe(0);
-    const results = JSON.parse(out) as Array<{ id: string; pendingReview?: string[] }>;
-    expect(results[0]).toMatchObject({ id: A1, pendingReview: [D4] });
+    expect(out).toContain(`deleted ${A1}`);
+    expect(out).toContain(`待审查（下游受影响，已记入审核台账）：${D4}`);
     // The graph now has dangling grounds by design; read the ledger directly
     // instead of through graph-gated commands.
     const ledger = await readLedger(repo);

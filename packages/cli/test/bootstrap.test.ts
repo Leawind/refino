@@ -61,19 +61,6 @@ describe("refino init", () => {
     expect(again.code).toBe(1);
     expect(again.err).toContain("already exists");
   });
-
-  it("emits JSON with --json", async () => {
-    const jsonRoot = await mkdtemp(join(tmpdir(), "refino-json-"));
-    try {
-      const { code, out } = await run(["--root", jsonRoot, "--json", "init"]);
-      expect(code).toBe(0);
-      const payload = JSON.parse(out) as { refinoDir: string; created: boolean };
-      expect(payload.created).toBe(true);
-      expect(payload.refinoDir).toBe(join(jsonRoot, ".refino"));
-    } finally {
-      await rm(jsonRoot, { recursive: true, force: true });
-    }
-  });
 });
 
 describe("refino context", () => {
@@ -90,59 +77,36 @@ describe("refino context", () => {
     expect(out).toContain("refino search");
     expect(out).toContain("refino guide");
   });
-
-  it("emits JSON with counts and roots", async () => {
-    const { code, out } = await run(["--root", graphRoot, "--json", "context"]);
-    expect(code).toBe(0);
-    const payload = JSON.parse(out) as {
-      counts: { constraints: number; premises: number };
-      roots: Array<{ id: string; type: string; summary: string }>;
-    };
-    expect(payload.counts).toEqual({ constraints: 3, premises: 1 });
-    expect(payload.roots.map((r) => r.id)).toEqual([A1, Z9].sort());
-  });
 });
 
 describe("refino search", () => {
   it("matches id prefixes and summary substrings with pagination", async () => {
-    const { code, out } = await run(["--root", graphRoot, "--json", "search", "PostgreSQL"]);
+    const { code, out } = await run(["--root", graphRoot, "search", "PostgreSQL"]);
     expect(code).toBe(0);
-    const payload = JSON.parse(out) as { nodes: Array<{ id: string }>; next_cursor?: string };
-    expect(payload.nodes.map((n) => n.id)).toContain(A1);
-    expect(payload.nodes.map((n) => n.id)).toContain(P1);
+    expect(out).toContain(A1);
+    expect(out).toContain(P1);
 
-    const page = await run(["--root", graphRoot, "--json", "search", "--limit", "1"]);
-    const paged = JSON.parse(page.out) as { nodes: Array<{ id: string }>; next_cursor?: string };
-    expect(paged.nodes).toHaveLength(1);
-    expect(paged.next_cursor).toBeDefined();
+    const page = await run(["--root", graphRoot, "search", "--limit", "1"]);
+    expect(page.out).toContain("--cursor");
+    const cursor = /--cursor ([0-9A-HJKMNP-TV-Z]{8})/.exec(page.out)![1]!;
 
-    const resumed = await run([
-      "--root",
-      graphRoot,
-      "--json",
-      "search",
-      "--limit",
-      "1",
-      "--cursor",
-      paged.next_cursor!,
-    ]);
-    const second = JSON.parse(resumed.out) as { nodes: Array<{ id: string }> };
-    expect(second.nodes[0]!.id).not.toBe(paged.nodes[0]!.id);
+    const resumed = await run(["--root", graphRoot, "search", "--limit", "1", "--cursor", cursor]);
+    expect(resumed.code).toBe(0);
+    // The second page must not repeat the first page's row.
+    const firstRow = /^([0-9A-HJKMNP-TV-Z]{8})\s/m.exec(page.out)![1]!;
+    const secondRow = /^([0-9A-HJKMNP-TV-Z]{8})\s/m.exec(resumed.out)![1]!;
+    expect(secondRow).not.toBe(firstRow);
   });
 
   it("supports the roots and unreferenced filters", async () => {
-    const roots = await run(["--root", graphRoot, "--json", "search", "--roots"]);
-    const rootIds = (JSON.parse(roots.out) as { nodes: Array<{ id: string }> }).nodes.map(
-      (n) => n.id,
-    );
-    expect(rootIds).toEqual([A1, Z9].sort());
+    const roots = await run(["--root", graphRoot, "search", "--roots"]);
+    expect(roots.out).toContain(A1);
+    expect(roots.out).toContain(Z9);
+    expect(roots.out).not.toContain(D4);
 
-    const unreferenced = await run(["--root", graphRoot, "--json", "search", "--unreferenced"]);
+    const unreferenced = await run(["--root", graphRoot, "search", "--unreferenced"]);
     // P1 is grounded on by D4; the fixture has no unreferenced premise.
-    const premiseIds = (JSON.parse(unreferenced.out) as { nodes: Array<{ id: string }> }).nodes.map(
-      (n) => n.id,
-    );
-    expect(premiseIds).toEqual([]);
+    expect(unreferenced.out).toContain("(no matches)");
   });
 
   it("prints human-readable output and a continuation hint", async () => {
@@ -181,16 +145,5 @@ describe("refino guide and skill", () => {
     const file = join(outDir, "refino", "SKILL.md");
     expect(await readFile(file, "utf8")).toContain("name: refino");
     expect(out).toContain(file);
-
-    const { code: jsonCode, out: jsonOut } = await run([
-      "--root",
-      graphRoot,
-      "--json",
-      "skill",
-      "--output",
-      join(bareRoot, "skills2"),
-    ]);
-    expect(jsonCode).toBe(0);
-    expect(jsonOut).toContain('"wrote"');
   });
 });

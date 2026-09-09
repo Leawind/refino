@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { InvalidArgumentError, Command } from "commander";
 import { renderIssues } from "./format.js";
 import type { CliIo } from "./format.js";
-import { emit, refinoDir, withStoreForWrite } from "./shared.js";
+import { refinoDir, withStoreForWrite } from "./shared.js";
 import type { GlobalOptions, RunFn } from "./shared.js";
 
 /**
@@ -295,20 +295,9 @@ export function createDevCommand(io: CliIo, run: RunFn): Command {
           const roots = generated.filter(
             (n) => n.type === "constraint" && (n.grounds?.length ?? 0) === 0,
           ).length;
-          if (opts.json) {
-            emit(io, {
-              refinoDir: refinoDir(opts),
-              seed,
-              nodes: generated.length,
-              premises,
-              constraints,
-              roots,
-            });
-          } else {
-            io.stdout.write(
-              `generated ${premises} premises, ${constraints} constraints (${roots} roots) in ${refinoDir(opts)} (seed ${seed})\n`,
-            );
-          }
+          io.stdout.write(
+            `generated ${premises} premises, ${constraints} constraints (${roots} roots) in ${refinoDir(opts)} (seed ${seed})\n`,
+          );
           return 0;
         });
       }),

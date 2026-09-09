@@ -2,7 +2,7 @@ import { Command } from "commander";
 import { getDependents } from "refino";
 import type { Graph, NodeWithDepth } from "refino";
 import { nodeIdFromRelativeFile } from "@refino/storage";
-import { emit, withStore } from "../shared.js";
+import { withStore } from "../shared.js";
 import type { GlobalOptions, RunFn } from "../shared.js";
 import type { CliIo } from "../format.js";
 import { readLedger } from "../review-state.js";
@@ -70,24 +70,9 @@ async function pendingCommand(
   const ledger = await readLedger(opts.root, graph);
   // Ledger entries are themselves the awaiting set (one hop downstream of a
   // past change); cascading further would pre-flag reviews that belong to the
-  // reviewer's own future modifications. Text output skips ids the git-derived
-  // section already lists; JSON carries the ledger verbatim.
+  // reviewer's own future modifications. Output skips ids the git-derived
+  // section already lists.
   const ledgerOnly = ledger.pending.filter((entry) => !shownPending.has(entry.id));
-
-  if (opts.json) {
-    emit(io, {
-      base,
-      modified,
-      pending: pending.map((entry) => ({
-        id: entry.node.id,
-        type: entry.node.type,
-        summary: entry.node.summary,
-        depth: entry.depth,
-      })),
-      ledger: ledger.pending,
-    });
-    return 0;
-  }
 
   const lines = [
     `基线：${base}`,

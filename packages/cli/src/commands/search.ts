@@ -1,7 +1,7 @@
 import { Option } from "commander";
 import { Command } from "commander";
 import { searchNodes, type SearchPage } from "@refino/harness";
-import { emit, withStore } from "../shared.js";
+import { withStore } from "../shared.js";
 import type { GlobalOptions, RunFn } from "../shared.js";
 import { renderNodeTable } from "../format.js";
 import type { CliIo } from "../format.js";
@@ -80,9 +80,7 @@ export function createSearchCommand(io: CliIo, run: RunFn): Command {
             nodes: filtered.slice(0, limit),
             ...(nextCursor !== undefined && { next_cursor: nextCursor }),
           };
-          if (opts.json) {
-            emit(io, result);
-          } else if (result.nodes.length === 0) {
+          if (result.nodes.length === 0) {
             io.stdout.write("(no matches)\n");
           } else {
             io.stdout.write(`${renderNodeTable(result.nodes)}\n`);

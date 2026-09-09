@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { main } from "../src/main.js";
 import type { CliIo } from "../src/format.js";
+import { loadGraph } from "@refino/storage";
 import { constraint, createRefino, premise, removeRefino } from "@refino/testkit";
 
 function capture(): { io: CliIo; out(): string; err(): string } {
@@ -81,10 +82,15 @@ function groundLayerSpans(nodes: ListedNode[]): { single: number; multi: number 
   return spans;
 }
 
-async function listJson(root: string): Promise<ListedNode[]> {
-  const list = await run(["--root", root, "--json", "list"]);
-  expect(list.code).toBe(0);
-  return JSON.parse(list.out) as ListedNode[];
+/** The generated graph, read through the storage loader for structural checks. */
+async function listedNodes(root: string): Promise<ListedNode[]> {
+  const { graph, issues } = await loadGraph(join(root, ".refino"));
+  expect(issues).toEqual([]);
+  return [...graph.nodes.values()].map((n) => ({
+    id: n.id,
+    type: n.type,
+    grounds: n.type === "constraint" ? [...n.grounds] : undefined,
+  }));
 }
 
 /** All files under `<root>/.refino` as a relative-path -> content map. */
@@ -153,11 +159,11 @@ describe("refino dev (hidden command)", () => {
       expect(out).toContain("40 constraints");
       expect(out).toContain("(seed 42)");
 
-      const validate = await run(["--root", root, "validate", "--json"]);
+      const validate = await run(["--root", root, "validate"]);
       expect(validate.code).toBe(0);
-      expect(JSON.parse(validate.out)).toMatchObject({ ok: true });
+      expect(validate.out).toContain("valid:");
 
-      const nodes = await listJson(root);
+      const nodes = await listedNodes(root);
       expect(nodes).toHaveLength(50);
       const premises = nodes.filter((n) => n.type === "premise");
       const constraints = nodes.filter((n) => n.type === "constraint");
@@ -212,7 +218,6 @@ describe("refino dev (hidden command)", () => {
         root,
         "dev",
         "generate",
-        "--json",
         "--nodes",
         "40",
         "--premise-ratio",
@@ -227,18 +232,12 @@ describe("refino dev (hidden command)", () => {
         "1",
       ]);
       expect(code).toBe(0);
-      const payload = JSON.parse(out) as {
-        premises: number;
-        constraints: number;
-        roots: number;
-        seed: number;
-      };
-      expect(payload.premises).toBe(10);
-      expect(payload.constraints).toBe(30);
-      expect(payload.roots).toBe(3);
-      expect(payload.seed).toBe(1);
+      expect(out).toContain("10 premises");
+      expect(out).toContain("30 constraints");
+      expect(out).toContain("(3 roots)");
+      expect(out).toContain("(seed 1)");
 
-      const nodes = await listJson(root);
+      const nodes = await listedNodes(root);
       expect(maxChainDepth(nodes)).toBeLessThanOrEqual(2);
       const constraintGrounds = nodes
         .filter((n) => n.type === "constraint")
@@ -273,7 +272,7 @@ describe("refino dev (hidden command)", () => {
       ]);
       expect(code).toBe(0);
 
-      const nodes = await listJson(root);
+      const nodes = await listedNodes(root);
       // With no root constraints, every constraint still grounds on at least
       // one node (premises and/or earlier constraints).
       expect(
@@ -303,7 +302,7 @@ describe("refino dev (hidden command)", () => {
       ]);
       expect(code).toBe(0);
 
-      const nodes = await listJson(root);
+      const nodes = await listedNodes(root);
       // Default cross-layer ratio 0.2; the exact counts are stable for a
       // fixed seed and lock the distribution against regressions.
       const spans = groundLayerSpans(nodes);
@@ -341,7 +340,7 @@ describe("refino dev (hidden command)", () => {
       expect(none.code).toBe(0);
       // Without cross-layer grounds, every non-root constraint grounds
       // strictly within its anchor's layer.
-      expect(groundLayerSpans(await listJson(root)).multi).toBe(0);
+      expect(groundLayerSpans(await listedNodes(root)).multi).toBe(0);
 
       const forced = await run([
         "--root",
@@ -359,7 +358,7 @@ describe("refino dev (hidden command)", () => {
         "9",
       ]);
       expect(forced.code).toBe(0);
-      expect(groundLayerSpans(await listJson(root)).multi).toBeGreaterThan(0);
+      expect(groundLayerSpans(await listedNodes(root)).multi).toBeGreaterThan(0);
     } finally {
       await removeRefino(root);
     }
@@ -386,7 +385,7 @@ describe("refino dev (hidden command)", () => {
         "9",
       ]);
       expect(code).toBe(0);
-      const nodes = await listJson(root);
+      const nodes = await listedNodes(root);
       const constraints = nodes.filter((n) => n.type === "constraint");
       expect(constraints).toHaveLength(12);
       expect(
@@ -412,7 +411,7 @@ describe("refino dev (hidden command)", () => {
 
       const forced = await run(["--root", root, "dev", "generate", "--nodes", "5", "--force"]);
       expect(forced.code).toBe(0);
-      expect(await listJson(root)).toHaveLength(6);
+      expect(await listedNodes(root)).toHaveLength(6);
     } finally {
       await removeRefino(root);
     }
@@ -446,7 +445,7 @@ describe("refino dev (hidden command)", () => {
         expect(code).toBe(1);
         expect(err).toContain("error:");
       }
-      expect(await listJson(root)).toHaveLength(0);
+      expect(await listedNodes(root)).toHaveLength(0);
     } finally {
       await removeRefino(root);
     }
@@ -457,14 +456,13 @@ describe("refino dev (hidden command)", () => {
     const root = await createRefino({});
     try {
       await run(["--root", root, "dev", "generate", "--nodes", "8", "--seed", "9"]);
-      const nodes = await listJson(root);
+      const nodes = await listedNodes(root);
       const grounded = nodes.filter((n) => n.type === "constraint" && (n.grounds?.length ?? 0) > 0);
       const target = grounded[grounded.length - 1] ?? nodes[0]!;
       const ancestors = await run(["--root", root, "ancestors", target.id]);
       expect(ancestors.code).toBe(0);
-      const dependents = await run(["--root", root, "--json", "dependents", target.id]);
+      const dependents = await run(["--root", root, "dependents", target.id]);
       expect(dependents.code).toBe(0);
-      expect(() => JSON.parse(dependents.out)).not.toThrow();
       const show = await run(["--root", root, "show", target.id]);
       expect(show.code).toBe(0);
       expect(show.out).toContain(target.id);
@@ -481,7 +479,7 @@ describe("refino dev (hidden command)", () => {
     try {
       const { code } = await run(["--root", root, "dev", "generate", "--nodes", "6", "--force"]);
       expect(code).toBe(0);
-      const ids = (await listJson(root)).map((n) => n.id);
+      const ids = (await listedNodes(root)).map((n) => n.id);
       expect(ids).toHaveLength(7);
       expect(ids).toContain("DEADBEEF");
       const validate = await run(["--root", root, "validate"]);

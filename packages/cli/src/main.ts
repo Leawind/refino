@@ -30,7 +30,7 @@ import { createPendingCommand } from "./commands/pending.js";
 import { createReviewCommand } from "./commands/review.js";
 import { createGuideCommand, createSkillCommand } from "./commands/selfdoc.js";
 import { recordWriteOutcome } from "./review-state.js";
-import { emit, fail, refinoDir, withStore, withStoreForWrite } from "./shared.js";
+import { fail, refinoDir, withStore, withStoreForWrite } from "./shared.js";
 import type { GlobalOptions } from "./shared.js";
 import { DEFAULT_WEB_PORT, startWebServer } from "./web/server.js";
 
@@ -47,7 +47,6 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
     .description("Parse, validate and query a Constraint Refinement Graph stored in .refino/.")
     .version(readVersion())
     .option("--root <dir>", "project root directory containing .refino/", process.cwd())
-    .option("--json", "emit machine-readable JSON on stdout", false)
     .configureOutput({
       writeOut: (text) => void io.stdout.write(text),
       writeErr: (text) => void io.stderr.write(text),
@@ -75,9 +74,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
         withStore(io, opts, async (store) => {
           const issues = store.issues();
           const counts = countNodes(store.graph);
-          if (opts.json) {
-            emit(io, { ok: issues.length === 0, refinoDir: refinoDir(opts), counts, issues });
-          } else if (issues.length > 0) {
+          if (issues.length > 0) {
             io.stdout.write(`${renderIssues(issues)}\n`);
           } else {
             io.stdout.write(
@@ -121,12 +118,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
             }
             nodes = nodes.filter((n) => n.type === "premise" && !referenced.has(n.id));
           }
-          if (opts.json) {
-            emit(
-              io,
-              nodes.map((n) => nodeJson(n)),
-            );
-          } else if (nodes.length === 0) {
+          if (nodes.length === 0) {
             io.stdout.write("(no nodes)\n");
           } else {
             io.stdout.write(`${renderNodeTable(nodes)}\n`);
@@ -154,31 +146,15 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
             const content = await store.content(group.id);
             if (content !== undefined) contents.set(group.id, content);
           }
-          if (opts.json) {
-            emit(
-              io,
-              groups.map((group) =>
+          io.stdout.write(
+            `${groups
+              .map((group) =>
                 "error" in group
-                  ? group
-                  : {
-                      id: group.id,
-                      results: group.results.map((node) =>
-                        fullNodeJson(node, contents.get(group.id)),
-                      ),
-                    },
-              ),
-            );
-          } else {
-            io.stdout.write(
-              `${groups
-                .map((group) =>
-                  "error" in group
-                    ? `error: ${group.error}`
-                    : renderFullRecord(group.results[0]!, contents.get(group.id)),
-                )
-                .join("\n\n")}\n`,
-            );
-          }
+                  ? `error: ${group.error}`
+                  : renderFullRecord(group.results[0]!, contents.get(group.id)),
+              )
+              .join("\n\n")}\n`,
+          );
           return missing ? 1 : 0;
         }),
       ),
@@ -191,7 +167,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
     .action((ids: string[], _opts, cmd) =>
       run(cmd, async (opts) =>
         withStore(io, opts, async (store) => {
-          const { missing } = emitGroupedNodes(io, opts, queryGroups(store.graph, ids, getGrounds));
+          const { missing } = emitGroupedNodes(io, queryGroups(store.graph, ids, getGrounds));
           return missing ? 1 : 0;
         }),
       ),
@@ -204,11 +180,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
     .action((ids: string[], _opts, cmd) =>
       run(cmd, async (opts) =>
         withStore(io, opts, async (store) => {
-          const { missing } = emitGroupedDepths(
-            io,
-            opts,
-            queryGroups(store.graph, ids, getAncestors),
-          );
+          const { missing } = emitGroupedDepths(io, queryGroups(store.graph, ids, getAncestors));
           return missing ? 1 : 0;
         }),
       ),
@@ -221,11 +193,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
     .action((ids: string[], _opts, cmd) =>
       run(cmd, async (opts) =>
         withStore(io, opts, async (store) => {
-          const { missing } = emitGroupedDepths(
-            io,
-            opts,
-            queryGroups(store.graph, ids, getDependents),
-          );
+          const { missing } = emitGroupedDepths(io, queryGroups(store.graph, ids, getDependents));
           return missing ? 1 : 0;
         }),
       ),
@@ -273,7 +241,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
                       ? confirmedToMs(confirmed)
                       : undefined,
               });
-              emitWritten(io, opts, outcome.id, "premise", "created");
+              emitWritten(io, outcome.id, "premise", "created");
               return 0;
             });
           }),
@@ -317,7 +285,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
                 rationale,
                 summary,
               });
-              emitWritten(io, opts, outcome.id, "constraint", "created");
+              emitWritten(io, outcome.id, "constraint", "created");
               return 0;
             });
           }),
@@ -432,7 +400,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
             "update",
             outcome.change?.affected,
           );
-          emitWritten(io, opts, id, node.type, "updated", affected);
+          emitWritten(io, id, node.type, "updated", affected);
           return 0;
         });
       }),
@@ -486,23 +454,18 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
               failure = true;
             }
           }
-          if (opts.json) emit(io, results);
-          else {
-            io.stdout.write(
-              `${results
-                .flatMap((r) => {
-                  if (r.error !== undefined) return [`error: ${r.error}`];
-                  const lines = [`deleted ${r.id}`];
-                  if (r.pendingReview !== undefined && r.pendingReview.length > 0) {
-                    lines.push(
-                      `待审查（下游受影响，已记入审核台账）：${r.pendingReview.join(", ")}`,
-                    );
-                  }
-                  return lines;
-                })
-                .join("\n")}\n`,
-            );
-          }
+          io.stdout.write(
+            `${results
+              .flatMap((r) => {
+                if (r.error !== undefined) return [`error: ${r.error}`];
+                const lines = [`deleted ${r.id}`];
+                if (r.pendingReview !== undefined && r.pendingReview.length > 0) {
+                  lines.push(`待审查（下游受影响，已记入审核台账）：${r.pendingReview.join(", ")}`);
+                }
+                return lines;
+              })
+              .join("\n")}\n`,
+          );
           return failure ? 1 : 0;
         });
       }),
@@ -573,36 +536,22 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
 
 function emitWritten(
   io: CliIo,
-  opts: GlobalOptions,
   id: string,
   type: "premise" | "constraint",
   verb: "created" | "updated",
   affected?: string[],
 ): void {
   const file = nodeRelativeFile(type, id);
-  if (opts.json) {
-    emit(io, {
-      id,
-      file,
-      ...(affected !== undefined && affected.length > 0 && { pendingReview: affected }),
-    });
-    return;
-  }
-  // Display keeps the canonical forward-slash form, matching the --json
-  // `file` field; node:path join would emit backslashes on Windows.
+  // Display keeps the canonical forward-slash form; node:path join would
+  // emit backslashes on Windows.
   io.stdout.write(`${verb} ${id} (.refino/${file})\n`);
   if (affected !== undefined && affected.length > 0) {
     io.stdout.write(`待审查（下游受影响，已记入审核台账）：${affected.join(", ")}\n`);
   }
 }
 
-function emitNodes(io: CliIo, opts: GlobalOptions, nodes: RefinoNode[]): void {
-  if (opts.json) {
-    emit(
-      io,
-      nodes.map((n) => nodeJson(n)),
-    );
-  } else if (nodes.length === 0) {
+function emitNodes(io: CliIo, nodes: RefinoNode[]): void {
+  if (nodes.length === 0) {
     io.stdout.write("(empty)\n");
   } else {
     io.stdout.write(`${renderNodeTable(nodes)}\n`);
@@ -610,120 +559,58 @@ function emitNodes(io: CliIo, opts: GlobalOptions, nodes: RefinoNode[]): void {
 }
 
 /**
- * Emit results of a batch query. JSON groups results under the queried id so
- * that overlapping results from different queries stay unambiguous; with a
- * single id the flat shape is kept. Unknown ids yield a per-id error entry
+ * Emit results of a batch query. Unknown ids yield a per-id error entry
  * while results for the remaining ids are still emitted. Human-readable
  * output prints one section per queried id when batching.
  */
-function emitGroupedNodes(
-  io: CliIo,
-  opts: GlobalOptions,
-  groups: QueryGroup<RefinoNode>[],
-): { missing: boolean } {
+function emitGroupedNodes(io: CliIo, groups: QueryGroup<RefinoNode>[]): { missing: boolean } {
   const missing = groups.some((group) => "error" in group);
-  if (opts.json) {
-    emit(
-      io,
-      groups.map((group) =>
-        "error" in group ? group : { id: group.id, results: group.results.map((n) => nodeJson(n)) },
-      ),
-    );
-  } else if (groups.length === 1) {
-    emitNodesOrError(io, opts, groups[0]!);
+  if (groups.length === 1) {
+    emitNodesOrError(io, groups[0]!);
   } else {
     for (const group of groups) {
       io.stdout.write(`${group.id}:\n`);
-      emitNodesOrError(io, opts, group);
+      emitNodesOrError(io, group);
     }
   }
   return { missing };
 }
 
-function emitNodesOrError(io: CliIo, opts: GlobalOptions, group: QueryGroup<RefinoNode>): void {
+function emitNodesOrError(io: CliIo, group: QueryGroup<RefinoNode>): void {
   if ("error" in group) {
     io.stdout.write(`error: ${group.error}\n`);
     return;
   }
-  emitNodes(io, opts, group.results);
+  emitNodes(io, group.results);
 }
 
-function emitGroupedDepths(
-  io: CliIo,
-  opts: GlobalOptions,
-  groups: QueryGroup<NodeWithDepth>[],
-): { missing: boolean } {
+function emitGroupedDepths(io: CliIo, groups: QueryGroup<NodeWithDepth>[]): { missing: boolean } {
   const missing = groups.some((group) => "error" in group);
-  if (opts.json) {
-    emit(
-      io,
-      groups.map((group) =>
-        "error" in group
-          ? group
-          : {
-              id: group.id,
-              results: group.results.map((r) => ({ ...nodeJson(r.node), depth: r.depth })),
-            },
-      ),
-    );
-  } else if (groups.length === 1) {
-    emitDepthsOrError(io, opts, groups[0]!);
+  if (groups.length === 1) {
+    emitDepthsOrError(io, groups[0]!);
   } else {
     for (const group of groups) {
       io.stdout.write(`${group.id}:\n`);
-      emitDepthsOrError(io, opts, group);
+      emitDepthsOrError(io, group);
     }
   }
   return { missing };
 }
 
-function emitDepthsOrError(io: CliIo, opts: GlobalOptions, group: QueryGroup<NodeWithDepth>): void {
+function emitDepthsOrError(io: CliIo, group: QueryGroup<NodeWithDepth>): void {
   if ("error" in group) {
     io.stdout.write(`error: ${group.error}\n`);
     return;
   }
-  emitDepths(io, opts, group.results);
+  emitDepths(io, group.results);
 }
 
-function emitDepths(
-  io: CliIo,
-  opts: GlobalOptions,
-  results: ReadonlyArray<{ node: RefinoNode; depth: number }>,
-): void {
-  if (opts.json) {
-    emit(
-      io,
-      results.map((r) => ({ ...nodeJson(r.node), depth: r.depth })),
-    );
-  } else if (results.length === 0) {
+function emitDepths(io: CliIo, results: ReadonlyArray<{ node: RefinoNode; depth: number }>): void {
+  if (results.length === 0) {
     io.stdout.write("(empty)\n");
   } else {
     io.stdout.write(`${renderNodeTable(results.map((r) => ({ ...r.node, depth: r.depth })))}\n`);
   }
-}
-
-function fullNodeJson(node: RefinoNode, content?: NodeContent): Record<string, unknown> {
-  return {
-    ...nodeJson(node),
-    body: content?.body ?? "",
-    ...(node.type === "constraint" &&
-      content?.rationale !== undefined && {
-        rationale: content.rationale,
-      }),
-    ...(node.type === "premise" &&
-      node.confirmed !== undefined && {
-        confirmed: node.confirmed,
-      }),
-  };
-}
-
-function nodeJson(node: RefinoNode): Record<string, unknown> {
-  const base = {
-    id: node.id,
-    type: node.type,
-    summary: node.summary,
-  };
-  return node.type === "constraint" ? { ...base, grounds: node.grounds } : base;
 }
 
 /** List order: upstream → downstream by longest-path layer (refino,

@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { ackEntries, readLedger } from "../review-state.js";
-import { emit, withStore, withStoreForWrite } from "../shared.js";
+import { withStore, withStoreForWrite } from "../shared.js";
 import type { GlobalOptions, RunFn } from "../shared.js";
 import type { CliIo } from "../format.js";
 
@@ -23,15 +23,6 @@ export function createReviewCommand(io: CliIo, run: RunFn): Command {
       run(cmd, (opts: GlobalOptions) =>
         withStore(io, opts, async (store) => {
           const ledger = await readLedger(opts.root, store.graph);
-          if (opts.json) {
-            emit(io, {
-              pending: ledger.pending.map((entry) => ({
-                ...entry,
-                summary: store.graph.nodes.get(entry.id)?.summary,
-              })),
-            });
-            return 0;
-          }
           if (ledger.pending.length === 0) {
             io.stdout.write("审核台账为空：无待审查项。\n");
             return 0;
@@ -77,16 +68,13 @@ export function createReviewCommand(io: CliIo, run: RunFn): Command {
             const results = targets.map((id) =>
               missing.includes(id) ? { id, error: "not in the ledger" } : { id },
             );
-            if (opts.json) emit(io, results);
-            else {
-              io.stdout.write(
-                `${results
-                  .map((r) =>
-                    r.error === undefined ? `acked ${r.id}` : `error: ${r.error}: ${r.id}`,
-                  )
-                  .join("\n")}\n`,
-              );
-            }
+            io.stdout.write(
+              `${results
+                .map((r) =>
+                  r.error === undefined ? `acked ${r.id}` : `error: ${r.error}: ${r.id}`,
+                )
+                .join("\n")}\n`,
+            );
             return missing.length > 0 ? 1 : 0;
           });
         }),

@@ -9,7 +9,6 @@ import type { CliIo } from "./format.js";
 
 export interface GlobalOptions {
   root: string;
-  json: boolean;
 }
 
 /** Run an action with merged global options and capture its exit code. */
@@ -44,7 +43,7 @@ export async function withStore(
   try {
     await store.ready();
     const issues = store.issues();
-    if (issues.length > 0) return reportBlockingIssues(io, opts, issues);
+    if (issues.length > 0) return reportBlockingIssues(io, issues);
     return await query(store);
   } catch (error) {
     if (error instanceof RefinoError && error.code === StorageIssueCode.RefinoDirNotFound) {
@@ -89,17 +88,10 @@ export async function withStoreForWrite(
 /** Graph issues make query results ambiguous, so queries refuse to run. */
 function reportBlockingIssues(
   io: CliIo,
-  opts: GlobalOptions,
   issues: ReadonlyArray<RefinoIssue | StorageIssue>,
 ): number {
-  if (opts.json) emit(io, { ok: false, issues });
-  else io.stdout.write(`${renderIssues(issues)}\n`);
+  io.stdout.write(`${renderIssues(issues)}\n`);
   return 1;
-}
-
-export function emit(io: CliIo, payload: unknown): void {
-  // Compact: the primary JSON consumers are programs and agents.
-  io.stdout.write(`${JSON.stringify(payload)}\n`);
 }
 
 export function fail(io: CliIo, error: unknown): number {

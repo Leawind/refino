@@ -93,20 +93,12 @@ describe("refino pending", () => {
     expect(clean.out).toContain("已修改节点（0 个）：无");
   });
 
-  it("emits structured JSON", async () => {
+  it("reports uncommitted constraint changes with their pending closure", async () => {
     await appendNode(repo, "A1/B2C3D4-constraint.md", "\nEdited.\n");
-    const { code, out } = await run(["--json", "pending"]);
+    const { code, out } = await run(["pending"]);
     expect(code).toBe(0);
-    const payload = JSON.parse(out) as {
-      base: string;
-      modified: string[];
-      pending: Array<{ id: string; type: string; depth: number }>;
-    };
-    expect(payload.base).toBe("HEAD");
-    expect(payload.modified).toEqual([A1]);
-    expect(payload.pending).toEqual([
-      { id: D4, type: "constraint", depth: 1, summary: expect.any(String) },
-    ]);
+    expect(out).toContain(`已修改节点（1 个）：${A1}`);
+    expect(out).toContain(`- ${D4} [constraint] depth 1`);
     await git(repo, ["add", "-A"]);
     await git(repo, ["commit", "-m", "edit constraint"]);
   });
