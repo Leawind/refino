@@ -7,8 +7,8 @@ import { main } from "../src/main.js";
 import type { CliIo } from "../src/format.js";
 
 /**
- * Adoption: `refino init` scaffolds the bare skeleton; an existing .refino/
- * is refused so an adopted repository is never mistaken for a fresh one.
+ * Adoption and self-documentation: `refino init` scaffolds the bare
+ * skeleton; `refino guide` teaches an agent the tool with no other context.
  */
 
 let bareRoot: string;
@@ -43,5 +43,27 @@ describe("refino init", () => {
     const again = await run(["--root", bareRoot, "init"]);
     expect(again.code).toBe(1);
     expect(again.err).toContain("already exists");
+  });
+});
+
+describe("refino guide", () => {
+  it("prints the full working protocol without requiring an adopted repository", async () => {
+    // Self-documentation is exempt from the adoption contract: it must work
+    // in a bare directory, where an agent first encounters the tool.
+    const { code, out } = await run(["guide"]);
+    expect(code).toBe(0);
+    expect(out).toContain("# refino 使用指南");
+    expect(out).toContain("约束（constraint）");
+    expect(out).toContain("前提（premise）");
+    expect(out).toContain("硬规则");
+    expect(out).toContain("refino init");
+    // Commands are not listed; --help owns that.
+    expect(out).not.toContain("`delete");
+  });
+
+  it("is discoverable from --help", async () => {
+    const { code, out } = await run(["--help"]);
+    expect(code).toBe(0);
+    expect(out).toContain("refino guide");
   });
 });

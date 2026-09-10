@@ -101,6 +101,14 @@ CLI、Web 服务与工具插件一律经 Store 访问 `.refino/`，不再各自�
 
 摘要（summary）是独立于正文的属性，用于遍历时快速判断节点相关性、节约上下文长度（见 crg.md）。摘要在内存中常驻（见“渐进披露与常驻集”）；"摘要如何随节点文件存储与维护"（如独立的 frontmatter 字段、缺省时的回退规则）是 `@refino/storage` 的实现细节，crg.md 不作规定。
 
+## 命令行工具
+
+CLI 是自文档接口：agent 在没有其他上下文的情况下，仅凭 CLI 即可了解其概念、用法与注意事项。`refino guide` 输出面向 agent 的使用指南（概念、用法约定、硬规则），文本单一来源在代码中、随 CLI 一同演进；`refino --help` 末尾指路 guide。guide 只承载自文档，不访问图，不受采用契约约束（无 `.refino/` 时同样可用）。
+
+命令面：`init`（显式采用）、`guide`（自文档）、`validate`、`list`、`show`、`grounds`、`ancestors`、`dependents`、`new`、`update`、`delete`、`web`；`dev` 为 `REFINO_DEV=true` 下的隐藏开发工具。批量与部分成功语义见“批量查询”；写入语义（部分更新、grounds 整体替换、删除守卫）见 `@refino/cli` 的 DESIGN.md。
+
+CLI 不校验授权上下文（冻结区与越界概念属插件形态）：插件接管的会话中一律经插件工具读写，不得以 CLI 规避插件的写路径校验；guide 将此列为硬规则。
+
 ## 任务层归属
 
 任务界定层概念（作用域锚点、冻结区、修改空间、授权上下文）以及冲突检测与越界升级，仅在与 vibe coding 工作流结合时才有意义，不进入引擎：由 `@refino/harness` 与各工具插件实现，引擎为其提供受影响约束集等纯图查询原语。

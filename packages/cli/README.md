@@ -1,6 +1,6 @@
 # @refino/cli
 
-`refino` 引擎的命令行接口：对 Constraint Refinement Graph 的查询、校验与节点读写，以及本地 Web 界面服务（`refino web`）。
+`refino` 引擎的命令行接口：对 Constraint Refinement Graph 的查询、校验与节点读写、本地 Web 界面服务（`refino web`），以及面向 agent 的自文档（`refino guide`）。
 
 ```txt
 Usage: refino [options] [command]
@@ -24,8 +24,11 @@ Commands:
   delete [options] <ids...>  delete one or more nodes; refuses while other nodes ground on the target
   web [options]              start the web UI server
   init                       create the .refino/ directory skeleton (pure scaffolding)
+  guide                      print the agent-facing usage guide (concepts, conventions, caveats)
   help [command]             display help for command
 ```
+
+Run `refino guide` for the agent-facing usage guide (concepts, conventions, caveats).
 
 ## 了解更多
 

@@ -24,6 +24,7 @@ import { processIo, renderFullRecord, renderIssues, renderNodeTable } from "./fo
 import type { CliIo } from "./format.js";
 import { createDevCommand } from "./dev.js";
 import { createInitCommand } from "./commands/init.js";
+import { createGuideCommand } from "./commands/guide.js";
 import { fail, refinoDir, withStore, withStoreForWrite } from "./shared.js";
 import type { GlobalOptions } from "./shared.js";
 import { DEFAULT_WEB_PORT, startWebServer } from "./web/server.js";
@@ -46,6 +47,13 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
       writeErr: (text) => void io.stderr.write(text),
     })
     .exitOverride();
+
+  // Self-documentation chain: --help alone teaches the command surface; the
+  // agent-facing protocol (concepts, usage, caveats) lives one step away.
+  program.addHelpText(
+    "after",
+    `\nRun "refino guide" for the agent-facing usage guide (concepts, conventions, caveats).`,
+  );
 
   /** Run an action with merged global options and capture its exit code. */
   const run = (cmd: Command, action: (opts: GlobalOptions) => Promise<number>): Promise<void> => {
@@ -489,6 +497,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
     );
 
   program.addCommand(createInitCommand(io, run));
+  program.addCommand(createGuideCommand(io, run));
 
   // Hidden dev tooling: registered only when explicitly enabled, so without
   // REFINO_DEV=true the command does not exist at all — help output, unknown

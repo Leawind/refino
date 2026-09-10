@@ -14,6 +14,7 @@
 - `update` 的部分更新语义：未指定的字段保持当前值；由 body 派生的 summary 不会被固化进 frontmatter
 - `delete` 的删除守卫：目标被其他节点 grounds 引用时拒绝并列出受影响节点（`--force` 覆盖，与 Web API 的 409 语义对应）；写入命令成功后同步报告受影响下游（存储层 `StoreChange.affected`），供人工复核
 - `refino init`：显式采用的骨架创建（`.refino/` 与 `nodes/` 图目录，已存在则拒绝），见 docs/design.md“采用契约”
+- `refino guide`：面向 agent 的自文档命令——使用指南（概念、用法约定、硬规则），文本单一来源在代码中（`src/commands/guide.ts`），随 CLI 一同演进；不访问图、不要求 `.refino/` 存在，`--help` 末尾指路 guide。命令与参数不进指南，以 `--help` 为准
 - 自定义项目根目录（`--root`）
 - `refino web` 的 HTTP 服务：进程内常驻索引（轻量索引常驻、body 按需读取并 LRU 缓存）、画布按需查询、分页搜索、文件监听与 SSE 变更推送（`/api/events`）、权威重建（`/api/reload`）。API 契约与索引架构见 [docs/design.md](../../docs/design.md) 的“Web 界面”一节
 
