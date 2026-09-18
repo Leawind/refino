@@ -1,5 +1,4 @@
 import {
-  forceCenter,
   forceCollide,
   forceLink,
   forceManyBody,
@@ -31,17 +30,23 @@ import type {
  * A d3 simulation relaxes the graph: springs on grounds edges, Barnes-Hut
  * pair repulsion, circle packing against card overlap, and a main-axis
  * pull that places every node at its grounds-depth layer along the display
- * direction — the upstream→downstream flow reads as position. d3's alpha
- * schedule scales every force and decays it exponentially, so motion
- * shrinks smoothly to a stop instead of rattling at full strength until a
- * hard cutoff.
+ * direction — the upstream→downstream flow reads as position. The main
+ * axis is owned outright by the layer targets: spring lengths scale with
+ * the edge's layer span (a merge edge reaching three layers down pulls
+ * toward three pitches, not one, so it never drags a deep node back
+ * upstream), and repulsion and packing settle the cross axis and spacing
+ * around them. d3's alpha schedule scales every force and decays it
+ * exponentially, so motion shrinks smoothly to a stop instead of
+ * rattling at full strength until a hard cutoff.
  *
  * Determinism: nodes are laid out in id-sorted array order (d3 iterates
  * nodes in array order), and the random source stays d3's fixed-seed LCG,
  * so the same input always converges to the same layout.
  */
 
-/** Desired center-to-center length of a grounds edge. */
+/** Desired center-to-center length of one grounds-layer pitch: the axis
+ * target of layer k sits k pitches downstream, and a spring spanning one
+ * layer pulls toward exactly that spacing. */
 const EDGE_LENGTH = 240;
 /** Pair repulsion strength: d3 manyBody applies strength/d, so this is the
  * k in k/d — order-of-magnitude the d3 default (-30), a bit firmer for
@@ -56,10 +61,11 @@ const REPULSION_FLOOR = 160;
  * packing. */
 const GRAVITY = 0.002;
 /** Main-axis pull toward each node's layer position (grounds longest-path
- * depth × the edge length, signed by the display direction). Strong enough
- * to keep the upstream→downstream flow readable, loose enough that springs
- * and packing own the cross axis and spacing. */
-const MAIN_AXIS_STRENGTH = 0.08;
+ * depth × the edge length, signed by the display direction). Strong
+ * enough to win against springs and repulsion, which otherwise smear the
+ * layers into a diagonal band and bury the flow direction; loose enough
+ * that the cross axis stays organic. */
+const MAIN_AXIS_STRENGTH = 0.3;
 /** Circle-packing slack beyond half the card diagonal: a center distance of
  * twice the packed radius separates any two card rectangles. The small
  * slack lets the iterative packing fully resolve, leaving no residual
@@ -94,11 +100,18 @@ interface Body extends SimulationNodeDatum {
   id: string;
 }
 
+/** A grounds spring. The target length scales with the edge's layer span:
+ * a merge edge reaching several layers down pulls toward that many pitches,
+ * aligned with the axis targets instead of fighting them. */
+interface GroundLink extends SimulationLinkDatum<Body> {
+  span: number;
+}
+
 /** Relaxing session of a fixed node set; steps until alpha decays out. */
 class ForceSession implements LayoutSession {
   readonly #bodies: Body[];
   readonly #byId = new Map<string, Body>();
-  readonly #sim: Simulation<Body, SimulationLinkDatum<Body>>;
+  readonly #sim: Simulation<Body, GroundLink>;
   /** The shared card geometry this session spaces and stamps. */
   readonly #size: { width: number; height: number };
   #ticks = 0;
@@ -109,17 +122,20 @@ class ForceSession implements LayoutSession {
 
   constructor(nodes: readonly LayoutNode[], options: LayoutOptions) {
     this.#size = resolveNodeSize(options);
-    // Fallback seed: layered positions are deterministic and a natural
-    // starting shape, so the first force session starts from a readable
-    // layout. A carried-over seed (previous session) wins per node.
-    const layered = new Map(layeredLayout(nodes, "LR", this.#size).map((n) => [n.id, n] as const));
+    const direction: LayoutDirection = options.direction;
+    const horizontal = direction === "LR" || direction === "RL";
+    const sign = direction === "LR" || direction === "TB" ? 1 : -1;
+    // Fallback seed: layered positions are deterministic, a natural starting
+    // shape, and already oriented along the display direction, so the first
+    // force session starts from a readable layout. A carried-over seed
+    // (previous session) wins per node.
+    const layered = new Map(
+      layeredLayout(nodes, direction, this.#size).map((n) => [n.id, n] as const),
+    );
     const carried = options.seed;
     // Main axis: grounds longest-path depth (the same layering the layered
     // layout uses) sets each node's target coordinate along the display
     // direction, so the upstream→downstream flow reads as position.
-    const direction: LayoutDirection = options.direction;
-    const horizontal = direction === "LR" || direction === "RL";
-    const sign = direction === "LR" || direction === "TB" ? 1 : -1;
     const layers = assignLayers([...nodes].sort((a, b) => (a.id < b.id ? -1 : 1)));
     const axisTarget = (id: string): number => sign * (layers.get(id) ?? 0) * EDGE_LENGTH;
     // Id-sorted array order: d3 iterates nodes in array order, and the
@@ -164,10 +180,14 @@ class ForceSession implements LayoutSession {
       y: start.get(id)!.y,
     }));
     for (const body of this.#bodies) this.#byId.set(body.id, body);
-    const links: SimulationLinkDatum<Body>[] = this.#bodies.flatMap((body) =>
+    const links: GroundLink[] = this.#bodies.flatMap((body) =>
       (grounds.get(body.id) ?? [])
         .filter((g) => start.has(g))
-        .map((g) => ({ source: g, target: body.id })),
+        .map((g) => ({
+          source: g,
+          target: body.id,
+          span: Math.max(1, (layers.get(body.id) ?? 0) - (layers.get(g) ?? 0)),
+        })),
     );
     const reheated = carried !== undefined && carriedCount > 0;
     const axis = horizontal
@@ -176,12 +196,12 @@ class ForceSession implements LayoutSession {
     const crossGravity = horizontal
       ? forceY<Body>(0).strength(GRAVITY)
       : forceX<Body>(0).strength(GRAVITY);
-    this.#sim = forceSimulation<Body>(this.#bodies)
+    this.#sim = forceSimulation<Body, GroundLink>(this.#bodies)
       .force(
         "link",
-        forceLink<Body, SimulationLinkDatum<Body>>(links)
+        forceLink<Body, GroundLink>(links)
           .id((body) => body.id)
-          .distance(EDGE_LENGTH),
+          .distance((link) => link.span * EDGE_LENGTH),
       )
       .force("charge", forceManyBody<Body>().strength(REPULSION).distanceMin(REPULSION_FLOOR))
       .force(
@@ -192,7 +212,6 @@ class ForceSession implements LayoutSession {
       )
       .force("axis", axis)
       .force("cross", crossGravity)
-      .force("center", forceCenter<Body>(0, 0))
       .alpha(reheated ? REHEAT_ALPHA : 1)
       .alphaDecay(reheated ? REHEAT_ALPHA_DECAY : ALPHA_DECAY)
       .velocityDecay(VELOCITY_DECAY)

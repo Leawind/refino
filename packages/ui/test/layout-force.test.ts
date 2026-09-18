@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { assignLayers } from "refino";
 import { NODE_HEIGHT, NODE_WIDTH } from "../src/graph/layout/engine";
 import { forceStrategy } from "../src/graph/layout/force";
 import type { LayoutNode } from "../src/graph/layout/types";
@@ -18,6 +19,53 @@ function diamond(): LayoutNode[] {
     { id: "c", grounds: ["a"] },
     { id: "d", grounds: ["b", "c"] },
   ];
+}
+
+/** Deterministic mulberry32 PRNG. */
+function rng(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** A wide refinement tree with cross-branch merges: three roots, growing
+ * fan-out, and occasional nodes citing a second ground three layers up.
+ * This is the shape that smears the layers into a directionless band when
+ * the main-axis pull loses to springs and repulsion. */
+function branchyTree(): LayoutNode[] {
+  const rand = rng(42);
+  const nodes: LayoutNode[] = [];
+  const byLayer: string[][] = [[]];
+  let counter = 0;
+  const id = (): string => `n${String(++counter).padStart(3, "0")}`;
+  for (let i = 0; i < 3; i++) {
+    const root = id();
+    byLayer[0].push(root);
+    nodes.push({ id: root, grounds: [] });
+  }
+  for (let d = 1; d <= 6; d++) {
+    byLayer[d] = [];
+    for (const parent of byLayer[d - 1]) {
+      const kids = 1 + Math.floor(rand() * 2);
+      for (let k = 0; k < kids; k++) {
+        const child = id();
+        const grounds = [parent];
+        if (d >= 3 && rand() < 0.35) {
+          const old = byLayer[d - 3];
+          const cand = old[Math.floor(rand() * old.length)];
+          if (cand && cand !== parent) grounds.push(cand);
+        }
+        byLayer[d].push(child);
+        nodes.push({ id: child, grounds });
+      }
+    }
+  }
+  return nodes;
 }
 
 /** Steps until settled (bounded by the session's own step budget). */
@@ -134,6 +182,43 @@ describe("force session", () => {
     for (let i = 1; i < 8; i++) {
       expect(positions.get(`n${i}`)!.x).toBeGreaterThan(positions.get(`n${i - 1}`)!.x);
     }
+  });
+
+  it("keeps deep layers downstream on a wide merge-heavy tree", () => {
+    const nodes = branchyTree();
+    const session = forceStrategy.createSession(nodes, { direction: "LR" });
+    const positions = new Map(settled(session).map((n) => [n.id, n] as const));
+    session.dispose();
+    const layers = assignLayers(nodes);
+    // Every deeper layer's mean x is strictly greater than the one before:
+    // the upstream→downstream flow reads as position even on the hard shape.
+    const sums = new Map<number, { sum: number; n: number }>();
+    for (const [id, p] of positions) {
+      const layer = layers.get(id) ?? 0;
+      const bucket = sums.get(layer) ?? { sum: 0, n: 0 };
+      bucket.sum += p.x;
+      bucket.n += 1;
+      sums.set(layer, bucket);
+    }
+    const ordered = [...sums.entries()].sort((a, b) => a[0] - b[0]);
+    for (let i = 1; i < ordered.length; i++) {
+      const prev = ordered[i - 1]![1];
+      const cur = ordered[i]![1];
+      expect(cur.sum / cur.n).toBeGreaterThan(prev.sum / prev.n);
+    }
+    // Almost no grounds edge points upstream: a downstream node sitting
+    // left of its ground by more than a small margin is a broken flow.
+    let backward = 0;
+    let total = 0;
+    for (const node of nodes) {
+      for (const g of node.grounds ?? []) {
+        const a = positions.get(g)!;
+        const b = positions.get(node.id)!;
+        total += 1;
+        if (b.x - a.x < -60) backward += 1;
+      }
+    }
+    expect(backward / total).toBeLessThan(0.05);
   });
 
   it("TB puts downstream further down; RL puts it further left", () => {
