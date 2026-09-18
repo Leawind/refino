@@ -73,7 +73,7 @@ importers:
         specifier: workspace:*
         version: link:../testkit
 
-  packages/dsh-plugin:
+  packages/cordis-plugin-refino:
     dependencies:
       '@refino/harness':
         specifier: workspace:^

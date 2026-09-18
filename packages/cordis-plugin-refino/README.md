@@ -22,7 +22,7 @@ dsh plugin --profile <profile> add @refino/cordis-plugin-refino
 ```sh
 pnpm --filter @refino/cordis-plugin-refino build
 
-dsh plugin --profile <profile> add /path/to/refino/packages/dsh-plugin
+dsh plugin --profile <profile> add /path/to/refino/packages/cordis-plugin-refino
 ```
 
 安装后可用 `dsh --profile <profile> --dump-config` 确认合成配置中出现本插件的补丁层。`link:` 安装是活的，但 dsh 加载的是 `dist`：修改本插件或其 workspace 依赖的源码后，需重建对应包的 `dist` 并重启 dsh。
