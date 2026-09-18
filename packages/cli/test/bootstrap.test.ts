@@ -55,7 +55,7 @@ describe("refino guide", () => {
     expect(out).toContain("# refino 使用指南");
     expect(out).toContain("约束（constraint）");
     expect(out).toContain("前提（premise）");
-    expect(out).toContain("硬规则");
+    expect(out).toContain("## 规则");
     expect(out).toContain("refino init");
     // Commands are not listed; --help owns that.
     expect(out).not.toContain("`delete");
