@@ -123,7 +123,12 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-describe("refino dev (hidden command)", () => {
+// Bulk fs work: each generate test writes dozens of node files and walks
+// the whole tree afterwards, which can exceed the 5s unit-test default
+// when the full suite runs in parallel on a busy machine (one observed
+// full-run timeout with a resident refino web + browser). Give the suite
+// realistic IO headroom.
+describe("refino dev (hidden command)", { timeout: 20000 }, () => {
   it("behaves exactly like an unknown command without REFINO_DEV", async () => {
     vi.stubEnv("REFINO_DEV", "");
     const dev = await run(["dev", "generate", "--nodes", "5"]);

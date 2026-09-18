@@ -35,9 +35,11 @@ afterAll(async () => {
 // These are fs + watcher integration tests: every app() arms a real store
 // watcher, whose arming retries and 500ms debounce can push a single test
 // past the 5s unit-test default when the full suite runs in parallel (see
-// the worker-cap rationale in vitest.config.ts). Give the file realistic
-// IO headroom instead of the unit default.
-describe("refino web api", { timeout: 20000 }, () => {
+// the worker-cap rationale in vitest.config.ts). Give every suite in this
+// file realistic IO headroom instead of the unit default.
+const ioSuite = { timeout: 20000 };
+
+describe("refino web api", ioSuite, () => {
   it("serves the full graph with validation issues", async () => {
     const res = await app().request("/api/graph");
     expect(res.status).toBe(200);
@@ -193,7 +195,7 @@ describe("refino web api", { timeout: 20000 }, () => {
   });
 });
 
-describe("recreate a deleted id via PUT", () => {
+describe("recreate a deleted id via PUT", ioSuite, () => {
   it("rejects a missing type and an invalid id shape", async () => {
     const noType = await app().request("/api/nodes/BB000000", {
       method: "PUT",
