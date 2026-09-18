@@ -32,7 +32,12 @@ afterAll(async () => {
   await removeRefino(root);
 });
 
-describe("refino web api", () => {
+// These are fs + watcher integration tests: every app() arms a real store
+// watcher, whose arming retries and 500ms debounce can push a single test
+// past the 5s unit-test default when the full suite runs in parallel (see
+// the worker-cap rationale in vitest.config.ts). Give the file realistic
+// IO headroom instead of the unit default.
+describe("refino web api", { timeout: 20000 }, () => {
   it("serves the full graph with validation issues", async () => {
     const res = await app().request("/api/graph");
     expect(res.status).toBe(200);
