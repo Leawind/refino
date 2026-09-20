@@ -72,6 +72,22 @@ export function getDependents(
   return breadthFirst(graph, id, (node) => node.children, options.maxDepth);
 }
 
+/**
+ * Effective exploring status of a node (docs/crg.md 1.1): a constraint is
+ * effectively exploring when it carries the trial mark itself or any
+ * (transitive) ground constraint does; premises are never exploring.
+ * Derived at read time along the grounds closure, never stored per node.
+ * Throws when the id does not resolve.
+ */
+export function effectiveExploring(graph: Graph, id: string): boolean {
+  const node = requireNode(graph, id);
+  if (node.type !== "constraint") return false;
+  if (node.exploring === true) return true;
+  return getAncestors(graph, id).some(
+    ({ node: ancestor }) => ancestor.type === "constraint" && ancestor.exploring === true,
+  );
+}
+
 export interface NodeWithOverlap {
   node: GraphNode;
   /** Number of direct grounds shared with the queried node. */

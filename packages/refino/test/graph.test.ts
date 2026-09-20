@@ -134,6 +134,21 @@ describe("updateNode", () => {
     expect(graph.nodes.get("A1B2C3D4")?.children).toEqual([]);
   });
 
+  it("sets and clears a constraint's exploring mark", () => {
+    const graph = graphOf(node("A1B2C3D4", "constraint"));
+    updateNode(graph, {
+      id: "A1B2C3D4",
+      type: "constraint",
+      summary: "Decision.",
+      grounds: [],
+      exploring: true,
+    });
+    expect(graph.nodes.get("A1B2C3D4")?.exploring).toBe(true);
+    updateNode(graph, { id: "A1B2C3D4", type: "constraint", summary: "Decision.", grounds: [] });
+    expect(graph.nodes.get("A1B2C3D4")?.exploring).toBeUndefined();
+    expect("exploring" in graph.nodes.get("A1B2C3D4")!).toBe(false);
+  });
+
   it("throws NODE_NOT_FOUND when the id does not resolve", () => {
     const graph = graphOf(node("A1B2C3D4", "constraint"));
     expect(() => updateNode(graph, node("Z9Y8X7W6", "premise"))).toThrow(RefinoError);

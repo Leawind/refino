@@ -4,7 +4,7 @@
 
 本包提供：
 
-- 常驻图数据模型的类型定义：id、type、summary、grounds（父引用）、children（图内派生的子引用）、premise 的 confirmed（epoch 毫秒）
+- 常驻图数据模型的类型定义：id、type、summary、grounds（父引用）、children（图内派生的子引用）、premise 的 confirmed（epoch 毫秒）、constraint 的 exploring（布尔试行标记，缺省定案）
 - 图结构的组装（按 ID 索引、grounds↔children 双向引用回填、id 字符串 intern）
 - 内存变更原语（`addNode` / `removeNode` / `setGrounds`）：维护 grounds↔children 双向引用一致性
 - 图结构的完整性校验（引用解析、环路检测）
@@ -29,7 +29,9 @@
 
 ## 内存模型
 
-图可能达到 10⁶ 节点规模，引擎按“常驻 + 分页”划分内存：常驻集（id、type、summary、grounds、confirmed、children）始终在内存中，是引擎类型的全部内容；正文与理由等大字段不进引擎内存，由存储层按 id 分页供给。渐进披露（先读摘要判断相关性、再展开全文）因此只需要常驻集即可完成第一级。节点是图附着对象：独立解析出的节点记录与图内节点（携带 children 反向引用）是两个形状，组装（`buildGraph`）负责回填反向引用。
+图可能达到 10⁶ 节点规模，引擎按“常驻 + 分页”划分内存：常驻集（id、type、summary、grounds、confirmed、exploring、children）始终在内存中，是引擎类型的全部内容；正文与理由等大字段不进引擎内存，由存储层按 id 分页供给。渐进披露（先读摘要判断相关性、再展开全文）因此只需要常驻集即可完成第一级。节点是图附着对象：独立解析出的节点记录与图内节点（携带 children 反向引用）是两个形状，组装（`buildGraph`）负责回填反向引用。
+
+生效探索状态是派生态：约束自身携带试行标记、或其任一（传递）依据约束携带时即为生效探索中，经 `effectiveExploring` 在读取时沿依据闭包计算，由应用在内存中按需求值，不在节点中逐节点存储（同“待审查”的派生态待遇，见上）。
 
 ## ID 规则
 

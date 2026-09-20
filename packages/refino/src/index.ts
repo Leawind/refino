@@ -9,6 +9,7 @@ export {
   getDependents,
   getSiblings,
   queryGroups,
+  effectiveExploring,
 } from "./query.js";
 export type { NodeWithDepth, NodeWithOverlap, TraversalOptions } from "./query.js";
 export { assignLayers } from "./layer.js";

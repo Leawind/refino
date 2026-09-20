@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { buildGraph } from "../src/graph.js";
-import { getAncestors, getDependents, getGrounds, queryGroups, RefinoError } from "../src/index.js";
+import {
+  effectiveExploring,
+  getAncestors,
+  getDependents,
+  getGrounds,
+  queryGroups,
+  RefinoError,
+} from "../src/index.js";
 import type { Graph, NodeType, RefinoNode } from "../src/index.js";
 import { IssueCode } from "refino";
 
@@ -97,12 +104,68 @@ describe("queries", () => {
       () => getGrounds(graph, "9M8N7P6Q"),
       () => getAncestors(graph, "9M8N7P6Q"),
       () => getDependents(graph, "9M8N7P6Q"),
+      () => effectiveExploring(graph, "9M8N7P6Q"),
     ]) {
       expect(query).toThrow(RefinoError);
       expect(query).toThrow(
         expect.objectContaining({ code: IssueCode.NodeNotFound }) as unknown as Error,
       );
     }
+  });
+});
+
+describe("effectiveExploring", () => {
+  /**
+   * Fixture shape:
+   *   1A2B3C4D ──┐
+   *   A1B2C3D4* ─┴→ D4E5F6G7 → E5F6G7H8
+   *
+   * Only A1B2C3D4 carries the stored trial mark (the `*`); everything
+   * downstream of it derives the effective status, everything else stays
+   * settled.
+   */
+  const graph = graphOf(
+    node("1A2B3C4D", "premise"),
+    { ...node("A1B2C3D4", "constraint"), exploring: true },
+    node("D4E5F6G7", "constraint", ["A1B2C3D4"]),
+    node("E5F6G7H8", "constraint", ["1A2B3C4D", "D4E5F6G7"]),
+  );
+
+  it("is true for the marked node itself", () => {
+    expect(effectiveExploring(graph, "A1B2C3D4")).toBe(true);
+  });
+
+  it("propagates to the transitive downstream regardless of premise grounds", () => {
+    expect(effectiveExploring(graph, "D4E5F6G7")).toBe(true);
+    expect(effectiveExploring(graph, "E5F6G7H8")).toBe(true);
+  });
+
+  it("settles automatically once the upstream mark is removed", () => {
+    const settled = graphOf(
+      node("A1B2C3D4", "constraint"),
+      node("D4E5F6G7", "constraint", ["A1B2C3D4"]),
+    );
+    expect(effectiveExploring(settled, "D4E5F6G7")).toBe(false);
+    expect(effectiveExploring(settled, "A1B2C3D4")).toBe(false);
+  });
+
+  it("is false for premises and unmarked branches", () => {
+    expect(effectiveExploring(graph, "1A2B3C4D")).toBe(false);
+    const other = graphOf(
+      node("B2C3D4E5", "constraint"),
+      node("C3D4E5F6", "constraint", ["B2C3D4E5"]),
+    );
+    expect(effectiveExploring(other, "C3D4E5F6")).toBe(false);
+  });
+
+  it("follows any of multiple grounds", () => {
+    const branched = graphOf(
+      node("1A2B3C4D", "premise"),
+      node("A1B2C3D4", "constraint"),
+      { ...node("B2C3D4E5", "constraint"), exploring: true },
+      node("E5F6G7H8", "constraint", ["1A2B3C4D", "B2C3D4E5"]),
+    );
+    expect(effectiveExploring(branched, "E5F6G7H8")).toBe(true);
   });
 });
 

@@ -37,6 +37,13 @@ export interface ConstraintNode {
   summary: string;
   /** Ground ids, deduplicated, in declared order; empty when the constraint has no grounds (a root constraint). */
   grounds: string[];
+  /**
+   * Trial-commitment mark: absent means the constraint is settled. This is
+   * the stored mark only — the effective status (a constraint is exploring
+   * when marked so itself or any ground constraint is) is derived at read
+   * time by `effectiveExploring`, never stored per node.
+   */
+  exploring?: boolean;
 }
 
 export type RefinoNode = PremiseNode | ConstraintNode;
@@ -53,6 +60,8 @@ export interface NodeLite {
   summary: string;
   /** Constraint nodes only. */
   grounds?: readonly string[];
+  /** Constraint nodes only: the stored trial-commitment mark (absent = settled), not the derived effective status. */
+  exploring?: boolean;
 }
 
 /**

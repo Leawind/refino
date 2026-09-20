@@ -71,9 +71,9 @@ export function setGrounds(graph: Graph, node: ConstraintNode, grounds: readonly
 
 /**
  * Replace a node's resident fields with a fresh record (e.g. one re-read
- * from storage): summary, premise `confirmed` and constraint grounds in one
- * step. The id and type of the attached node are fixed; grounds
- * back-references are maintained.
+ * from storage): summary, premise `confirmed`, constraint `exploring` and
+ * grounds in one step. The id and type of the attached node are fixed;
+ * grounds back-references are maintained.
  */
 export function updateNode(graph: Graph, node: RefinoNode): void {
   const attached = graph.nodes.get(node.id);
@@ -86,6 +86,8 @@ export function updateNode(graph: Graph, node: RefinoNode): void {
     if (node.confirmed === undefined) delete attached.confirmed;
     else attached.confirmed = node.confirmed;
   } else if (node.type === "constraint" && attached.type === "constraint") {
+    if (node.exploring === undefined) delete attached.exploring;
+    else attached.exploring = node.exploring;
     replaceGrounds(graph, attached, node.grounds);
   }
 }
