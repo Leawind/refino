@@ -64,6 +64,38 @@ describe("refino web api", ioSuite, () => {
     expect(graph.nodes.get(id)?.grounds).toEqual(["A1B2C3D4"]);
   });
 
+  it("creates, exposes and settles the exploring mark", async () => {
+    const created = await app().request("/api/nodes/constraint", {
+      method: "POST",
+      body: JSON.stringify({ body: "试行决策。", exploring: true }),
+    });
+    expect(created.status).toBe(201);
+    const { id } = (await created.json()) as { id: string };
+
+    const detail = (await (await app().request(`/api/nodes/${id}`)).json()) as {
+      node: Record<string, unknown>;
+    };
+    expect(detail.node.exploring).toBe(true);
+
+    // Wholesale replacement without the mark settles the constraint.
+    const settled = await app().request(`/api/nodes/${id}`, {
+      method: "PUT",
+      body: JSON.stringify({ body: "试行决策。" }),
+    });
+    expect(settled.status).toBe(200);
+    const after = (await (await app().request(`/api/nodes/${id}`)).json()) as {
+      node: Record<string, unknown>;
+    };
+    expect(after.node.exploring).toBeUndefined();
+
+    // Non-boolean values are rejected at the request boundary.
+    const bad = await app().request("/api/nodes/constraint", {
+      method: "POST",
+      body: JSON.stringify({ body: "试行。", exploring: "yes" }),
+    });
+    expect(bad.status).toBe(400);
+  });
+
   it("rejects a malformed confirmed timestamp with 400", async () => {
     const res = await app().request("/api/nodes/premise", {
       method: "POST",

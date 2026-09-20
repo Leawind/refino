@@ -20,6 +20,8 @@ export function truncate(text: string, maxLength: number): string {
 /**
  * One line per node: `id  type  [depth]  summary`, columns aligned across the
  * batch. The depth column appears only when at least one row carries a depth.
+ * A row marked `exploring` (the derived effective status, never the stored
+ * mark alone) prefixes the summary with `[探索]`.
  */
 export function renderNodeTable(
   rows: ReadonlyArray<{
@@ -27,6 +29,7 @@ export function renderNodeTable(
     type: string;
     summary: string;
     depth?: number;
+    exploring?: boolean;
   }>,
 ): string {
   const withDepth = rows.some((r) => r.depth !== undefined);
@@ -37,7 +40,8 @@ export function renderNodeTable(
     .map((r) => {
       const head = `${r.id.padEnd(idWidth)}  ${r.type.padEnd(typeWidth)}  `;
       const depthCol = withDepth ? `${String(r.depth ?? "").padEnd(depthWidth)}  ` : "";
-      return `${head}${depthCol}${truncate(r.summary, 80)}`;
+      const mark = r.exploring === true ? "[探索] " : "";
+      return `${head}${depthCol}${mark}${truncate(r.summary, 80)}`;
     })
     .join("\n");
 }
@@ -62,9 +66,11 @@ export function renderNodeHeading(node: { id: string; type: string; grounds?: st
 
 /**
  * Full human-readable record: heading line, labeled attributes, then the
- * body. Optional attributes (rationale, confirmed) only occupy a line when
- * present, mirroring the JSON shape. Confirmed is stored as epoch
- * milliseconds and rendered in its RFC 3339 (UTC) form.
+ * body. Optional attributes (rationale, confirmed, exploring) only occupy a
+ * line when present, mirroring the JSON shape. Confirmed is stored as epoch
+ * milliseconds and rendered in its RFC 3339 (UTC) form. The exploring line
+ * shows the stored trial mark, or the derived effective status (no stored
+ * mark but an exploring ground) when `effective` says so.
  */
 export function renderFullRecord(
   node: {
@@ -74,12 +80,15 @@ export function renderFullRecord(
     grounds?: string[];
   },
   content?: { body?: string; rationale?: string },
+  effective?: boolean,
 ): string {
   const lines = [renderNodeHeading(node), `summary: ${node.summary}`];
   if (content?.rationale !== undefined) lines.push(`rationale: ${content.rationale}`);
-  const record = node as { confirmed?: number };
+  const record = node as { confirmed?: number; exploring?: boolean };
   if (record.confirmed !== undefined) {
     lines.push(`confirmed: ${new Date(record.confirmed).toISOString()}`);
   }
+  if (record.exploring === true) lines.push("exploring: true");
+  else if (effective === true) lines.push("exploring: true (derived)");
   return `${lines.join("\n")}\n\n${content?.body ?? ""}`;
 }

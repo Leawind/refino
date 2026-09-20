@@ -34,6 +34,7 @@ export function nodeJson(
     ...(node.type === "constraint" && { grounds: node.grounds ?? [] }),
     ...(node.type === "constraint" &&
       node.rationale !== undefined && { rationale: node.rationale }),
+    ...(node.type === "constraint" && node.exploring === true && { exploring: true }),
     ...(node.type === "premise" && node.confirmed !== undefined && { confirmed: node.confirmed }),
   };
 }
@@ -131,6 +132,7 @@ async function create(
             summary,
             rationale: readString(payload, "rationale"),
             grounds,
+            exploring: readExploring(payload),
           });
     return c.json({ id: outcome.id, revision: web.store.entry(outcome.id)?.revision }, 201);
   } catch (error) {
@@ -195,6 +197,7 @@ export async function putNode(c: Context, web: WebState): Promise<Response> {
         summary,
         rationale: readString(payload, "rationale"),
         grounds: resolveGrounds(payload),
+        exploring: readExploring(payload),
       });
     }
     return c.json({ id, revision: web.store.entry(id)?.revision });
@@ -270,6 +273,7 @@ async function createWithId(c: Context, web: WebState, id: string): Promise<Resp
       summary,
       rationale: readString(payload, "rationale"),
       grounds,
+      exploring: readExploring(payload),
     });
   }
   return c.json({ id, revision: web.store.entry(id)?.revision }, 201);
@@ -285,6 +289,21 @@ function resolveGrounds(payload: Payload): string[] {
     throw new RefinoError(IssueCode.InvalidGrounds, "grounds must be an array of node ids.");
   }
   return [...new Set(payload.grounds as string[])];
+}
+
+/**
+ * The payload's `exploring` boolean, shape-checked at this boundary like
+ * `confirmed` (constraints only; a misplaced field on a premise payload is
+ * simply never read). Absent means settled under the wholesale-replacement
+ * PUT semantics.
+ */
+function readExploring(payload: Payload): boolean | undefined {
+  const exploring = payload.exploring;
+  if (exploring === undefined || exploring === null) return undefined;
+  if (typeof exploring !== "boolean") {
+    throw new RefinoError(INVALID_REQUEST, `"exploring" must be a boolean.`);
+  }
+  return exploring;
 }
 
 export async function readPayload(c: Context): Promise<Payload> {

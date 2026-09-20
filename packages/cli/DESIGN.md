@@ -8,10 +8,11 @@
 
 - 命令行参数解析与输出格式化
 - 读取语义：`list` 与查询命令在图存在校验问题时拒绝执行（结果将有歧义），并以 `validate` 的格式输出问题详情
-- `show` 的文本输出包含节点的全部字段（summary、rationale、confirmed 以带标签的行呈现，可选字段缺省时不占行）
+- `show` 的文本输出包含节点的全部字段（summary、rationale、confirmed、exploring 以带标签的行呈现，可选字段缺省时不占行；仅派生生效而无存储标记时呈现 `exploring: true (derived)`）
+- 列表与分组查询的注记：以引擎 `effectiveExploring` 计算的生效探索状态在摘要前缀 `[探索] `，下游节点不携带存储标记也同样注记
 - `list --unreferenced`：列出未被任何约束引用的前提（待注入前提）
 - 写入前校验：`new constraint` 与 `update` 在落盘前经由引擎 `checkGroundsChange` 原语校验 grounds（引用不存在、重复 id 等即拒绝写入）
-- `update` 的部分更新语义：未指定的字段保持当前值；由 body 派生的 summary 不会被固化进 frontmatter
+- `update` 的部分更新语义：未指定的字段保持当前值；由 body 派生的 summary 不会被固化进 frontmatter；`--exploring` / `--no-exploring` 三态设定约束的试行标记（省略保持不变，仅约束有效，前提上为错位属性静默忽略）
 - `delete` 的删除守卫：目标被其他节点 grounds 引用时拒绝并列出受影响节点（`--force` 覆盖，与 Web API 的 409 语义对应）；写入命令成功后同步报告受影响下游（存储层 `StoreChange.affected`），供人工复核
 - `refino init`：显式采用的骨架创建（`.refino/` 与 `nodes/` 图目录，已存在则拒绝），见 docs/design.md“采用契约”
 - `refino guide`：面向 agent 的自文档命令——使用指南（概念、用法约定、硬规则），文本单一来源在代码中（`src/commands/guide.ts`），随 CLI 一同演进；不访问图、不要求 `.refino/` 存在，`--help` 末尾指路 guide。命令与参数不进指南，以 `--help` 为准

@@ -11,6 +11,7 @@ import {
 import { CommanderError, Command, Option } from "commander";
 import {
   assignLayers,
+  effectiveExploring,
   getAncestors,
   getDependents,
   getGrounds,
@@ -123,7 +124,13 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
           if (nodes.length === 0) {
             io.stdout.write("(no nodes)\n");
           } else {
-            io.stdout.write(`${renderNodeTable(nodes)}\n`);
+            // Annotation uses the derived effective status: downstream of an
+            // exploring constraint explores too, stored mark or not.
+            const rows = nodes.map((n) => ({
+              ...n,
+              exploring: n.type === "constraint" && effectiveExploring(graph, n.id),
+            }));
+            io.stdout.write(`${renderNodeTable(rows)}\n`);
           }
           return 0;
         }),
@@ -153,7 +160,11 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
               .map((group) =>
                 "error" in group
                   ? `error: ${group.error}`
-                  : renderFullRecord(group.results[0]!, contents.get(group.id)),
+                  : renderFullRecord(
+                      group.results[0]!,
+                      contents.get(group.id),
+                      effectiveExploring(graph, group.id),
+                    ),
               )
               .join("\n\n")}\n`,
           );
@@ -169,7 +180,11 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
     .action((ids: string[], _opts, cmd) =>
       run(cmd, async (opts) =>
         withStore(io, opts, async (store) => {
-          const { missing } = emitGroupedNodes(io, queryGroups(store.graph, ids, getGrounds));
+          const { missing } = emitGroupedNodes(
+            io,
+            store.graph,
+            queryGroups(store.graph, ids, getGrounds),
+          );
           return missing ? 1 : 0;
         }),
       ),
@@ -182,7 +197,11 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
     .action((ids: string[], _opts, cmd) =>
       run(cmd, async (opts) =>
         withStore(io, opts, async (store) => {
-          const { missing } = emitGroupedDepths(io, queryGroups(store.graph, ids, getAncestors));
+          const { missing } = emitGroupedDepths(
+            io,
+            store.graph,
+            queryGroups(store.graph, ids, getAncestors),
+          );
           return missing ? 1 : 0;
         }),
       ),
@@ -195,7 +214,11 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
     .action((ids: string[], _opts, cmd) =>
       run(cmd, async (opts) =>
         withStore(io, opts, async (store) => {
-          const { missing } = emitGroupedDepths(io, queryGroups(store.graph, ids, getDependents));
+          const { missing } = emitGroupedDepths(
+            io,
+            store.graph,
+            queryGroups(store.graph, ids, getDependents),
+          );
           return missing ? 1 : 0;
         }),
       ),
@@ -257,14 +280,16 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
         .option("--grounds <ids>", "comma-separated ground node ids")
         .option("--rationale <text>", "why the decision was made")
         .option("--summary <text>", "short summary for relevance checks (stored in frontmatter)")
+        .option("--exploring", "mark the constraint as a trial commitment (default: settled)")
         .action((_opts, cmd) =>
           run(cmd, async (opts) => {
-            const { id, body, grounds, rationale, summary } = cmd.opts() as {
+            const { id, body, grounds, rationale, summary, exploring } = cmd.opts() as {
               id?: string;
               body?: string;
               grounds?: string;
               rationale?: string;
               summary?: string;
+              exploring?: boolean;
             };
             const groundIds = (grounds ?? "")
               .split(",")
@@ -286,6 +311,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
                 grounds: groundIds.length > 0 ? groundIds : undefined,
                 rationale,
                 summary,
+                exploring: exploring === true,
               });
               emitWritten(io, outcome.id, "constraint", "created");
               return 0;
@@ -310,6 +336,8 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
       "RFC 3339 timestamp with an explicit UTC offset (premises only)",
     )
     .option("--now", 'confirm now: use the current UTC time as "confirmed" (premises only)')
+    .option("--exploring", "mark the constraint as a trial commitment (constraints only)")
+    .option("--no-exploring", "settle the constraint (remove the trial mark)")
     .action((id: string, _opts, cmd) =>
       run(cmd, async (opts) => {
         const o = cmd.opts() as {
@@ -319,13 +347,15 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
           grounds?: string;
           confirmed?: string;
           now?: boolean;
+          exploring?: boolean;
         };
 
         const typeOptions = [o.rationale, o.grounds, o.confirmed, o.now];
         const touched = [o.body, o.summary, ...typeOptions].filter(
           (v) => v !== undefined && v !== false,
         );
-        if (touched.length === 0) {
+        // --no-exploring parses to false, which still counts as a touch.
+        if (touched.length === 0 && o.exploring === undefined) {
           io.stderr.write("error: specify at least one field to update\n");
           return 1;
         }
@@ -393,6 +423,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
               summary,
               rationale: o.rationale ?? content.rationale,
               grounds: grounds ?? node.grounds,
+              exploring: o.exploring !== undefined ? o.exploring : node.exploring === true,
             });
           }
           const affected = outcome.change?.affected;
@@ -535,11 +566,15 @@ function emitWritten(
   }
 }
 
-function emitNodes(io: CliIo, nodes: RefinoNode[]): void {
+function emitNodes(io: CliIo, graph: Graph, nodes: RefinoNode[]): void {
   if (nodes.length === 0) {
     io.stdout.write("(empty)\n");
   } else {
-    io.stdout.write(`${renderNodeTable(nodes)}\n`);
+    const rows = nodes.map((node) => ({
+      ...node,
+      exploring: node.type === "constraint" && effectiveExploring(graph, node.id),
+    }));
+    io.stdout.write(`${renderNodeTable(rows)}\n`);
   }
 }
 
@@ -548,53 +583,70 @@ function emitNodes(io: CliIo, nodes: RefinoNode[]): void {
  * while results for the remaining ids are still emitted. Human-readable
  * output prints one section per queried id when batching.
  */
-function emitGroupedNodes(io: CliIo, groups: QueryGroup<RefinoNode>[]): { missing: boolean } {
+function emitGroupedNodes(
+  io: CliIo,
+  graph: Graph,
+  groups: QueryGroup<RefinoNode>[],
+): { missing: boolean } {
   const missing = groups.some((group) => "error" in group);
   if (groups.length === 1) {
-    emitNodesOrError(io, groups[0]!);
+    emitNodesOrError(io, graph, groups[0]!);
   } else {
     for (const group of groups) {
       io.stdout.write(`${group.id}:\n`);
-      emitNodesOrError(io, group);
+      emitNodesOrError(io, graph, group);
     }
   }
   return { missing };
 }
 
-function emitNodesOrError(io: CliIo, group: QueryGroup<RefinoNode>): void {
+function emitNodesOrError(io: CliIo, graph: Graph, group: QueryGroup<RefinoNode>): void {
   if ("error" in group) {
     io.stdout.write(`error: ${group.error}\n`);
     return;
   }
-  emitNodes(io, group.results);
+  emitNodes(io, graph, group.results);
 }
 
-function emitGroupedDepths(io: CliIo, groups: QueryGroup<NodeWithDepth>[]): { missing: boolean } {
+function emitGroupedDepths(
+  io: CliIo,
+  graph: Graph,
+  groups: QueryGroup<NodeWithDepth>[],
+): { missing: boolean } {
   const missing = groups.some((group) => "error" in group);
   if (groups.length === 1) {
-    emitDepthsOrError(io, groups[0]!);
+    emitDepthsOrError(io, graph, groups[0]!);
   } else {
     for (const group of groups) {
       io.stdout.write(`${group.id}:\n`);
-      emitDepthsOrError(io, group);
+      emitDepthsOrError(io, graph, group);
     }
   }
   return { missing };
 }
 
-function emitDepthsOrError(io: CliIo, group: QueryGroup<NodeWithDepth>): void {
+function emitDepthsOrError(io: CliIo, graph: Graph, group: QueryGroup<NodeWithDepth>): void {
   if ("error" in group) {
     io.stdout.write(`error: ${group.error}\n`);
     return;
   }
-  emitDepths(io, group.results);
+  emitDepths(io, graph, group.results);
 }
 
-function emitDepths(io: CliIo, results: ReadonlyArray<{ node: RefinoNode; depth: number }>): void {
+function emitDepths(
+  io: CliIo,
+  graph: Graph,
+  results: ReadonlyArray<{ node: RefinoNode; depth: number }>,
+): void {
   if (results.length === 0) {
     io.stdout.write("(empty)\n");
   } else {
-    io.stdout.write(`${renderNodeTable(results.map((r) => ({ ...r.node, depth: r.depth })))}\n`);
+    const rows = results.map((r) => ({
+      ...r.node,
+      depth: r.depth,
+      exploring: r.node.type === "constraint" && effectiveExploring(graph, r.node.id),
+    }));
+    io.stdout.write(`${renderNodeTable(rows)}\n`);
   }
 }
 

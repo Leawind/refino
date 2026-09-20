@@ -389,6 +389,127 @@ describe("refino cli", () => {
     });
   });
 
+  describe("exploring", () => {
+    it("new constraint --exploring persists the mark and show labels it", async () => {
+      const root = await adoptedRoot();
+      try {
+        const { code } = await run([
+          "--root",
+          root,
+          "new",
+          "constraint",
+          "--id",
+          "A1B2C3D4",
+          "--body",
+          "试行决策。",
+          "--exploring",
+        ]);
+        expect(code).toBe(0);
+        const source = await readFile(
+          join(root, ".refino", "nodes", "A1", "B2C3D4-constraint.md"),
+          "utf8",
+        );
+        expect(source).toContain("exploring: true");
+        const show = await run(["--root", root, "show", "A1B2C3D4"]);
+        expect(show.out).toContain("exploring: true");
+        expect(show.out).not.toContain("(derived)");
+      } finally {
+        await removeRefino(root);
+      }
+    });
+
+    it("update tri-states the mark; list and show annotate effective exploration", async () => {
+      const root = await adoptedRoot();
+      try {
+        await run([
+          "--root",
+          root,
+          "new",
+          "constraint",
+          "--id",
+          "A1B2C3D4",
+          "--body",
+          "上游决策。",
+        ]);
+        await run([
+          "--root",
+          root,
+          "new",
+          "constraint",
+          "--id",
+          "D4E5F6G7",
+          "--body",
+          "下游细化。",
+          "--grounds",
+          "A1B2C3D4",
+        ]);
+        await run([
+          "--root",
+          root,
+          "new",
+          "constraint",
+          "--id",
+          "E5F6G7H8",
+          "--body",
+          "无关决策。",
+        ]);
+
+        // Marking the upstream explores the downstream too (derived, no stored mark).
+        const mark = await run(["--root", root, "update", "A1B2C3D4", "--exploring"]);
+        expect(mark.code).toBe(0);
+        const list = await run(["--root", root, "list"]);
+        expect(list.out).toContain("[探索] 上游决策。");
+        expect(list.out).toContain("[探索] 下游细化。");
+        expect(list.out).not.toContain("[探索] 无关决策。");
+        const showDown = await run(["--root", root, "show", "D4E5F6G7"]);
+        expect(showDown.out).toContain("exploring: true (derived)");
+
+        // Omitting the flag keeps the mark.
+        const keep = await run(["--root", root, "update", "A1B2C3D4", "--body", "上游决策改。"]);
+        expect(keep.code).toBe(0);
+        const still = await run(["--root", root, "show", "A1B2C3D4"]);
+        expect(still.out).toContain("exploring: true");
+        expect(still.out).not.toContain("(derived)");
+
+        // --no-exploring settles: the field disappears from the file and the
+        // whole subtree stops being annotated.
+        const settle = await run(["--root", root, "update", "A1B2C3D4", "--no-exploring"]);
+        expect(settle.code).toBe(0);
+        const source = await readFile(
+          join(root, ".refino", "nodes", "A1", "B2C3D4-constraint.md"),
+          "utf8",
+        );
+        expect(source).not.toContain("exploring");
+        const listAfter = await run(["--root", root, "list"]);
+        expect(listAfter.out).not.toContain("[探索]");
+      } finally {
+        await removeRefino(root);
+      }
+    });
+
+    it("--no-exploring alone counts as a touched field", async () => {
+      const root = await adoptedRoot();
+      try {
+        await run([
+          "--root",
+          root,
+          "new",
+          "constraint",
+          "--id",
+          "A1B2C3D4",
+          "--body",
+          "试行。",
+          "--exploring",
+        ]);
+        const { code, err } = await run(["--root", root, "update", "A1B2C3D4", "--no-exploring"]);
+        expect(code).toBe(0);
+        expect(err).toBe("");
+      } finally {
+        await removeRefino(root);
+      }
+    });
+  });
+
   describe("delete", () => {
     it("refuses while others ground on the target and deletes leaves", async () => {
       const emptyRoot = await adoptedRoot();
