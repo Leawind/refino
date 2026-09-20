@@ -89,6 +89,40 @@ describe("writer", () => {
     }
   });
 
+  it("writes exploring only when true; settling removes the field entirely", async () => {
+    const root = await createRefino({});
+    try {
+      const id = await createConstraint(`${root}/.refino`, { body: "Trial.", exploring: true });
+      const file = `${root}/.refino/nodes/${id.slice(0, 2)}/${id.slice(2)}-constraint.md`;
+      expect(await readFile(file, "utf8")).toContain("exploring: true");
+      const marked = await loadGraph(`${root}/.refino`);
+      expect(marked.graph.nodes.get(id)).toMatchObject({ exploring: true });
+
+      // PUT-like update without the mark settles the constraint: the field
+      // disappears from the file instead of degrading to `exploring: false`.
+      await updateConstraint(`${root}/.refino`, id, { body: "Settled." });
+      expect(await readFile(file, "utf8")).not.toContain("exploring");
+      const settled = await loadGraph(`${root}/.refino`);
+      expect("exploring" in settled.graph.nodes.get(id)!).toBe(false);
+    } finally {
+      await removeRefino(root);
+    }
+  });
+
+  it("never writes an explicit false exploring", async () => {
+    const root = await createRefino({});
+    try {
+      const id = await createConstraint(`${root}/.refino`, { body: "Root.", exploring: false });
+      const source = await readFile(
+        `${root}/.refino/nodes/${id.slice(0, 2)}/${id.slice(2)}-constraint.md`,
+        "utf8",
+      );
+      expect(source).not.toContain("exploring");
+    } finally {
+      await removeRefino(root);
+    }
+  });
+
   it("never collides with existing ids", async () => {
     const root = await createRefino({});
     try {

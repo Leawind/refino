@@ -213,6 +213,62 @@ describe("parseNodeSource", () => {
     expect(node).toEqual({ id: "2B3C4D5E", type: "premise", summary: "Body." });
   });
 
+  it("marks a constraint exploring when the field is true", () => {
+    const { node, issues } = parseNodeSource(
+      "B2C3D4E5",
+      "nodes/B2/C3D4E5-constraint.md",
+      "constraint",
+      "---\nexploring: true\n---\n\nBody.\n",
+    );
+    expect(issues).toEqual([]);
+    expect(node).toEqual({
+      id: "B2C3D4E5",
+      type: "constraint",
+      summary: "Body.",
+      grounds: [],
+      exploring: true,
+    });
+  });
+
+  it("treats an explicit false exploring like absence", () => {
+    const { node, issues } = parseNodeSource(
+      "B2C3D4E5",
+      "nodes/B2/C3D4E5-constraint.md",
+      "constraint",
+      "---\nexploring: false\n---\n\nBody.\n",
+    );
+    expect(issues).toEqual([]);
+    expect(node).toEqual({ id: "B2C3D4E5", type: "constraint", summary: "Body.", grounds: [] });
+    expect("exploring" in node!).toBe(false);
+  });
+
+  it.each([
+    ["a string", '"true"'],
+    ["a number", "1"],
+    ["a list", "[true]"],
+  ])("reports INVALID_EXPLORING for exploring %s", (_label, value) => {
+    const { node, issues } = parseNodeSource(
+      "B2C3D4E5",
+      "nodes/B2/C3D4E5-constraint.md",
+      "constraint",
+      `---\nexploring: ${value}\n---\n\nBody.\n`,
+    );
+    expect(issues.map((i) => i.code)).toEqual([StorageIssueCode.InvalidExploring]);
+    expect(node?.type).toBe("constraint");
+    expect((node as { exploring?: boolean }).exploring).toBeUndefined();
+  });
+
+  it("silently ignores exploring declared on a premise file", () => {
+    const { node, issues } = parseNodeSource(
+      "2B3C4D5E",
+      "nodes/1A/2B3C4D-premise.md",
+      "premise",
+      "---\nexploring: true\n---\n\nBody.\n",
+    );
+    expect(issues).toEqual([]);
+    expect(node).toEqual({ id: "2B3C4D5E", type: "premise", summary: "Body." });
+  });
+
   it("converts a valid confirmed frontmatter field to epoch milliseconds", () => {
     const { node, issues } = parseNodeSource(
       "1A2B3C4D",

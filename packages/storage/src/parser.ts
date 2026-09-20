@@ -124,9 +124,10 @@ export function parseNodeSource(
 
 /**
  * Premise fields: `confirmed` as epoch milliseconds, converted from the
- * file's RFC 3339 form. A declared `grounds` is a misplaced attribute (edges
- * only come from constraint grounds) and is silently ignored, like any
- * unknown frontmatter field — no issue is reported.
+ * file's RFC 3339 form. A declared `grounds` or `exploring` is a misplaced
+ * attribute (edges and trial marks belong to constraints only) and is
+ * silently ignored, like any unknown frontmatter field — no issue is
+ * reported.
  */
 function parsePremise(
   base: { id: string; summary: string },
@@ -151,7 +152,7 @@ function parsePremise(
   return node;
 }
 
-/** Constraint fields: `grounds` (absent -> []); `rationale` lands in the paged content. */
+/** Constraint fields: `grounds` (absent -> []), `exploring` (only true marks); `rationale` lands in the paged content. */
 function parseConstraint(
   base: { id: string; summary: string },
   fields: Record<string, unknown>,
@@ -162,6 +163,20 @@ function parseConstraint(
   const node: ConstraintNode = { ...base, type: "constraint", grounds: [] };
   const grounds = parseGrounds(file, base.id, fields["grounds"], issues);
   if (grounds) node.grounds = grounds;
+  const exploring = fields["exploring"];
+  if (exploring !== undefined && exploring !== null) {
+    // Canonical form: only `true` is meaningful; an explicit false parses to
+    // "no mark", identical to absence.
+    if (exploring === true) node.exploring = true;
+    else if (exploring !== false) {
+      issues.push({
+        code: StorageIssueCode.InvalidExploring,
+        message: '"exploring" must be a boolean.',
+        file,
+        nodeId: base.id,
+      });
+    }
+  }
   const rationale = fields["rationale"];
   if (rationale !== undefined && rationale !== null) {
     if (typeof rationale === "string") {

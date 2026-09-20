@@ -714,7 +714,8 @@ function sameResidentFields(previous: RefinoNode, read: RefinoNode): boolean {
   return (
     previous.type === "constraint" &&
     read.type === "constraint" &&
-    sameGrounds(previous.grounds, read.grounds)
+    sameGrounds(previous.grounds, read.grounds) &&
+    (previous.exploring === true) === (read.exploring === true)
   );
 }
 

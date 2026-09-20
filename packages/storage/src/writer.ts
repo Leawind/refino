@@ -41,6 +41,8 @@ export interface CreateConstraintOptions extends CreateOptions {
   grounds?: string[];
   /** Why the decision was made. */
   rationale?: string;
+  /** Trial-commitment mark; only `true` is ever written to the file, false and absent both mean settled. */
+  exploring?: boolean;
 }
 
 /** Create a premise node file under `<refinoDir>/nodes/`; returns the new id. */
@@ -64,6 +66,7 @@ export async function createConstraint(
     grounds: opts.grounds,
     rationale: opts.rationale,
     summary: opts.summary,
+    exploring: opts.exploring === true ? true : undefined,
   };
   return createNode(refinoDir, "constraint", fields, opts.body, opts.id);
 }
@@ -156,6 +159,8 @@ export interface UpdateConstraintOptions extends UpdateOptions {
   grounds?: string[];
   /** Why the decision was made. */
   rationale?: string;
+  /** Trial-commitment mark; only `true` is ever written to the file, false and absent both mean settled. */
+  exploring?: boolean;
 }
 
 /** Overwrite an existing premise node file; throws NODE_NOT_FOUND if absent. */
@@ -181,6 +186,7 @@ export async function updateConstraint(
     grounds: opts.grounds,
     rationale: opts.rationale,
     summary: opts.summary,
+    exploring: opts.exploring === true ? true : undefined,
   };
   await updateNode(refinoDir, "constraint", id, fields, opts.body);
 }

@@ -68,6 +68,37 @@ describe("RefinoStore incremental updates", () => {
     }
   });
 
+  it("tracks exploring flips as resident changes", async () => {
+    const local = await createRefino({
+      "nodes/1A/2B3C4D-premise.md": premise(P1, "前提一。"),
+      "nodes/A1/B2C3D4-constraint.md": constraint(C1, [P1], "C1。"),
+    });
+    const dir = join(local, ".refino");
+    const store = RefinoStore.open(dir);
+    try {
+      await store.ready();
+      const start = store.revision;
+
+      // API write carrying the mark lands in the resident projection.
+      const outcome = await store.createConstraint({
+        body: "试行决策。",
+        grounds: [P1],
+        exploring: true,
+      });
+      expect(store.entry(outcome.id)?.node).toMatchObject({ exploring: true });
+
+      // An external settle (field removed) is a resident change, not a no-op.
+      await updateConstraint(dir, outcome.id, { body: "试行决策。", grounds: [P1] });
+      const changed = await store.applyChange({ changed: [outcome.id] });
+      expect(changed?.changed).toEqual([outcome.id]);
+      expect(store.revision).toBeGreaterThan(start);
+      expect("exploring" in store.entry(outcome.id)!.node).toBe(false);
+    } finally {
+      store.close();
+      await removeRefino(local);
+    }
+  });
+
   it("rechecks issues incrementally without a full reload", async () => {
     const store = RefinoStore.open(refinoDir);
     try {

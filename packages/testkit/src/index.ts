@@ -29,12 +29,14 @@ export function constraint(
   grounds: readonly string[] | undefined,
   body = "body.",
   rationale?: string,
+  exploring?: boolean,
 ): string {
   const lines: string[] = [];
-  if (grounds !== undefined || rationale !== undefined) {
+  if (grounds !== undefined || rationale !== undefined || exploring === true) {
     lines.push("---");
     if (grounds !== undefined) lines.push(`grounds: [${grounds.join(", ")}]`);
     if (rationale !== undefined) lines.push(`rationale: ${JSON.stringify(rationale)}`);
+    if (exploring === true) lines.push("exploring: true");
     lines.push("---", "");
   }
   lines.push(`${body}\n`);

@@ -13,6 +13,8 @@ export enum StorageIssueCode {
   InvalidFrontmatter = "INVALID_FRONTMATTER",
   /** `confirmed` is not an RFC 3339 timestamp with an explicit UTC offset (checked at the file boundary; the engine's memory form is epoch milliseconds). */
   InvalidConfirmed = "INVALID_CONFIRMED",
+  /** `exploring` is not a boolean (constraint files only; the canonical file form only ever writes `exploring: true`). */
+  InvalidExploring = "INVALID_EXPLORING",
   /** A file under `nodes/` does not have the `<id_2>-<type>.md` shape the storage format requires. */
   InvalidNodePath = "INVALID_NODE_PATH",
   /** The `.refino` directory is missing or not a directory (thrown as a `RefinoError`). */
