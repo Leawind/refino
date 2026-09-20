@@ -74,12 +74,15 @@ export const PARAM_TEXT = {
   explicitId: "显式节点 ID（3-16 位 A-Z、0-9、_）；省略则自动生成",
   grounds: "依据节点 ID 列表；省略则创建根约束",
   rationaleCreate: "为什么从依据得出该决策",
+  exploring: "标记为试行承诺（探索中，可能被替换或撤销）；省略为定案；仅约束可用",
   updateId: "要修改的节点 ID",
   updateSummary: "新的独立摘要；省略保持不变；空串清除（回退为正文派生）",
   updateBody: "新的正文（Markdown）；省略保持不变；空串清空正文",
   updateGrounds: "约束的新依据 ID 列表（整体替换并校验）；省略保持不变；仅约束可用",
   updateRationale: "约束的新理由；省略保持不变；空串清除；仅约束可用",
   updateConfirmed: "前提的新确认时间（RFC 3339 带偏移）；省略保持不变；空串清除；仅前提可用",
+  updateExploring:
+    "约束的试行标记；true 标记探索中、false 转正（移除标记）；省略保持不变；仅约束可用",
   deleteId: "要删除的节点 ID",
   frozenFrontier:
     "新冻结区的 frontier 约束 ID 列表（整体替换，冻结区即其全部祖先的闭包）；空列表表示解冻全部",

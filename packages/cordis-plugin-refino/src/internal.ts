@@ -53,6 +53,7 @@ function nodeLiteSchema() {
       id: { type: "string", required: true },
       type: { type: "string", required: true },
       summary: { type: "string", required: true },
+      exploring: { type: "boolean" },
     },
   } as const;
 }
@@ -65,6 +66,7 @@ function depthLiteSchema() {
       id: { type: "string", required: true },
       type: { type: "string", required: true },
       summary: { type: "string", required: true },
+      exploring: { type: "boolean" },
       depth: { type: "integer", required: true },
     },
   } as const;

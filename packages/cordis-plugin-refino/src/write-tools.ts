@@ -71,6 +71,10 @@ function createConstraintTool(get: () => RefinoWorkspace | undefined): ToolDefin
         items: { type: "string" },
         description: PARAM_TEXT.grounds,
       },
+      exploring: {
+        type: "boolean",
+        description: PARAM_TEXT.exploring,
+      },
       id: {
         type: "string",
         description: PARAM_TEXT.explicitId,
@@ -106,6 +110,10 @@ function updateNodeTool(get: () => RefinoWorkspace | undefined): ToolDefinition 
       confirmed: {
         type: "string",
         description: PARAM_TEXT.updateConfirmed,
+      },
+      exploring: {
+        type: "boolean",
+        description: PARAM_TEXT.updateExploring,
       },
     },
     output: { schema: writeResultSchema(), render: renderWriteValue },

@@ -317,6 +317,7 @@ function nodeLiteSchema() {
       id: { type: "string", required: true },
       type: { type: "string", required: true },
       summary: { type: "string", required: true },
+      exploring: { type: "boolean" },
     },
   } as const;
 }
@@ -349,6 +350,7 @@ function fullEntrySchema() {
           body: { type: "string", required: true },
           rationale: { type: "string" },
           grounds: { type: "array", items: { type: "string" } },
+          exploring: { type: "boolean" },
           confirmed: { type: "number" },
         },
       },
@@ -411,6 +413,7 @@ function depthLiteSchema() {
       id: { type: "string", required: true },
       type: { type: "string", required: true },
       summary: { type: "string", required: true },
+      exploring: { type: "boolean" },
       depth: { type: "integer", required: true },
     },
   } as const;

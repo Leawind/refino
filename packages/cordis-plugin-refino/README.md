@@ -4,7 +4,7 @@ refino 的 [DeepSeek Harness（dsh）](https://github.com/deepseek-ai/deepseek-h
 
 ## 提供什么
 
-- **会话初始化**：会话启动时自动注入当前仓库的 CRG 上下文（锚点与前提摘要，标注 `[冻结]` 者只读）；图过大时注入极简引导，以搜索定位。未采用 refino 的仓库（无 `.refino/`）不接管。
+- **会话初始化**：会话启动时自动注入当前仓库的 CRG 上下文（锚点与前提摘要，标注 `[冻结]` 者只读，标注 `[探索]` 者为试行承诺）；图过大时注入极简引导，以搜索定位。未采用 refino 的仓库（无 `.refino/`）不接管。
 - **模型侧 CRG 工具**：`refino_*` 系列工具——查询（`refino_show` / `refino_search` / `refino_ancestors` / `refino_dependents`…）、待审查、写入（经授权边界校验，越界返回结构化升级报告）、授权查询（`refino_context`）与对话签发（`refino_request_authorization`）。
 - **对话签发**：模型起草冻结区划分并呈现在对话中，经 dsh 原生审批服务获得人的明确批准后生效；编排者凭据生效时拒绝签发。
 - **外部变更同步**：仓库外的图修改经降噪合并，以增量更新即时注入会话。

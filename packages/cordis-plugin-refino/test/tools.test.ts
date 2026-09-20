@@ -219,6 +219,38 @@ describe("write tools", () => {
     expect(ws.graph.nodes.get(ok.id)!.type).toBe("constraint");
   });
 
+  it("refino_create_constraint and refino_update_node carry the exploring mark", async () => {
+    const ws = await fixtureWorkspace();
+    const tools = toolset(ws);
+    const created = await run<{ ok: boolean; id: string }>(tools.refino_create_constraint, {
+      body: "试行决策。",
+      grounds: ["R1ROOT"],
+      exploring: true,
+    });
+    expect(created.ok).toBe(true);
+    const shown = await run<{ results: { node?: { exploring?: boolean } }[] }>(tools.refino_show, {
+      ids: [created.id!],
+    });
+    expect(shown.results[0]!.node!.exploring).toBe(true);
+
+    // Omitted exploring keeps the mark; an explicit false settles the node.
+    const kept = await run<{ ok: boolean }>(tools.refino_update_node, {
+      id: created.id!,
+      body: "试行决策（改）。",
+    });
+    expect(kept.ok).toBe(true);
+    expect(ws.graph.nodes.get(created.id!)).toMatchObject({ exploring: true });
+    const settled = await run<{ ok: boolean }>(tools.refino_update_node, {
+      id: created.id!,
+      exploring: false,
+    });
+    expect(settled.ok).toBe(true);
+    const after = await run<{ results: { node?: { exploring?: boolean } }[] }>(tools.refino_show, {
+      ids: [created.id!],
+    });
+    expect(after.results[0]!.node!.exploring).toBeUndefined();
+  });
+
   it("refino_update_node escalates for frozen targets and updates modifiable ones", async () => {
     const ws = await fixtureWorkspace();
     const tools = toolset(ws);
