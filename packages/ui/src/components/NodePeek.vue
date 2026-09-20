@@ -231,9 +231,13 @@ const style = computed(() => {
           <span class="type" :class="record?.type ?? ''">{{
             record?.type === "premise" ? t("node.premise") : t("node.constraint")
           }}</span>
+          <span v-if="record?.exploring === true" class="exploring">{{ t("node.exploring") }}</span>
           <span class="id">{{ peekState.id }}</span>
         </div>
         <p class="summary">{{ summary }}</p>
+        <p v-if="record?.exploring === true" class="exploring-note">
+          {{ t("node.exploringNote") }}
+        </p>
         <p v-if="rationale !== ''" class="rationale">{{ rationale }}</p>
         <div v-if="renderedBody !== ''" class="body-markdown" v-html="renderedBody" />
         <template v-if="groundSummaries.length > 0">
@@ -269,6 +273,21 @@ const style = computed(() => {
   justify-content: space-between;
   gap: 8px;
   margin-bottom: 4px;
+}
+
+.exploring {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px dashed var(--refino-primary, #18a058);
+  color: var(--refino-primary, #18a058);
+  margin-right: auto;
+}
+
+.exploring-note {
+  margin: 0 0 6px;
+  font-size: 12px;
+  opacity: 0.65;
 }
 
 .type {

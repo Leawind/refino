@@ -107,6 +107,10 @@ function payload(): NodePayload {
     summary: form.summary.trim() === "" ? undefined : form.summary.trim(),
     rationale: form.rationale.trim() === "" ? undefined : form.rationale.trim(),
     grounds: form.grounds,
+    exploring:
+      (selected.value?.type ?? store.state.creatingType) === "constraint"
+        ? form.exploring
+        : undefined,
     confirmed: form.confirmed.trim() === "" ? undefined : form.confirmed.trim(),
   };
 }
@@ -274,6 +278,20 @@ function nodeLabel(id: string): string {
               v-model:grounds="form.grounds"
               :owner-id="creating ? null : (selected?.id ?? null)"
             />
+          </FormField>
+
+          <FormField
+            v-if="(selected?.type ?? store.state.creatingType) === 'constraint'"
+            class="f-exploring"
+            :label="t('node.exploring')"
+          >
+            <!-- The form always states the mark: saving a constraint sends an
+                 explicit boolean, so wholesale-replacement PUTs never settle a
+                 trial node by omission. -->
+            <div class="exploring-row">
+              <NSwitch v-model:value="form.exploring" size="small" />
+              <span class="exploring-hint">{{ t("node.exploringNote") }}</span>
+            </div>
           </FormField>
 
           <FormField
@@ -487,6 +505,18 @@ function nodeLabel(id: string): string {
   align-items: center;
   justify-content: space-between;
   width: 100%;
+}
+
+.exploring-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+}
+
+.exploring-hint {
+  font-size: 12px;
+  opacity: 0.65;
 }
 
 .preview-toggle {

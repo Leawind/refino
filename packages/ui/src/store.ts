@@ -25,6 +25,8 @@ export interface DetailFormState {
   rationale: string;
   grounds: string[];
   confirmed: string;
+  /** Constraint trial mark; the form always states it (false = settled). */
+  exploring: boolean;
 }
 
 const emptyForm = (): DetailFormState => ({
@@ -33,6 +35,7 @@ const emptyForm = (): DetailFormState => ({
   rationale: "",
   grounds: [],
   confirmed: "",
+  exploring: false,
 });
 
 interface DetailState {
@@ -129,6 +132,7 @@ export function createStore(client: RefinoClient, workspace: Workspace) {
     // The wire carries epoch milliseconds; the form edits the RFC 3339 form.
     detailForm.confirmed =
       node?.confirmed === undefined ? "" : new Date(node.confirmed).toISOString();
+    detailForm.exploring = node?.exploring === true;
   }
 
   function setDetail(

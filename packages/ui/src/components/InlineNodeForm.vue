@@ -37,6 +37,9 @@ function payload(): NodePayload {
     summary: form.summary.trim() === "" ? undefined : form.summary.trim(),
     rationale: form.rationale.trim() === "" ? undefined : form.rationale.trim(),
     grounds: form.grounds,
+    // The inline form has no exploring control, but the payload must still
+    // state it: a wholesale-replacement PUT that omits it settles the node.
+    exploring: node.value?.type === "constraint" ? form.exploring : undefined,
     confirmed: form.confirmed.trim() === "" ? undefined : form.confirmed.trim(),
   };
 }

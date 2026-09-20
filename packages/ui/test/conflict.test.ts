@@ -7,6 +7,7 @@ const fields = (overrides: Partial<EditorFields> = {}): EditorFields => ({
   rationale: "",
   grounds: [],
   confirmed: "",
+  exploring: false,
   ...overrides,
 });
 
@@ -17,6 +18,11 @@ describe("changedFields", () => {
     expect(changedFields(fields({ grounds: ["A", "B"] }), fields({ grounds: ["B", "A"] }))).toEqual(
       ["grounds"],
     );
+  });
+
+  it("detects exploring mark edits as boolean flips", () => {
+    expect(changedFields(fields(), fields({ exploring: true }))).toEqual(["exploring"]);
+    expect(changedFields(fields({ exploring: true }), fields())).toEqual(["exploring"]);
   });
 });
 
@@ -68,7 +74,21 @@ describe("mergeExternal", () => {
       rationale: "外部理由",
       grounds: [],
       confirmed: "",
+      exploring: false,
     });
+  });
+
+  it("adopts an external exploring flip on an untouched field", () => {
+    const base = fields();
+    const external = fields({ exploring: true });
+    expect(mergeExternal(base, fields(), external).merged.exploring).toBe(true);
+    // A boolean field structurally cannot collide: from a shared base, any
+    // user flip lands on the same value the external flip produced, and the
+    // user-already-matches rule absorbs it.
+    const matching = mergeExternal(base, fields({ exploring: true }), external);
+    expect(matching.conflicts).toEqual([]);
+    expect(matching.takenExternal).toEqual([]);
+    expect(matching.merged.exploring).toBe(true);
   });
 });
 
@@ -86,6 +106,18 @@ describe("toEditorFields", () => {
       rationale: "",
       grounds: [],
       confirmed: "",
+      exploring: false,
     });
+  });
+
+  it("carries the stored exploring mark as an explicit boolean", () => {
+    const editor = toEditorFields({
+      id: "B2C3D4E5",
+      type: "constraint",
+      summary: "试行",
+      body: "正文",
+      exploring: true,
+    });
+    expect(editor.exploring).toBe(true);
   });
 });

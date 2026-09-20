@@ -87,6 +87,9 @@ export default {
     grounds: "Grounds",
     dependents: "Dependents",
     confirmed: "Confirmed",
+    exploring: "Exploring",
+    exploringNote:
+      "Trial commitment; may be replaced or withdrawn. Distill reusable findings into premises",
     type: "Type",
     save: "Save",
     preview: "Preview",

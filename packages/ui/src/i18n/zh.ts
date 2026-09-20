@@ -87,6 +87,8 @@ export default {
     grounds: "依据",
     dependents: "下游约束",
     confirmed: "确认时间",
+    exploring: "探索中",
+    exploringNote: "试行承诺，可能被替换或撤销；可复用的发现应沉淀为前提",
     type: "类型",
     save: "保存",
     preview: "预览",

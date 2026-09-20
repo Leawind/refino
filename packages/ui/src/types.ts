@@ -64,6 +64,9 @@ export interface NodeRecord {
   body: string;
   grounds?: string[];
   rationale?: string;
+  /** Stored trial mark, constraints only; absent = settled (the wire never
+   * carries an explicit false — settling removes the field). */
+  exploring?: boolean;
   confirmed?: number;
 }
 
@@ -95,6 +98,7 @@ export interface NodePayload {
   summary?: string;
   grounds?: string[];
   rationale?: string;
+  exploring?: boolean;
   confirmed?: string;
 }
 

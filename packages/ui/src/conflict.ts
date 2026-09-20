@@ -12,7 +12,7 @@
  *   local edits (which then overwrite on save).
  */
 
-export type EditorField = "summary" | "body" | "rationale" | "grounds" | "confirmed";
+export type EditorField = "summary" | "body" | "rationale" | "grounds" | "confirmed" | "exploring";
 
 export const EDITOR_FIELDS: readonly EditorField[] = [
   "summary",
@@ -20,6 +20,7 @@ export const EDITOR_FIELDS: readonly EditorField[] = [
   "rationale",
   "grounds",
   "confirmed",
+  "exploring",
 ];
 
 export interface EditorFields {
@@ -28,6 +29,8 @@ export interface EditorFields {
   rationale: string;
   grounds: string[];
   confirmed: string;
+  /** Constraint trial mark; false = settled (the form always states it). */
+  exploring: boolean;
 }
 
 /** The node fields the editor works on; accepts read-only records. */
@@ -38,6 +41,7 @@ export interface EditorSource {
   grounds?: readonly string[];
   /** Epoch milliseconds on the wire; the editor edits its RFC 3339 form. */
   confirmed?: number;
+  exploring?: boolean;
 }
 
 /** Editor-facing fields of a node record, with defaults filled in. */
@@ -48,10 +52,14 @@ export function toEditorFields(node: EditorSource): EditorFields {
     rationale: node.rationale ?? "",
     grounds: [...(node.grounds ?? [])],
     confirmed: node.confirmed === undefined ? "" : new Date(node.confirmed).toISOString(),
+    exploring: node.exploring === true,
   };
 }
 
-function sameValue(a: string | readonly string[], b: string | readonly string[]): boolean {
+type FieldValue = string | readonly string[] | boolean;
+
+function sameValue(a: FieldValue, b: FieldValue): boolean {
+  if (typeof a === "boolean" || typeof b === "boolean") return a === b;
   if (Array.isArray(a) || Array.isArray(b)) {
     return (
       Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((v, i) => v === b[i])
