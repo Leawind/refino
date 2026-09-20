@@ -1,4 +1,4 @@
-import type { Graph } from "refino";
+import { effectiveExploring, type Graph } from "refino";
 import { frozenZone, validateContext } from "./boundary.js";
 import { byId } from "./types.js";
 import type { AuthorizationContext, ContextBlock, DeltaEvent } from "./types.js";
@@ -6,6 +6,10 @@ import type { AuthorizationContext, ContextBlock, DeltaEvent } from "./types.js"
 /** Complement statement closing every render: the frozen-marking protocol. */
 export const ZONE_PROTOCOL =
   "标注 [冻结] 者只读；未标注者及未列出者均属修改空间，可以修改或继续细化。";
+
+/** Complement statement for the exploring annotation (docs/crg.md 1.1, 3.1). */
+export const EXPLORING_PROTOCOL =
+  "标注 [探索] 者为试行承诺，可能被替换或撤销；未标注者为定案决策；试行期间的可复用知识应沉淀为前提。";
 
 /**
  * Render the authorization context as stable, identifiable blocks: one per
@@ -52,7 +56,7 @@ export function renderContext(graph: Graph, context: AuthorizationContext): stri
   return [
     section("anchor", "## 作用域锚点"),
     section("premise", "## 项目前提（客观事实）"),
-    ZONE_PROTOCOL,
+    [ZONE_PROTOCOL, EXPLORING_PROTOCOL].join("\n"),
   ]
     .filter((part) => part.length > 0)
     .join("\n\n");
@@ -76,7 +80,9 @@ export function estimateContext(
   const usedKinds = new Set(blocks.map((b) => b.kind));
   let chars = blocks.reduce((sum, block) => sum + block.text.length + 1, 0);
   for (const kind of usedKinds) chars += kindHeadings[kind].length + 1;
-  if (blocks.length > 0) chars += ZONE_PROTOCOL.length + 2;
+  if (blocks.length > 0) {
+    chars += ZONE_PROTOCOL.length + EXPLORING_PROTOCOL.length + 3;
+  }
   return { blocks: blocks.length, chars };
 }
 
@@ -117,5 +123,8 @@ function line(graph: Graph, id: string, frozen: Set<string>): string {
   const node = graph.nodes.get(id)!;
   const type = node.type === "premise" ? "premise" : "constraint";
   const mark = frozen.has(id) ? " [冻结]" : "";
-  return `- ${node.id} [${type}]${mark} ${node.summary}`;
+  // Derived effective status: unmarked downstream of an exploring
+  // constraint annotates too; the mark follows the frozen mark.
+  const exploring = node.type === "constraint" && effectiveExploring(graph, id) ? " [探索]" : "";
+  return `- ${node.id} [${type}]${mark}${exploring} ${node.summary}`;
 }

@@ -9,6 +9,7 @@ import { orchestratorCredential, readAuthorizationDocument } from "./state.js";
 import type { AuthorizationContext, DeltaEvent } from "./types.js";
 import type { AuthorizationOrigin } from "./inject-text.js";
 import { RefinoStore, type StoreChange, type StoreIssue } from "@refino/storage";
+import { effectiveExploring } from "refino";
 import type { Graph, RefinoNode } from "refino";
 
 /**
@@ -105,7 +106,10 @@ export class RefinoWorkspace {
       defaultAuthorizationContext(store.graph).context,
     );
     this.#zoneIds = constraintZoneIds(store.graph, this.#session.authorizationContext);
-    this.#known = new SessionKnownSet();
+    // The known set snapshots the derived effective exploring status against
+    // the live graph, so external mark flips (and their downstream effects)
+    // surface as field-level diffs.
+    this.#known = new SessionKnownSet((id) => effectiveExploring(store.graph, id));
   }
 
   /** Open the store (watching `nodes/`) and build the initial session. */

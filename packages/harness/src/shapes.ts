@@ -13,6 +13,12 @@ export interface NodeLite {
   id: string;
   type: string;
   summary: string;
+  /**
+   * Constraints only: the derived effective exploring status (docs/crg.md
+   * 1.1) — set to true when the node carries the trial mark or any ground
+   * constraint does. Absent for premises and settled constraints.
+   */
+  exploring?: boolean;
 }
 
 export interface NodeDepthLite extends NodeLite {
@@ -27,6 +33,8 @@ export interface FullNodeLite {
   body: string;
   rationale?: string;
   grounds?: string[];
+  /** Derived effective exploring status (constraints only; see NodeLite). */
+  exploring?: boolean;
   /** Confirmation time as epoch milliseconds (premises only). */
   confirmed?: number;
 }
@@ -148,21 +156,31 @@ export interface ContextStatusResult {
   orchestrator_credential: boolean;
 }
 
-export function lite(node: RefinoNode): NodeLite {
-  return { id: node.id, type: node.type, summary: node.summary };
+export function lite(node: RefinoNode, exploring?: boolean): NodeLite {
+  return {
+    id: node.id,
+    type: node.type,
+    summary: node.summary,
+    ...(exploring === true ? { exploring: true } : {}),
+  };
 }
 
-export function depthLite(entry: NodeWithDepth): NodeDepthLite {
-  return { ...lite(entry.node), depth: entry.depth };
+export function depthLite(entry: NodeWithDepth, exploring?: boolean): NodeDepthLite {
+  return { ...lite(entry.node, exploring), depth: entry.depth };
 }
 
-export function fullLite(node: RefinoNode, content?: NodeContent): FullNodeLite {
+export function fullLite(
+  node: RefinoNode,
+  content?: NodeContent,
+  exploring?: boolean,
+): FullNodeLite {
   const base = { id: node.id, type: node.type, summary: node.summary, body: content?.body ?? "" };
   return node.type === "premise"
     ? { ...base, ...(node.confirmed !== undefined ? { confirmed: node.confirmed } : {}) }
     : {
         ...base,
         grounds: node.grounds,
+        ...(exploring === true ? { exploring: true } : {}),
         ...(content?.rationale !== undefined ? { rationale: content.rationale } : {}),
       };
 }

@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import { buildGraph } from "refino";
 import type { Graph, NodeType, RefinoNode } from "refino";
 import { contextBlocks, diffContext, estimateContext, renderContext } from "../src/context.js";
-import { ZONE_PROTOCOL } from "../src/context.js";
+import { EXPLORING_PROTOCOL, ZONE_PROTOCOL } from "../src/context.js";
 import type { AuthorizationContext } from "../src/types.js";
 
-function node(id: string, type: NodeType, grounds?: string[]): RefinoNode {
+function node(id: string, type: NodeType, grounds?: string[], exploring?: boolean): RefinoNode {
   const base = {
     id,
     file: `nodes/${id.slice(0, 2)}/${id.slice(2)}-${type}.md`,
@@ -13,7 +13,7 @@ function node(id: string, type: NodeType, grounds?: string[]): RefinoNode {
     body: `${id} body.`,
   };
   if (type === "premise") return { ...base, type };
-  return { ...base, type, grounds: grounds ?? [] };
+  return { ...base, type, grounds: grounds ?? [], ...(exploring ? { exploring: true } : {}) };
 }
 
 const A1 = "A1B2C3D4";
@@ -21,12 +21,12 @@ const D4 = "D4E5F6G7";
 const E5 = "E5F6G7H8";
 const P1 = "1A2B3C4D";
 
-function graphOf(): Graph {
+function graphOf(exploringId?: string): Graph {
   return buildGraph([
     node(P1, "premise"),
-    node(A1, "constraint"),
-    node(D4, "constraint", [A1]),
-    node(E5, "constraint", [D4]),
+    node(A1, "constraint", [], exploringId === A1),
+    node(D4, "constraint", [A1], exploringId === D4),
+    node(E5, "constraint", [D4], exploringId === E5),
   ]);
 }
 
@@ -44,6 +44,19 @@ describe("contextBlocks", () => {
     expect(blocks[0]!.text).toContain("[冻结]");
     // P1 is not in the zone: unfrozen nodes carry no mark.
     expect(blocks[1]!.text).not.toContain("[冻结]");
+  });
+
+  it("marks effectively exploring anchors after the frozen mark, derived downstream included", () => {
+    // A1 carries the stored mark; D4 anchors with no mark of its own but an
+    // exploring ground, so the annotation must come from the closure.
+    const blocks = contextBlocks(graphOf(A1), { anchors: [A1, D4], frozen: [A1] });
+    expect(blocks[0]!.text).toBe(`- ${A1} [constraint] [冻结] [探索] ${A1} summary.`);
+    expect(blocks[1]!.text).toContain("[探索]");
+    const plain = contextBlocks(graphOf(), { anchors: [A1], frozen: [] });
+    expect(plain[0]!.text).not.toContain("[探索]");
+    // Premises are never exploring.
+    const premiseAnchor = contextBlocks(graphOf(A1), { anchors: [P1], frozen: [] });
+    expect(premiseAnchor[0]!.text).not.toContain("[探索]");
   });
 
   it("injects premises by default even when unreferenced", () => {
@@ -79,6 +92,13 @@ describe("renderContext", () => {
     expect(text).toContain(ZONE_PROTOCOL);
     expect(text).toContain("标注 [冻结] 者只读");
     expect(text).toContain("未列出者均属修改空间");
+  });
+
+  it("closes with the exploring protocol statement", () => {
+    const text = renderContext(graphOf(), { anchors: [], frozen: [E5] });
+    expect(text).toContain(EXPLORING_PROTOCOL);
+    expect(text).toContain("标注 [探索] 者为试行承诺");
+    expect(text).toContain("未标注者为定案决策");
   });
 });
 

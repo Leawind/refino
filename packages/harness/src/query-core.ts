@@ -1,4 +1,5 @@
 import {
+  effectiveExploring,
   getAncestors,
   getDependents,
   getGrounds,
@@ -42,7 +43,7 @@ export function runList(ws: RefinoWorkspace, type?: RefinoNode["type"]): ListRes
   return {
     total: nodes.length,
     issue_count: ws.issues.length,
-    nodes: nodes.map(lite),
+    nodes: nodes.map((node) => lite(node, effectiveOf(ws, node))),
   };
 }
 
@@ -76,9 +77,10 @@ export async function runShow(
     }
     // Body and rationale are paged content; fetch them per id.
     const content = await ws.content(group.id);
-    results.push({ id: group.id, node: fullLite(group.results[0]!, content) });
+    const node = group.results[0]!;
+    results.push({ id: group.id, node: fullLite(node, content, effectiveOf(ws, node)) });
     ws.known.recordFull(
-      group.results[0]!,
+      node,
       ws.store.entry(group.id)?.revision,
       contentHash(content ?? { body: "" }),
     );
@@ -100,7 +102,7 @@ export function runGrounds(
       typeOf(ws, group.id),
     );
   }
-  return { results: groups.map(toNodesEntry) };
+  return { results: groups.map((group) => toNodesEntry(ws, group)) };
 }
 
 export function runAncestors(
@@ -111,7 +113,7 @@ export function runAncestors(
   const options = traversalOptions(maxDepth);
   const groups = queryGroups(ws.graph, ids, (graph, id) => getAncestors(graph, id, options));
   harvestDepths(ws, groups, "grounds");
-  return { results: groups.map(toDepthsEntry) };
+  return { results: groups.map((group) => toDepthsEntry(ws, group)) };
 }
 
 export function runDependents(
@@ -122,7 +124,7 @@ export function runDependents(
   const options = traversalOptions(maxDepth);
   const groups = queryGroups(ws.graph, ids, (graph, id) => getDependents(graph, id, options));
   harvestDepths(ws, groups, "children");
-  return { results: groups.map(toDepthsEntry) };
+  return { results: groups.map((group) => toDepthsEntry(ws, group)) };
 }
 
 export function runSiblings(
@@ -133,7 +135,7 @@ export function runSiblings(
   const groups = queryGroups(ws.graph, ids, (graph, id) => {
     const all = getSiblings(graph, id);
     const kept = limit === undefined ? all : all.slice(0, limit);
-    return kept.map(({ node, overlap }) => ({ ...lite(node), overlap }));
+    return kept.map(({ node, overlap }) => ({ ...lite(node, effectiveOf(ws, node)), overlap }));
   });
   for (const group of groups) {
     if ("error" in group) continue;
@@ -162,7 +164,7 @@ export function runPendingReview(
   const pending = changedKnown.length > 0 ? pendingReview(ws.graph, changedKnown) : [];
   ws.known.recordSummaries(pending);
   return {
-    pending: pending.map(lite),
+    pending: pending.map((node) => lite(node, effectiveOf(ws, node))),
     unknown_ids: changedIds.filter((id) => !known.has(id)),
   };
 }
@@ -206,18 +208,33 @@ function typeOf(ws: RefinoWorkspace, id: string): RefinoNode["type"] {
   return node.type;
 }
 
+/**
+ * Derived effective exploring status for a delivered node (constraints only):
+ * read-side annotations never use the stored mark alone, so unmarked
+ * downstream of an exploring constraint annotates too (docs/design.md,
+ * 上下文注入协议).
+ */
+function effectiveOf(ws: RefinoWorkspace, node: RefinoNode): boolean {
+  return node.type === "constraint" && effectiveExploring(ws.graph, node.id);
+}
+
 function toNodesEntry(
+  ws: RefinoWorkspace,
   group: { id: string } & ({ results: RefinoNode[] } | { error: string }),
 ): QueryEntryNodes {
   return "error" in group
     ? { id: group.id, error: group.error }
-    : { id: group.id, nodes: group.results.map(lite) };
+    : { id: group.id, nodes: group.results.map((node) => lite(node, effectiveOf(ws, node))) };
 }
 
 function toDepthsEntry(
+  ws: RefinoWorkspace,
   group: { id: string } & ({ results: NodeWithDepth[] } | { error: string }),
 ): QueryEntryDepths {
   return "error" in group
     ? { id: group.id, error: group.error }
-    : { id: group.id, nodes: group.results.map(depthLite) };
+    : {
+        id: group.id,
+        nodes: group.results.map((entry) => depthLite(entry, effectiveOf(ws, entry.node))),
+      };
 }

@@ -44,9 +44,11 @@ export interface RenderKit {
 }
 
 export function createRenderKit(tools: ToolRefs): RenderKit {
-  const nodeLine = (node: NodeLite): string => `- ${node.id} [${node.type}] ${node.summary}`;
+  const mark = (node: NodeLite): string => (node.exploring === true ? " [探索]" : "");
+  const nodeLine = (node: NodeLite): string =>
+    `- ${node.id} [${node.type}]${mark(node)} ${node.summary}`;
   const depthLine = (node: NodeDepthLite): string =>
-    `- ${node.id} [${node.type}] 深度 ${node.depth} — ${node.summary}`;
+    `- ${node.id} [${node.type}]${mark(node)} 深度 ${node.depth} — ${node.summary}`;
 
   function renderList(result: ListResult): string {
     const lines = [`共 ${result.total} 个节点。`];
@@ -76,6 +78,9 @@ export function createRenderKit(tools: ToolRefs): RenderKit {
         `- 依据：${node.grounds && node.grounds.length > 0 ? node.grounds.join(", ") : "（根约束，无依据）"}`,
       );
       if (node.rationale !== undefined) lines.push(`- 理由：${node.rationale}`);
+      if (node.exploring === true) {
+        lines.push("- 状态：试行（探索中，可能被替换或撤销；可复用知识应沉淀为前提）");
+      }
     } else if (node.confirmed !== undefined) {
       lines.push(`- 确认时间：${new Date(node.confirmed).toISOString()}`);
     }
@@ -114,7 +119,7 @@ export function createRenderKit(tools: ToolRefs): RenderKit {
     return renderEntries(result.results, (entry) =>
       (entry.nodes ?? []).map(
         (sibling) =>
-          `- ${sibling.id} [${sibling.type}] 共享 ${sibling.overlap} 个直接依据 — ${sibling.summary}`,
+          `- ${sibling.id} [${sibling.type}]${mark(sibling)} 共享 ${sibling.overlap} 个直接依据 — ${sibling.summary}`,
       ),
     );
   }

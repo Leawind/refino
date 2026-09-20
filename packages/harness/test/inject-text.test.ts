@@ -154,6 +154,8 @@ describe("updateText", () => {
         { id: "R1ROOT", kind: "content" },
         { id: "A1IDONLY", kind: "touched" },
         { id: "B1REBUIL", kind: "rebuilt", fromType: "constraint", toType: "premise" },
+        { id: "R1ROOT", kind: "exploring", to: true },
+        { id: "C1CHILD", kind: "exploring", to: false },
       ],
       [graph.nodes.get("C1CHILD")!],
     );
@@ -165,6 +167,8 @@ describe("updateText", () => {
     expect(text).toContain("- R1ROOT 正文已更新（如仍需引用请重新获取）");
     expect(text).toContain("- A1IDONLY 已变更");
     expect(text).toContain("- B1REBUIL 以另一类型重建（constraint → premise），此前信息已失效");
+    expect(text).toContain("- R1ROOT 已标记为探索中（试行承诺，其下游细化随之探索中）");
+    expect(text).toContain("- C1CHILD 已定案（探索中标记移除，子树随之定案）");
     expect(text).toContain("- 新增冻结约束（只读）: R1ROOT");
     expect(text).toContain("- 移除作用域锚点: P1PREMISE");
     expect(text).toContain("- 待审查（其直接上游已变化，修改前先复核）: C1CHILD");

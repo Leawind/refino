@@ -24,6 +24,8 @@ export interface KnownEntry {
   grounds?: string[];
   /** Direct dependents snapshot, recorded when the list itself was delivered. */
   children?: string[];
+  /** Derived effective exploring status at see time (constraints only, resolver provided). */
+  exploring?: boolean;
   /** Body/rationale delivered (show) or authored (write tools). */
   bodySeen?: boolean;
   /** Store entry revision at see time; drift flags file-level changes. */
@@ -36,6 +38,7 @@ export type KnownChange =
   | { id: string; kind: "deleted"; summary?: string }
   | { id: string; kind: "rebuilt"; fromType: string; toType: string }
   | { id: string; kind: "summary"; from: string; to: string }
+  | { id: string; kind: "exploring"; to: boolean }
   | { id: string; kind: "grounds"; added: string[]; removed: string[] }
   | { id: string; kind: "children"; added: string[]; removed: string[] }
   | { id: string; kind: "content" }
@@ -57,6 +60,18 @@ export interface KnownDiffRead {
 export class SessionKnownSet {
   #entries = new Map<string, KnownEntry>();
   #touched = false;
+  /**
+   * Live derived-exploring resolver (constraints only). When provided, every
+   * summary/full harvest snapshots the effective status and the diff reports
+   * flips — including downstream nodes whose status shifted because an
+   * unseen upstream settled or was marked. Absent (standalone tests) the
+   * field stays unrecorded and never diffs.
+   */
+  #effectiveOf?: (id: string) => boolean;
+
+  constructor(effectiveOf?: (id: string) => boolean) {
+    this.#effectiveOf = effectiveOf;
+  }
 
   /** Whether anything has been harvested or diffed since the last seeding. */
   get touched(): boolean {
@@ -72,7 +87,11 @@ export class SessionKnownSet {
     this.#entries = new Map();
     this.#touched = false;
     for (const node of nodes) {
-      this.#entries.set(node.id, { type: node.type, summary: node.summary });
+      this.#entries.set(node.id, {
+        type: node.type,
+        summary: node.summary,
+        ...this.#exploringOf(node),
+      });
     }
   }
 
@@ -82,6 +101,7 @@ export class SessionKnownSet {
       const entry = this.#entry(node.id);
       entry.type = node.type;
       entry.summary = node.summary;
+      Object.assign(entry, this.#exploringOf(node));
     }
     this.#touched = true;
   }
@@ -92,6 +112,7 @@ export class SessionKnownSet {
     entry.type = node.type;
     entry.summary = node.summary;
     if (node.type === "constraint") entry.grounds = [...node.grounds];
+    Object.assign(entry, this.#exploringOf(node));
     entry.bodySeen = true;
     entry.revision = revision;
     entry.hash = hash;
@@ -155,6 +176,17 @@ export class SessionKnownSet {
       if (entry.summary !== undefined && entry.summary !== node.summary) {
         changes.push({ id, kind: "summary", from: entry.summary, to: node.summary });
         entry.summary = node.summary;
+      }
+      if (
+        this.#effectiveOf !== undefined &&
+        node.type === "constraint" &&
+        entry.exploring !== undefined
+      ) {
+        const to = this.#effectiveOf(id);
+        if (entry.exploring !== to) {
+          changes.push({ id, kind: "exploring", to });
+          entry.exploring = to;
+        }
       }
       if (entry.grounds !== undefined && node.type === "constraint") {
         const diff = diffIds(entry.grounds, node.grounds);
@@ -230,6 +262,7 @@ export class SessionKnownSet {
         entry.grounds = [...node.grounds];
       }
       if (entry.children !== undefined) entry.children = [...node.children];
+      Object.assign(entry, this.#exploringOf(node));
       // revision/hash stay: reabsorb runs over files the write did not touch.
     }
     this.#touched = true;
@@ -247,6 +280,12 @@ export class SessionKnownSet {
       this.#entries.set(id, entry);
     }
     return entry;
+  }
+
+  /** Snapshot fields for the derived exploring status; empty without a resolver or on premises. */
+  #exploringOf(node: RefinoNode): { exploring?: boolean } {
+    if (this.#effectiveOf === undefined || node.type !== "constraint") return {};
+    return { exploring: this.#effectiveOf(node.id) };
   }
 }
 

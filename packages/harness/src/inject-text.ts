@@ -167,10 +167,11 @@ const KIND_RANK: Record<KnownChange["kind"], number> = {
   deleted: 0,
   rebuilt: 1,
   summary: 2,
-  grounds: 3,
-  children: 4,
-  content: 5,
-  touched: 6,
+  exploring: 3,
+  grounds: 4,
+  children: 5,
+  content: 6,
+  touched: 7,
 } as const;
 
 function knownLine(change: KnownChange): string {
@@ -183,6 +184,10 @@ function knownLine(change: KnownChange): string {
       return `- ${change.id} 以另一类型重建（${change.fromType} → ${change.toType}），此前信息已失效`;
     case "summary":
       return `- ${change.id} 摘要变更：${change.from} → ${change.to}`;
+    case "exploring":
+      return change.to
+        ? `- ${change.id} 已标记为探索中（试行承诺，其下游细化随之探索中）`
+        : `- ${change.id} 已定案（探索中标记移除，子树随之定案）`;
     case "grounds":
       return `- ${change.id} 依据变更：${listChange(change.added, change.removed)}`;
     case "children":

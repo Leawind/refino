@@ -1,4 +1,11 @@
-import { getDependents, ID_RE, RefinoError, type NodeWithDepth, type RefinoNode } from "refino";
+import {
+  effectiveExploring,
+  getDependents,
+  ID_RE,
+  RefinoError,
+  type NodeWithDepth,
+  type RefinoNode,
+} from "refino";
 import { checkModification } from "./boundary.js";
 import { HarnessError } from "./errors.js";
 import {
@@ -55,6 +62,8 @@ export interface CreateConstraintArgs {
   summary?: string;
   rationale?: string;
   grounds?: string[];
+  /** Trial-commitment mark: true writes `exploring: true`, absent/false stays settled. */
+  exploring?: boolean;
   id?: string;
 }
 
@@ -85,6 +94,8 @@ export interface UpdateNodeArgs {
   grounds?: string[];
   rationale?: string;
   confirmed?: string;
+  /** Constraint trial mark; omitted keeps the current value (booleans have no clear-to-empty form). */
+  exploring?: boolean;
 }
 
 export async function runUpdateNode(
@@ -100,7 +111,8 @@ export async function runUpdateNode(
     args.body !== undefined ||
     args.grounds !== undefined ||
     args.rationale !== undefined ||
-    args.confirmed !== undefined;
+    args.confirmed !== undefined ||
+    args.exploring !== undefined;
   if (!touched) {
     return { ok: false, error: "未指定任何要更新的字段；省略的字段保持不变" };
   }
@@ -130,7 +142,7 @@ async function harvested(
   const pending = ws.pendingOf(change);
   ws.known.recordSummaries(pending);
   await ws.absorbOwnWrite(id, prev);
-  return { ok: true, id, pending: pending.map(lite) };
+  return { ok: true, id, pending: pending.map((node) => lite(node, effectiveOf(ws, node))) };
 }
 
 /** Pre-write one-hop neighborhood snapshot, from the graph the write is about to detach. */
@@ -159,7 +171,9 @@ export async function runDeleteNode(ws: RefinoWorkspace, id: string): Promise<Wr
     return {
       ok: false,
       error: `节点 ${node.id} 仍有下游约束，不能删除`,
-      dependents: dependents.map((dependent) => lite(dependent.node)),
+      dependents: dependents.map((dependent) =>
+        lite(dependent.node, effectiveOf(ws, dependent.node)),
+      ),
     };
   }
   const prev = neighborhoodOf(ws, node.id);
@@ -206,8 +220,8 @@ async function updatePremiseNode(
   if (args.confirmed !== undefined && args.confirmed !== "" && !isValidConfirmed(args.confirmed)) {
     return invalidConfirmed(args.confirmed);
   }
-  // Rationale and grounds do not apply to premises; per the misplaced-field
-  // policy they are silently ignored instead of rejected.
+  // Rationale, grounds and exploring do not apply to premises; per the
+  // misplaced-field policy they are silently ignored instead of rejected.
   const read = await readForUpdate(ws, node.id, args);
   if ("ok" in read) return read;
   const prev = neighborhoodOf(ws, node.id);
@@ -250,6 +264,7 @@ async function updateConstraintNode(
             ? undefined
             : args.rationale,
       grounds: args.grounds ?? node.grounds,
+      exploring: args.exploring ?? node.exploring === true,
     });
     return harvested(ws, node.id, prev, outcome.change);
   } catch (error) {
@@ -261,8 +276,13 @@ function escalationResult(id: string, affected: NodeWithDepth[]): WriteResult {
   return {
     ok: false,
     error: `节点 ${id} 位于冻结区，只读`,
-    escalation: { id, reason: "node_frozen", affected: affected.map(depthLite) },
+    escalation: { id, reason: "node_frozen", affected: affected.map((entry) => depthLite(entry)) },
   };
+}
+
+/** Derived effective exploring status for a delivered constraint (same rule as query-core). */
+function effectiveOf(ws: RefinoWorkspace, node: RefinoNode): boolean {
+  return node.type === "constraint" && effectiveExploring(ws.graph, node.id);
 }
 
 function invalidConfirmed(value: string): WriteResult {

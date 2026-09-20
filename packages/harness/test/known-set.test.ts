@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { buildGraph } from "refino";
+import { buildGraph, effectiveExploring } from "refino";
 import type { Graph, RefinoNode } from "refino";
 import { createConstraint, updatePremise } from "@refino/storage";
 import { constraint, createRefino, premise, removeRefino } from "@refino/testkit";
@@ -64,6 +64,32 @@ describe("SessionKnownSet (unit)", () => {
     });
     // The pass re-synced: a second diff over the same graph is empty.
     expect(await known.drainDiff(graph, readOf({}))).toEqual([]);
+  });
+
+  it("snapshots effective exploring via the resolver and diffs flips, derived included", async () => {
+    // The resolver reads a mutable graph, mirroring the workspace wiring.
+    const R1 = "R1ROOT1";
+    const D1 = "D1DOWN1";
+    let graph = graphOf(node(R1, "constraint"), node(D1, "constraint", [R1]));
+    const known = new SessionKnownSet((id) => effectiveExploring(graph, id));
+    known.recordSummaries([node(D1, "constraint", [R1])]);
+    expect(await known.drainDiff(graph, readOf({}))).toEqual([]);
+
+    // Marking the unseen upstream flips the known downstream's derived
+    // status: the model saw D1 settled and must hear about the flip.
+    graph = graphOf({ ...node(R1, "constraint"), exploring: true }, node(D1, "constraint", [R1]));
+    expect(await known.drainDiff(graph, readOf({}))).toContainEqual({
+      id: D1,
+      kind: "exploring",
+      to: true,
+    });
+    // The pass re-synced; settling the upstream flips it back.
+    graph = graphOf(node(R1, "constraint"), node(D1, "constraint", [R1]));
+    expect(await known.drainDiff(graph, readOf({}))).toContainEqual({
+      id: D1,
+      kind: "exploring",
+      to: false,
+    });
   });
 
   it("reports deletions with the delivered summary and rebuilds by type", async () => {
