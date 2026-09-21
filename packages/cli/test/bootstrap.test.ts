@@ -37,7 +37,7 @@ describe("refino init", () => {
     const { code, out } = await run(["--root", bareRoot, "init"]);
     expect(code).toBe(0);
     expect(out).toContain("initialized");
-    // The skeleton is the nodes/ graph directory; the CRG starts empty.
+    // The skeleton is the nodes/ graph directory; the DLG starts empty.
     expect(() => mkdirSync(join(bareRoot, ".refino", "nodes"))).toThrow(/EEXIST/);
 
     const again = await run(["--root", bareRoot, "init"]);

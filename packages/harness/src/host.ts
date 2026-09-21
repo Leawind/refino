@@ -2,7 +2,7 @@
  * `@refino/harness/host` — the shared tool-plugin core (docs/design.md,
  * “harness 与工具插件的分工”). Everything a host adapter needs beyond the
  * pure main entry: the session workspace over the storage Store, external
- * sync coalescing, the CRG tool execution cores, dialogue signing and
+ * sync coalescing, the DLG tool execution cores, dialogue signing and
  * session-start authorization resolution.
  *
  * Node-only by necessity (the Store) and exported as this subpath so the

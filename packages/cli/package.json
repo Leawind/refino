@@ -2,7 +2,7 @@
   "name": "@refino/cli",
   "version": "0.0.2",
   "private": false,
-  "description": "Command line interface for querying Constraint Refinement Graphs (CRG).",
+  "description": "Command line interface for querying Decision Lineage Graphs (DLG).",
   "type": "module",
   "repository": {
     "type": "git",

@@ -92,7 +92,7 @@ export function parseNodeSource(
     body: match ? normalized.slice(match[0].length).trim() : normalized.trim(),
   };
 
-  // The summary is an independent attribute (docs/crg.md). A "summary"
+  // The summary is an independent attribute (docs/dlg.md). A "summary"
   // frontmatter field takes precedence; the first-paragraph fallback keeps
   // summary-less files readable.
   const summaryField = fields["summary"];

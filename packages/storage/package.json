@@ -2,7 +2,7 @@
   "name": "@refino/storage",
   "version": "0.0.2",
   "private": false,
-  "description": "Filesystem storage format for Constraint Refinement Graphs (CRG): the sole reader and writer of the .refino/ directory.",
+  "description": "Filesystem storage format for Decision Lineage Graphs (DLG): the sole reader and writer of the .refino/ directory.",
   "type": "module",
   "repository": {
     "type": "git",

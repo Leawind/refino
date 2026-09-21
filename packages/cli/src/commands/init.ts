@@ -7,7 +7,7 @@ import type { CliIo } from "../format.js";
 
 /**
  * `refino init` — create the `.refino/` skeleton: the `nodes/` graph
- * directory. Pure scaffolding and the explicit adoption gate: the CRG starts
+ * directory. Pure scaffolding and the explicit adoption gate: the DLG starts
  * empty, and the first `refino new` writes the first node file. An existing
  * `.refino/` is an error so the caller never mistakes an adopted repository
  * for a fresh one.

@@ -4,7 +4,7 @@
 - 本文档记录本项目已确定的设计决策。包结构、职责划分与技术选型以此为准
 - 允许本文内容与具体实现暂时不一致，不一致时以本文为准
 
-- 概念模型见 [crg.md](./crg.md)
+- 概念模型见 [dlg.md](./dlg.md)
 - 仓库级约束见 [AGENTS.md](../AGENTS.md)
 
 ## 杂项
@@ -16,10 +16,10 @@
 | 包                             | 职责                                                                                                                                                                          | 状态           |
 | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
 | `refino`                       | 纯引擎：常驻图数据模型（拓扑 + 摘要）、图组装与内存变更原语、结构校验、查询、最长路径分层、ID 生成与校验、批量查询结果形状、写入前图级校验原语                                | 已有           |
-| `@refino/storage`              | CRG 文件系统存储格式（目录结构、节点文件格式、解析与序列化、摘要提取规则）的定义与实现；Node 存储适配器（常驻投影 Store、内容分页、加载、创建、更新、删除、原子写、变更监听） | 已有           |
+| `@refino/storage`              | DLG 文件系统存储格式（目录结构、节点文件格式、解析与序列化、摘要提取规则）的定义与实现；Node 存储适配器（常驻投影 Store、内容分页、加载、创建、更新、删除、原子写、变更监听） | 已有           |
 | `@refino/cli`                  | `refino` 引擎的命令行薄封装                                                                                                                                                   | 已有           |
 | `@refino/testkit`              | 各包测试共用的夹具与工具函数                                                                                                                                                  | 已有           |
-| `@refino/ui`                   | CRG 可视化编辑组件库（Vue 3）                                                                                                                                                 | 已有           |
+| `@refino/ui`                   | DLG 可视化编辑组件库（Vue 3）                                                                                                                                                 | 已有           |
 | `@refino/harness`              | 任务界定层（作用域锚点、冻结区与修改空间、授权上下文、冲突检测与越界升级）与 vibe coding 工具插件的公共逻辑（上下文增量生成、模型技能、注入协议）                             | 已有           |
 | `@refino/cordis-plugin-refino` | 以 Cordis 插件形式接入 DeepSeek Harness，bundle 形式分发                                                                                                                      | 已有（未验证） |
 | `@refino/desktop`              | 桌面应用                                                                                                                                                                      | 未来           |
@@ -31,13 +31,13 @@
 
 - 引擎只包含纯图数据模型与逻辑：类型定义、图组装、结构校验、查询、最长路径分层、ID 生成与校验、内存变更原语；
 - 随机数使用 Web Crypto（`globalThis.crypto`），因此运行时要求 Node >= 20（或任何提供 `globalThis.crypto` 的环境）；
-- CRG 在文件系统中的存储格式——目录结构、节点文件格式、Markdown/YAML 解析、序列化、摘要提取规则——不是引擎的职责，由 `@refino/storage` 定义并实现；引擎只消费其产出的内存图；
+- DLG 在文件系统中的存储格式——目录结构、节点文件格式、Markdown/YAML 解析、序列化、摘要提取规则——不是引擎的职责，由 `@refino/storage` 定义并实现；引擎只消费其产出的内存图；
 - 引擎的类型不携带任何存储路径：节点与图上没有文件字段，文件路径由 `@refino/storage` 依“路径即身份”规则从 `(id, type)` 推导；需要路径信息的文件层（CLI、Web 服务）在自身边界内推导；
 - 引擎的内存模型只含常驻字段（见“渐进披露与常驻集”）；节点内容（`body`、`rationale`）不是引擎类型的组成部分，内容缺席不影响任何拓扑操作。
 
 ## 渐进披露与常驻集
 
-CRG 支持按需遍历与渐进式知识披露（crg.md 核心原则 13），图的规模可能达到 10⁶ 节点；无论是命令行、agent 工具调用还是网页端，都需要在理解“这个节点是什么”的前提下才能判断下一步披露哪些信息。引擎的内存模型按“常驻 + 分页”划分。
+DLG 支持按需遍历与渐进式知识披露（dlg.md 核心原则 13），图的规模可能达到 10⁶ 节点；无论是命令行、agent 工具调用还是网页端，都需要在理解“这个节点是什么”的前提下才能判断下一步披露哪些信息。引擎的内存模型按“常驻 + 分页”划分。
 
 **常驻集**——引擎类型的全部内容：
 
@@ -100,7 +100,7 @@ CLI、Web 服务与工具插件一律经 Store 访问 `.refino/`，不再各自�
 
 ## 摘要与内容分离
 
-摘要（summary）是独立于正文的属性，用于遍历时快速判断节点相关性、节约上下文长度（见 crg.md）。摘要在内存中常驻（见“渐进披露与常驻集”）；"摘要如何随节点文件存储与维护"（如独立的 frontmatter 字段、缺省时的回退规则）是 `@refino/storage` 的实现细节，crg.md 不作规定。
+摘要（summary）是独立于正文的属性，用于遍历时快速判断节点相关性、节约上下文长度（见 dlg.md）。摘要在内存中常驻（见“渐进披露与常驻集”）；"摘要如何随节点文件存储与维护"（如独立的 frontmatter 字段、缺省时的回退规则）是 `@refino/storage` 的实现细节，dlg.md 不作规定。
 
 ## 命令行工具
 
@@ -114,7 +114,7 @@ CLI 不校验授权上下文（冻结区与越界概念属插件形态）：插�
 
 任务界定层概念（作用域锚点、冻结区、修改空间、授权上下文）以及冲突检测与越界升级，仅在与 vibe coding 工作流结合时才有意义，不进入引擎：由 `@refino/harness` 与各工具插件实现，引擎为其提供受影响约束集等纯图查询原语。生效探索状态（探索中标记沿依据闭包的派生）同样是纯图查询，由引擎原语提供、读时派生不持久化，harness 消费其结果做注入标注。
 
-引擎的受影响约束集查询（`getDependents`，CLI 命令 `refino dependents <id>`）返回某节点变化后可能受影响的所有约束的传递闭包：CRG 中只有约束携带 `grounds` 边，因此依赖闭包中的节点必然全是约束，无需额外过滤。
+引擎的受影响约束集查询（`getDependents`，CLI 命令 `refino dependents <id>`）返回某节点变化后可能受影响的所有约束的传递闭包：DLG 中只有约束携带 `grounds` 边，因此依赖闭包中的节点必然全是约束，无需额外过滤。
 
 ## harness 与工具插件功能设计
 
@@ -134,9 +134,9 @@ CLI 不校验授权上下文（冻结区与越界概念属插件形态）：插�
 - 待审查徽标：控制台常驻显示当前待审查集。
 - 组件属于 `@refino/ui`（Vue 3），画布以挑选模式复用（罩层、角标、选择回调）；`@refino/harness` 提供状态模型与计算。宿主经注入的数据通道客户端（图查询子集 + 授权操作）与组件通信；`refino web` 不挂载控制台，浏览域不含授权概念。
 
-### 模型侧：CRG 访问工具
+### 模型侧：DLG 访问工具
 
-模型不通过直接操作 `.refino/` 文件访问 CRG，而是使用 harness 暴露的结构化工具：
+模型不通过直接操作 `.refino/` 文件访问 DLG，而是使用 harness 暴露的结构化工具：
 
 - 读取：`list`、`search`（按摘要/ID 关键字分页搜索，语义与 Web `GET /api/search` 对齐；大规模图下 `list` 不可用时的定位手段）、`show`、`grounds`、`ancestors`、`dependents`（受影响约束集）、`siblings`（强兄弟：共享直接依据的约束，供细化时参考同级决策）。
 - 待审查查询：前提变化后处于待审查状态的约束集合（派生态，内存计算）。
@@ -174,7 +174,7 @@ refino 的四项接入需求中，两项只有进程内 Cordis 插件能实现�
 - **初始上下文注入**：dsh 的 MCP 支持只桥接 tools（resources 与 prompts 均不支持），无法在会话初始化时注入锚点上下文；Cordis 插件可监听 `agent/session-start` 并经 `agent.inject()` 注入，注入内容为持久化的 user-role 消息，resume/重放/压缩安全。
 - **增量 delta 注入**：dsh 全线按 append-only、KV-cache 前缀稳定设计，`agent.inject()` 排入下一 pre-step 且不唤醒驱动，与 harness 的“稳定前缀 + delta”注入协议同构；MCP 无推送通道。
 - **读写工具**：`ctx.tools.register()` 原生工具的结构化结果与 `output.render` 投影贴合 `QueryGroup` 部分成功语义；MCP 工具的模型侧命名由宿主强制决定且结果文本化。
-- **Skill 与工具是两种机制**：工具（`ctx.tools.register()`）是模型可调用的结构化函数接口；Skill 是按需加载的指令包，且支持目录形式捆绑资源——dsh 自身的 `skill-filesystem` 即提供 directory bundle（`resourceBase` 指向目录），Anthropic Agent Skills 生态同样以“SKILL.md + 可执行脚本”为标准形态，dsh 的代码执行能力（`code-runtime`）可以运行包内脚本。因此“只发 Skill”并不必然导致模型直接操作 `.refino/` 文件：Skill 可捆绑受守卫的执行逻辑。dsh 仍不以此承载读写，原因是实现唯一性——受守卫的读写只有一份实现（Store 写路径），Skill 捆绑脚本会派生第二份实现漂移；读写走原生工具注册（结构化结果贴合 `QueryGroup` 部分成功语义），`ctx.skills.register()` 注册讲解 CRG 概念与工具选用时机的技能作为补充。
+- **Skill 与工具是两种机制**：工具（`ctx.tools.register()`）是模型可调用的结构化函数接口；Skill 是按需加载的指令包，且支持目录形式捆绑资源——dsh 自身的 `skill-filesystem` 即提供 directory bundle（`resourceBase` 指向目录），Anthropic Agent Skills 生态同样以“SKILL.md + 可执行脚本”为标准形态，dsh 的代码执行能力（`code-runtime`）可以运行包内脚本。因此“只发 Skill”并不必然导致模型直接操作 `.refino/` 文件：Skill 可捆绑受守卫的执行逻辑。dsh 仍不以此承载读写，原因是实现唯一性——受守卫的读写只有一份实现（Store 写路径），Skill 捆绑脚本会派生第二份实现漂移；读写走原生工具注册（结构化结果贴合 `QueryGroup` 部分成功语义），`ctx.skills.register()` 注册讲解 DLG 概念与工具选用时机的技能作为补充。
 
 对 dsh 的依赖保持薄封装：运行时仅 `@deepseek-ai/dsh-tools`（`defineTool`）与 `@deepseek-ai/dsh-llm`（`createUserMessage`，注入消息须经官方工厂生成稳定 id）；`@deepseek-ai/cordis`、`@deepseek-ai/dsh-agent`（`Agent` 接口与 `agent/*` 事件声明）、`@deepseek-ai/dsh-session`（会话头类型）仅作类型依赖。
 
@@ -183,7 +183,7 @@ refino 的四项接入需求中，两项只有进程内 Cordis 插件能实现�
 - **分发**：npm 包声明 `dsh.bundle` manifest 指向包内 `cordis.patch.yml`，用户经 `dsh plugin --profile <name> add <包>` 安装；git 直装需自包含 `prepare` 构建脚本，发 npm 或 tarball 则免构建许可。
 - **默认授权上下文**：默认值仅在未显式签发时使用——冻结区默认取全部根约束连同其祖先，前提全部注入；锚点按注入协议自动推导（不超过 1024 节点时取全部节点，超预算时注入极简引导、以搜索定位）。签发后的授权上下文是**会话状态**：只存在于插件进程内存，不落任何文件；resume 后回落默认上下文或编排者凭据，并在恢复时注入一行当前授权状态，防止模型持有过期的授权认知。外部变更不再重置为默认值，仅做收敛（签发列表中被删除的节点随之移除，其余保持）。编排者凭据（`REFINO_AUTHORIZATION`）生效时插件拒绝一切签发，任务内授权不可自我扩张，改冻结区须回到签发者。
 - **会话初始化**：监听 `agent/session-start`，取会话 cwd 定位 `.refino/`，经 `@refino/storage` 的 Store 打开图，按解析出的授权上下文（编排者凭据 → 默认值）构造 `HarnessSession`，按两级策略渲染并以 `<system-reminder>` 框架注入（锚点与前提，冻结锚点标注 `[冻结]`、生效探索中锚点标注 `[探索]`，随附协议声明“标注 `[冻结]` 者只读，未列出者属修改空间；标注 `[探索]` 者为试行承诺，可能被替换或撤销”）。开局注入随附授权状态一行（来源与 signedAt），编排者凭据场景据此核对签发归属。图超自动锚点预算时不静默：注入极简引导（图已连接、节点数、根约束摘要、以搜索定位），模型按需展开工作，需要调整冻结区时经签署工具提议。resume 不重放基线，仅注入一行当前授权状态。
-- **工具**：`refino_list` / `refino_search`（按摘要/ID 分页搜索，语义与 Web `GET /api/search` 对齐，大规模图下的定位手段）/ `refino_show` / `refino_grounds` / `refino_ancestors` / `refino_dependents` / `refino_siblings`（强兄弟，供细化时参考同级决策）/ `refino_pending_review` 与写入工具；`refino_update_node` 采用部分更新语义（与 CLI `update` 对齐：省略即不变，传空串即清除），grounds 仍整体替换并经校验。`refino_context` 重述生效授权（默认或已签发、frontier、冻结计数、注入策略、编排凭据是否生效）。`refino_request_authorization` 承载对话签发：模型起草冻结区划分（frontier 整体替换）并在对话中呈现草案，工具执行中经 dsh 原生审批服务（`ctx.approval.request()`）请求人的明确批准，批准后签署并在会话内即时生效、以 delta 注入新冻结区，不落任何文件；编排者凭据生效时拒绝签发。写入内部走 Store 的写入方法（grounds 校验、原子写与投影更新内建）+ harness `checkModification`，越界（目标落在冻结区）返回结构化升级报告（正常工具结果，非报错）。修改空间沿细化方向向下封闭（见 crg.md 2.4），写入无需下游波及冻结区的检查。
+- **工具**：`refino_list` / `refino_search`（按摘要/ID 分页搜索，语义与 Web `GET /api/search` 对齐，大规模图下的定位手段）/ `refino_show` / `refino_grounds` / `refino_ancestors` / `refino_dependents` / `refino_siblings`（强兄弟，供细化时参考同级决策）/ `refino_pending_review` 与写入工具；`refino_update_node` 采用部分更新语义（与 CLI `update` 对齐：省略即不变，传空串即清除），grounds 仍整体替换并经校验。`refino_context` 重述生效授权（默认或已签发、frontier、冻结计数、注入策略、编排凭据是否生效）。`refino_request_authorization` 承载对话签发：模型起草冻结区划分（frontier 整体替换）并在对话中呈现草案，工具执行中经 dsh 原生审批服务（`ctx.approval.request()`）请求人的明确批准，批准后签署并在会话内即时生效、以 delta 注入新冻结区，不落任何文件；编排者凭据生效时拒绝签发。写入内部走 Store 的写入方法（grounds 校验、原子写与投影更新内建）+ harness `checkModification`，越界（目标落在冻结区）返回结构化升级报告（正常工具结果，非报错）。修改空间沿细化方向向下封闭（见 dlg.md 2.4），写入无需下游波及冻结区的检查。
 - **增量同步**：经 Store 的变更事件（`onChange`）获得受影响节点与待审查原料，产出待审查集与 delta 事件后注入；无监听能力时降级为 touch 驱动（参照 dsh `agent-instructions` 的 `tools/result` 模式）。delta 注入降噪：合并多批事件并设最小注入间隔。更新通知为会话已知集的字段级差分（见“增量更新与缓存友好”）：在降噪窗口发射时刻对当前图计算，仅覆盖已知集内节点；待审查集仍按变更源全量派生。渲染文本是变更集合的纯函数，与上一次注入相同时（如仅 mtime 变化的重写再次触发事件）不注入。
 - **冻结区签发（对话签发）**：主交互面为签署工具 `refino_request_authorization`（见“工具”）——模型起草冻结区划分并在对话中呈现草案，工具执行中经 dsh 原生审批服务（`ctx.approval.request()`，`@deepseek-ai/dsh-user-approval`）请求人的明确批准：fail-closed，仅显式允许生效，无应答者或 `'never'` 策略下一律拒绝并维持当前授权。批准即签署：会话内即时生效、以 delta 注入新冻结区、返回生效结果——不落任何文件，会话内签发不跨 resume。授权控制台组件（`@refino/ui`，见“用户侧：授权上下文的签发”）是后继增强，经 dsh Web Client 的 slots/Conversation 节点扩展点挂载后作为人在图上直接圈选的界面。不设用户命令面：信息类需求由模型工具与对话承担，签发由签署工具承担。升级报告在宿主支持结构化渲染时呈现为升级卡片（阻挡约束、原因、受影响下游），无宿主 UI 时降级为文本：模型向用户报告升级内容与建议，用户裁决为调整冻结区时经签署工具提议再签发，以 delta 续行任务。
 - **版本策略**：dsh 处于 developer preview，`@deepseek-ai/*` 依赖锁精确版本，CI 对 dsh 升级跑插件冒烟。
@@ -194,7 +194,7 @@ refino 的四项接入需求中，两项只有进程内 Cordis 插件能实现�
 
 #### 不变量
 
-refino 的全部产出 = CRG 节点（版本化）+ `refino init` 创建的 `.refino/` 骨架；除此之外，插件形态不产生任何状态文件，签发状态与已知集随会话进程生灭。`.refino/` 目录名专属仓库内 CRG 存储，不存在仓库外的用户级 refino 目录。refino 不探测任何 harness 的配置、技能或插件目录。
+refino 的全部产出 = DLG 节点（版本化）+ `refino init` 创建的 `.refino/` 骨架；除此之外，插件形态不产生任何状态文件，签发状态与已知集随会话进程生灭。`.refino/` 目录名专属仓库内 DLG 存储，不存在仓库外的用户级 refino 目录。refino 不探测任何 harness 的配置、技能或插件目录。
 
 ## 命名约定
 
@@ -210,7 +210,7 @@ vibe coding 工具插件的包名遵循宿主生态自身的插件命名约定�
 
 ## Web 界面（`refino web`）
 
-`refino web` 是面向人类的 CRG 浏览、编辑与变更审阅工具：通过 CLI 启动本地 HTTP 服务，在浏览器中访问。它只提供对 CRG 本身的访问，与 agent 任务执行无关——作用域锚点选择、冻结区签发（授权控制台）等任务界定功能属于工具插件宿主的交互组件，不在本界面范围内。
+`refino web` 是面向人类的 DLG 浏览、编辑与变更审阅工具：通过 CLI 启动本地 HTTP 服务，在浏览器中访问。它只提供对 DLG 本身的访问，与 agent 任务执行无关——作用域锚点选择、冻结区签发（授权控制台）等任务界定功能属于工具插件宿主的交互组件，不在本界面范围内。
 
 跨包的设计决策与契约如下；界面结构、页面与交互细节见 `@refino/ui` 的 [DESIGN.md](../packages/ui/DESIGN.md)。
 
@@ -245,7 +245,7 @@ Web 层只保留 HTTP 语义：
 
 #### 画布按需查询
 
-界面中央的 CRG 交互式可视化区域（下称"画布"）不默认全量加载：一个项目可能包含 10⁶ 量级的约束节点，全量拉取不可行。画布以选择驱动按需展开，冷启动即以全部根约束为锚点、不限下游代数地展开至工作集上限，作为画布初始内容；且工作集为**积累式**：选中节点变化时其展开块并入画布，已有内容不清空，仅当总量达到工作集上限时按最旧访问淘汰未选中节点。工作集与渲染预算等细节见 `@refino/ui` 的 DESIGN.md；跨包的查询契约如下，均沿用批量、部分成功语义，返回形状为 `QueryGroup<T>`：
+界面中央的 DLG 交互式可视化区域（下称"画布"）不默认全量加载：一个项目可能包含 10⁶ 量级的约束节点，全量拉取不可行。画布以选择驱动按需展开，冷启动即以全部根约束为锚点、不限下游代数地展开至工作集上限，作为画布初始内容；且工作集为**积累式**：选中节点变化时其展开块并入画布，已有内容不清空，仅当总量达到工作集上限时按最旧访问淘汰未选中节点。工作集与渲染预算等细节见 `@refino/ui` 的 DESIGN.md；跨包的查询契约如下，均沿用批量、部分成功语义，返回形状为 `QueryGroup<T>`：
 
 - `POST /api/query/expand`：`{ ids, descendantDepth?, showSiblings?, siblingLimit?, limit? }` → 各锚点的展开块（画布工作集的增长单元）：锚点上游沿 grounds 到根全量闭合、下游 `descendantDepth` 代约束（省略时不限代数，冷启动种子所用）、强兄弟（共享 ≥1 个直接 grounds 的约束，不含自身与前提，经共享依据计距离 2），以及块内全部约束的上游闭合（保证可见边的两端都在块内）。近者优先返回（`depth` 为相对锚点的近似跳距，仅用于截断排序），`limit` 同时充当单块截断上限与遍历扩展计数上限，返回 `truncated` 标志。
 - `POST /api/query/neighbors`：`{ ids, ancestorDepth, descendantDepth, limit? }` → 各节点的有界邻域（含相对深度 `depth`），按近者优先截断，返回 `truncated` 标志。邻域含锚点自身（`depth` 为 0）；邻域内祖先必含约束与前提；后代只含约束。供详情栏等轻量下游查询使用。

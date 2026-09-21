@@ -2,7 +2,7 @@ import type { Graph, NodeType } from "refino";
 
 /**
  * Keyset-paginated node search over the in-memory graph (docs/design.md,
- * "模型侧：CRG 访问工具" `search`): id prefixes match case-insensitively
+ * "模型侧：DLG 访问工具" `search`): id prefixes match case-insensitively
  * (ids are Crockford base32), summary substrings case-insensitively. Pure
  * projection over the light fields, so the same shape serves any tool host;
  * the `refino web` server keeps its own index-backed variant with identical

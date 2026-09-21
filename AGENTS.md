@@ -4,7 +4,7 @@
 
 最高约束由用户（人类开发者）亲自编写，Agent 不得擅动。
 
-- 本仓库用于实现 [CRG](docs/crg.md) 中的概念。
+- 本仓库用于实现 [DLG](docs/dlg.md) 中的概念。
 - 本仓库不用 refino 管理自身的决策、项目约束或前提。refino 尚不成熟，本仓库仅采用传统、朴素的 `AGENTS.md` 作为 Agent 指南；
 - 本项目具体的设计方案位于 docs/design.md（跨包设计）与各包的 DESIGN.md（包内设计）。
 - 仓库中的文档代表目标，可超前于代码实现，不可滞后
@@ -41,7 +41,7 @@
 采用 Conventional Commits，格式为 `type(scope): subject`，scope 可省略。
 
 - type 取值：`feat`、`fix`、`docs`、`refactor`、`chore`、`build`、`ci`、`test`、`style`
-- scope 取值：包名（`ui`、`cli`、`storage`、`refino`、`harness`、`cordis-plugin-refino`、`testkit`）或流程/文档名（`design`、`crg`、`agents`、`release`、`npm`）；多包联动用逗号并列，如 `refactor(harness,cli)!:`
+- scope 取值：包名（`ui`、`cli`、`storage`、`refino`、`harness`、`cordis-plugin-refino`、`testkit`）或流程/文档名（`design`、`dlg`、`agents`、`release`、`npm`）；多包联动用逗号并列，如 `refactor(harness,cli)!:`
 - 破坏性变更：在 `:` 前加 `!`，并在 body 末尾附 `BREAKING CHANGE:` 脚注说明破坏内容
 - subject 用英语，小写开头（专有名词、包名除外），祈使或一般现在时，结尾不加句号；多个要点可用分号或破折号串联
 - body 约 72 字符折行，先动机后行为，可用 `-` 列表

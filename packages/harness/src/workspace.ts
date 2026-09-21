@@ -13,7 +13,7 @@ import { effectiveExploring } from "refino";
 import type { Graph, RefinoNode } from "refino";
 
 /**
- * One agent's CRG state over a `.refino/` directory: the storage Store's
+ * One agent's DLG state over a `.refino/` directory: the storage Store's
  * resident projection under the current authorization context, plus
  * external-change syncing (docs/design.md, 存储层 Store / dsh 插件落地形态).
  * The context starts at the defaults; once a host signs an explicit one
@@ -39,7 +39,7 @@ export interface SyncOutcome {
   changed: string[];
   /** Ids of externally deleted nodes. */
   deleted: string[];
-  /** Direct dependents of the changed nodes, pending review (docs/crg.md 1.6). */
+  /** Direct dependents of the changed nodes, pending review (docs/dlg.md 1.6). */
   pending: RefinoNode[];
 }
 

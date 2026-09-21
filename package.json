@@ -1,7 +1,7 @@
 {
   "name": "refino-monorepo",
   "private": true,
-  "description": "Parse, validate and query Constraint Refinement Graphs (CRG).",
+  "description": "Parse, validate and query Decision Lineage Graphs (DLG).",
   "type": "module",
   "repository": {
     "type": "git",

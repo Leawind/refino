@@ -50,7 +50,7 @@ export interface StoreChange {
   /**
    * Direct dependents (one hop) of the changed nodes in the new graph plus
    * the removed nodes' pre-mutation dependents — the pending-review raw
-   * material (docs/crg.md 1.6). Sorted, deduplicated.
+   * material (docs/dlg.md 1.6). Sorted, deduplicated.
    */
   affected: string[];
   /** Write entry that produced an incremental event; absent on snapshots and reloads. */

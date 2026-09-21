@@ -26,8 +26,8 @@ import type { RefinoWorkspace } from "@refino/harness/host";
 import { requireWorkspace } from "./internal.js";
 
 /**
- * Read-only CRG access tools as dsh native tools: schema declarations over
- * the shared execution cores (docs/design.md, 模型侧：CRG 访问工具). Every
+ * Read-only DLG access tools as dsh native tools: schema declarations over
+ * the shared execution cores (docs/design.md, 模型侧：DLG 访问工具). Every
  * query is batch with partial-success semantics.
  */
 

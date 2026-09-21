@@ -2,7 +2,7 @@
   "name": "@refino/harness",
   "version": "0.0.2",
   "private": false,
-  "description": "Task delimitation layer and shared agent logic for Constraint Refinement Graphs (CRG): authorization contexts, frozen zones, boundary escalation, context rendering and incremental updates.",
+  "description": "Task delimitation layer and shared agent logic for Decision Lineage Graphs (DLG): authorization contexts, frozen zones, boundary escalation, context rendering and incremental updates.",
   "type": "module",
   "repository": {
     "type": "git",

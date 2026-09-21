@@ -29,7 +29,7 @@ import {
 import type { RefinoWorkspace } from "./workspace.js";
 
 /**
- * Read-only CRG tool cores (docs/design.md, 模型侧：CRG 访问工具): batch,
+ * Read-only DLG tool cores (docs/design.md, 模型侧：DLG 访问工具): batch,
  * partial-success semantics over one workspace. Host adapters (dsh native
  * tools, MCP servers) declare their schemas and delegate here, so query
  * semantics stay single-sourced across integration forms. Every core also

@@ -159,7 +159,7 @@ describe("updateText", () => {
       ],
       [graph.nodes.get("C1CHILD")!],
     );
-    expect(text).toContain("CRG 上下文更新");
+    expect(text).toContain("DLG 上下文更新");
     expect(text).toContain("- P1PREMISE 已删除（原摘要：事实一）");
     expect(text).toContain("- C1CHILD 摘要变更：旧摘要 → 新摘要");
     expect(text).toContain("- C2GRAND 依据变更：新增 R2NEW1；移除 R1ROOT");

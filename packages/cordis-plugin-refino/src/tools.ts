@@ -5,7 +5,7 @@ import { createWriteTools } from "./write-tools.js";
 import type { RefinoWorkspace } from "@refino/harness/host";
 
 /**
- * The model-facing CRG toolset for one agent: read-only queries plus the
+ * The model-facing DLG toolset for one agent: read-only queries plus the
  * validated write path. All tools resolve the agent's workspace lazily so
  * registration order never matters and disposal is a no-op lookup. Signing
  * tools join when the host provides the approval deps; hosts without an

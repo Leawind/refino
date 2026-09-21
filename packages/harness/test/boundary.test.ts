@@ -191,7 +191,7 @@ describe("modification-space closure", () => {
   // The frozen zone closes upwards along grounds, so the modification space
   // closes downwards along dependents: no target that passes checkModification
   // can have a frozen transitive dependent. This is why there is no
-  // "frozen dependents" write check (docs/crg.md 2.4).
+  // "frozen dependents" write check (docs/dlg.md 2.4).
   it("keeps every transitive dependent of a modifiable constraint modifiable", () => {
     const graph = graphOf();
     for (const frozen of [[E5], [B2], [A1, Z9], []] as const) {

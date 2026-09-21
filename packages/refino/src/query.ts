@@ -73,7 +73,7 @@ export function getDependents(
 }
 
 /**
- * Effective exploring status of a node (docs/crg.md 1.1): a constraint is
+ * Effective exploring status of a node (docs/dlg.md 1.1): a constraint is
  * effectively exploring when it carries the trial mark itself or any
  * (transitive) ground constraint does; premises are never exploring.
  * Derived at read time along the grounds closure, never stored per node.

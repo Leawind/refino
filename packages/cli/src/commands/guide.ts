@@ -19,7 +19,7 @@ import type { RunFn } from "../shared.js";
 export function guideText(): string {
   return `# refino 使用指南
 
-refino 是管理约束细化图（Constraint Refinement Graph, CRG）的命令行工具。CRG 是一种有向无环图，记录会限制后续实现选择空间的项目决策、支撑这些决策的事实，以及决策之间、决策与事实间的关系。
+refino 是管理决策谱系图（Decision Lineage Graph, DLG）的命令行工具。DLG 是一种有向无环图，记录会限制后续实现选择空间的项目决策、支撑这些决策的事实，以及决策之间、决策与事实间的关系。
 
 ## 概念
 

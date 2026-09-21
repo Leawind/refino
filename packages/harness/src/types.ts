@@ -1,12 +1,12 @@
 import type { Graph, NodeWithDepth, RefinoNode } from "refino";
 
 /**
- * Authorization context of a task (docs/crg.md, task delimitation layer).
+ * Authorization context of a task (docs/dlg.md, task delimitation layer).
  * Validation is based solely on this context, never on actor identity.
  */
 export interface AuthorizationContext {
   /**
-   * Scope anchor node ids: the CRG nodes loaded when the task starts. They
+   * Scope anchor node ids: the DLG nodes loaded when the task starts. They
    * determine the initial decision context, not what may be modified.
    * Duplicates are rejected by `validateContext`.
    */
@@ -14,7 +14,7 @@ export interface AuthorizationContext {
   /**
    * Frozen constraint ids naming the frozen zone: the zone is these
    * constraints plus all their ancestor nodes, constraints and premises
-   * alike (docs/crg.md 2.4). Everything outside the zone is the modification
+   * alike (docs/dlg.md 2.4). Everything outside the zone is the modification
    * space; new nodes created in the task belong to it. Premises are never
    * named directly — they join the zone as ancestors — and duplicates are
    * rejected by `validateContext`.
@@ -40,7 +40,7 @@ export interface ModificationCheck {
 
 /**
  * Structured escalation report for a blocked modification
- * (docs/crg.md, boundary escalation). Suggested changes and in-boundary
+ * (docs/dlg.md, boundary escalation). Suggested changes and in-boundary
  * alternatives are the caller's responsibility to fill in.
  */
 export interface EscalationReport {

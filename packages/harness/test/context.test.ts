@@ -116,7 +116,7 @@ describe("estimateContext", () => {
   });
 
   it("counts the premise-only baseline for an empty context", () => {
-    // Premises are injected even without anchors or a frozen zone (crg.md 2.2).
+    // Premises are injected even without anchors or a frozen zone (dlg.md 2.2).
     const empty = estimateContext(graphOf(), { anchors: [], frozen: [] });
     expect(empty.blocks).toBe(1);
   });

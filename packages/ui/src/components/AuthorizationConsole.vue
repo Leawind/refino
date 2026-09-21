@@ -96,7 +96,7 @@ const nodeOptions = computed(() =>
 
 const frozenOptions = computed(() => {
   // Premises are never frozen directly — they join the zone as ancestors
-  // (docs/crg.md 2.4) — so only constraints are offered.
+  // (docs/dlg.md 2.4) — so only constraints are offered.
   const options = new Map(
     nodeOptions.value
       .filter((option) => graph.value?.nodes.get(option.value)?.type === "constraint")

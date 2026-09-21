@@ -57,7 +57,7 @@ export function initialContextText(
 ): string {
   return frame(
     [
-      "以下是与当前任务相关的 CRG（约束细化图）上下文。约束是项目已作出的、会限制后续实现选择空间的决策；前提是项目运作依赖的客观事实。",
+      "以下是与当前任务相关的 DLG（决策谱系图）上下文。约束是项目已作出的、会限制后续实现选择空间的决策；前提是项目运作依赖的客观事实。",
       renderContext(graph, context),
       ownershipLine(origin),
       `以上为摘要级内容，正文与理由未包含。完整内容与上下游经 ${tools.show} 等查询工具按需获取；调整冻结区经 ${tools.requestAuthorization}（须经用户批准）。`,
@@ -111,7 +111,7 @@ export function orientationRoots(graph: Graph): RefinoNode[] {
 export function orientationText(graph: Graph, tools: ToolRefs): string {
   const roots = orientationRoots(graph);
   const lines = [
-    `已连接 CRG（约束细化图，共 ${graph.nodes.size} 个节点）。图超过自动锚点预算，本次未注入全图摘要。`,
+    `已连接 DLG（决策谱系图，共 ${graph.nodes.size} 个节点）。图超过自动锚点预算，本次未注入全图摘要。`,
   ];
   if (roots.length > 0) {
     lines.push(
@@ -157,7 +157,7 @@ export function updateText(
     );
   }
   if (lines.length === 0) return undefined;
-  return frame(["CRG 上下文更新：", ...lines].join("\n"));
+  return frame(["DLG 上下文更新：", ...lines].join("\n"));
 }
 
 const CHANGE_ORDER = (a: KnownChange, b: KnownChange): number =>

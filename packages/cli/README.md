@@ -1,11 +1,11 @@
 # @refino/cli
 
-`refino` 引擎的命令行接口：对 Constraint Refinement Graph 的查询、校验与节点读写、本地 Web 界面服务（`refino web`），以及面向 agent 的自文档（`refino guide`）。
+`refino` 引擎的命令行接口：对 Decision Lineage Graph 的查询、校验与节点读写、本地 Web 界面服务（`refino web`），以及面向 agent 的自文档（`refino guide`）。
 
 ```txt
 Usage: refino [options] [command]
 
-Parse, validate and query a Constraint Refinement Graph stored in .refino/.
+Parse, validate and query a Decision Lineage Graph stored in .refino/.
 
 Options:
   -V, --version              output the version number

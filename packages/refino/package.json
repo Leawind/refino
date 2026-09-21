@@ -2,7 +2,7 @@
   "name": "refino",
   "version": "0.0.2",
   "private": false,
-  "description": "Pure engine for parsing, validating, querying and serializing Constraint Refinement Graphs (CRG).",
+  "description": "Pure engine for parsing, validating, querying and serializing Decision Lineage Graphs (DLG).",
   "type": "module",
   "repository": {
     "type": "git",

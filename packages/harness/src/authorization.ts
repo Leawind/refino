@@ -140,7 +140,7 @@ export interface ApplyPreview {
   /**
    * Current root constraints the draft leaves outside the frozen zone.
    * Unfreezing roots lifts the project's highest-level decisions into the
-   * modification space (docs/crg.md 1.3) — callers must warn loudly.
+   * modification space (docs/dlg.md 1.3) — callers must warn loudly.
    */
   unfrozenRoots: string[];
   /** Frontier candidates dropped because another candidate dominates them. */

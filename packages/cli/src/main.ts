@@ -40,7 +40,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
   const program = new Command();
   program
     .name("refino")
-    .description("Parse, validate and query a Constraint Refinement Graph stored in .refino/.")
+    .description("Parse, validate and query a Decision Lineage Graph stored in .refino/.")
     .version(readVersion())
     .option("--root <dir>", "project root directory containing .refino/", process.cwd())
     .configureOutput({

@@ -9,7 +9,7 @@ import type { DefaultContext } from "./types.js";
  * graph has at most `maxAutoNodes` nodes — otherwise the context starts
  * without anchors, `complete` is false, and the host must obtain explicit
  * anchors before the initial injection. Premises are not listed here; they
- * are injected from the graph as a whole (docs/crg.md 2.2).
+ * are injected from the graph as a whole (docs/dlg.md 2.2).
  */
 export function defaultAuthorizationContext(graph: Graph, maxAutoNodes = 1024): DefaultContext {
   const complete = graph.nodes.size <= maxAutoNodes;

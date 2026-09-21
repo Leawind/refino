@@ -14,7 +14,7 @@ export interface NodeLite {
   type: string;
   summary: string;
   /**
-   * Constraints only: the derived effective exploring status (docs/crg.md
+   * Constraints only: the derived effective exploring status (docs/dlg.md
    * 1.1) — set to true when the node carries the trial mark or any ground
    * constraint does. Absent for premises and settled constraints.
    */
@@ -45,7 +45,7 @@ export interface IssueLite {
 }
 
 /**
- * Structured escalation report for a blocked write (docs/crg.md 3.4): the
+ * Structured escalation report for a blocked write (docs/dlg.md 3.4): the
  * target itself sits in the frozen zone. The modification space closes
  * downwards along dependents, so no other escalation reason exists. The
  * model is expected to stop modifying, report to the user, and propose

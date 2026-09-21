@@ -1,8 +1,8 @@
 import type { ToolRefs } from "./types.js";
 
 /**
- * Shared model-facing descriptions for the CRG tools (docs/design.md, 模型侧：
- * CRG 访问工具). Host adapters assemble their own tool schemas (each host has
+ * Shared model-facing descriptions for the DLG tools (docs/design.md, 模型侧：
+ * DLG 访问工具). Host adapters assemble their own tool schemas (each host has
  * its schema DSL) but cite these texts so the semantics stay single-sourced.
  * Texts that name another tool are parameterized by the host's tool-name refs.
  */
@@ -26,8 +26,8 @@ export interface ToolText {
 
 export function createToolText(tools: ToolRefs): ToolText {
   return {
-    list: "列出 CRG 中的节点（ID、类型、摘要）。图很大时优先用上下游查询定向获取，不要依赖全量列表。",
-    search: `按关键字分页搜索 CRG 节点（匹配 ID 前缀与摘要子串）。大规模图中定位节点的首选方式；图很小或已给出确切 ID 时可直接用 ${tools.show}。`,
+    list: "列出 DLG 中的节点（ID、类型、摘要）。图很大时优先用上下游查询定向获取，不要依赖全量列表。",
+    search: `按关键字分页搜索 DLG 节点（匹配 ID 前缀与摘要子串）。大规模图中定位节点的首选方式；图很小或已给出确切 ID 时可直接用 ${tools.show}。`,
     show: "按 ID 批量读取节点的完整内容（正文、理由、依据、确认时间）。部分成功：不存在的 ID 以错误条目返回。",
     grounds: "按 ID 批量读取节点的直接依据（作为其依据的上游约束与前提）。部分成功。",
     ancestors:

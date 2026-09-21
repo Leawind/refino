@@ -46,7 +46,7 @@ function duplicates(ids: readonly string[]): string[] {
 /**
  * The frozen zone: the constraints named by the context closed upwards along
  * `grounds` — a frozen node's ancestors join the zone, constraints and
- * premises alike (docs/crg.md 2.4). Sorted by id.
+ * premises alike (docs/dlg.md 2.4). Sorted by id.
  */
 export function frozenZone(graph: Graph, context: AuthorizationContext): RefinoNode[] {
   validateContext(graph, context);
@@ -58,7 +58,7 @@ export function frozenZone(graph: Graph, context: AuthorizationContext): RefinoN
  * The most downstream constraints of the frozen zone: zone nodes none of
  * whose direct dependents are in the zone. The zone is their upward closure,
  * so they are its minimal representation — user-facing surfaces show and
- * unfreeze the zone through them (docs/crg.md 2.4). Sorted by id.
+ * unfreeze the zone through them (docs/dlg.md 2.4). Sorted by id.
  */
 export function frozenFrontier(graph: Graph, context: AuthorizationContext): RefinoNode[] {
   const zone = new Set(frozenZone(graph, context).map((n) => n.id));

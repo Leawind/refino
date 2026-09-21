@@ -1,5 +1,5 @@
 /**
- * Reference document: docs/crg.md (Constraint Refinement Graph).
+ * Reference document: docs/dlg.md (Decision Lineage Graph).
  *
  * A graph holds two kinds of nodes:
  * - premise nodes: objective project facts, never have `grounds`;

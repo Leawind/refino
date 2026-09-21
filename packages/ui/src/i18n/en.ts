@@ -1,7 +1,7 @@
 export default {
   app: {
     title: "refino",
-    subtitle: "Constraint Refinement Graph",
+    subtitle: "Decision Lineage Graph",
     refresh: "Refresh",
     settings: "Settings",
     theme: "Theme",

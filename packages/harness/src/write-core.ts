@@ -19,12 +19,12 @@ import { depthLite, issueLite, lite, type WriteResult } from "./shapes.js";
 import type { RefinoWorkspace } from "./workspace.js";
 
 /**
- * CRG write tool cores (docs/design.md, dsh 插件落地形态). Every write walks
+ * DLG write tool cores (docs/design.md, dsh 插件落地形态). Every write walks
  * the same chain before persisting: engine `checkGroundsChange` (create
  * validates against a prospective graph copy) and harness `checkModification`
  * — a frozen-zone target returns a structured escalation report as a normal
  * tool result, never an error. The modification space closes downwards along
- * dependents (docs/crg.md 2.4), so no downstream-freeze check exists. The
+ * dependents (docs/dlg.md 2.4), so no downstream-freeze check exists. The
  * target's own sync runs after persisting; its pending-review set rides the
  * result instead of being injected. Successful writes absorb into the
  * session known set (docs/design.md, 会话已知集): the author knows what it

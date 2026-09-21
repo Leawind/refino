@@ -9,12 +9,12 @@ import type { GlobalOptions, RunFn } from "./shared.js";
 /**
  * Hidden development tooling (`refino dev`), registered only when
  * `REFINO_DEV=true` so that production consumers never see the command at
- * all. The generator produces structurally valid CRG fixtures for manual
+ * all. The generator produces structurally valid DLG fixtures for manual
  * testing, demos and benchmarks; writes go through the store, so a generator
  * bug surfaces as a rejected write instead of corrupt data.
  */
 
-export interface GenerateCrgParams {
+export interface GenerateDlgParams {
   /** Total number of nodes (premises + constraints). */
   nodes: number;
   /** Fraction of premises among all nodes, 0-1. */
@@ -55,11 +55,11 @@ export interface GeneratedNode {
 }
 
 /**
- * Build a random but structurally valid CRG as a topologically ordered node
+ * Build a random but structurally valid DLG as a topologically ordered node
  * list: premises first, then root constraints, then constraints grounding on
  * earlier ones (acyclic by construction). Deterministic given `rand`.
  */
-export function generateCrg(params: GenerateCrgParams, rand: () => number): GeneratedNode[] {
+export function generateDlg(params: GenerateDlgParams, rand: () => number): GeneratedNode[] {
   const premiseCount = Math.round(params.nodes * params.premiseRatio);
   const constraintCount = params.nodes - premiseCount;
   const rootCount = params.roots ?? 1;
@@ -187,7 +187,7 @@ export function createDevCommand(io: CliIo, run: RunFn): Command {
 
   dev
     .command("generate")
-    .description("programmatically generate a CRG fixture under .refino/")
+    .description("programmatically generate a DLG fixture under .refino/")
     .requiredOption("--nodes <n>", "total number of nodes to generate", intAtLeast(1))
     .option(
       "--premise-ratio <r>",
@@ -253,7 +253,7 @@ export function createDevCommand(io: CliIo, run: RunFn): Command {
             );
             return 1;
           }
-          const generated = generateCrg(
+          const generated = generateDlg(
             {
               nodes: o.nodes,
               premiseRatio: o.premiseRatio,

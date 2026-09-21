@@ -7,13 +7,13 @@ import type { AuthorizationContext, ContextBlock, DeltaEvent } from "./types.js"
 export const ZONE_PROTOCOL =
   "标注 [冻结] 者只读；未标注者及未列出者均属修改空间，可以修改或继续细化。";
 
-/** Complement statement for the exploring annotation (docs/crg.md 1.1, 3.1). */
+/** Complement statement for the exploring annotation (docs/dlg.md 1.1, 3.1). */
 export const EXPLORING_PROTOCOL =
   "标注 [探索] 者为试行承诺，可能被替换或撤销；未标注者为定案决策；试行期间的可复用知识应沉淀为前提。";
 
 /**
  * Render the authorization context as stable, identifiable blocks: one per
- * anchor and per premise (premises are injected by default, docs/crg.md 2.2).
+ * anchor and per premise (premises are injected by default, docs/dlg.md 2.2).
  * The frozen zone is not enumerated — nodes inside it carry a `[冻结]` mark
  * on their line, and the protocol statement (ZONE_PROTOCOL) in the rendered
  * text tells the model that unmarked and unlisted nodes are modifiable.

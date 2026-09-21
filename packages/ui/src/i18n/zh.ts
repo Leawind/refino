@@ -1,7 +1,7 @@
 export default {
   app: {
     title: "refino",
-    subtitle: "约束细化图",
+    subtitle: "决策谱系图",
     refresh: "刷新",
     settings: "设置",
     theme: "主题",

@@ -21,9 +21,9 @@ import { createTools } from "./tools.js";
 /**
  * refino plugin for the DeepSeek Harness (docs/design.md, dsh 插件落地形态):
  * at session start it locates the `.refino` directory for the session cwd,
- * loads the CRG under the effective authorization context — an orchestrator
+ * loads the DLG under the effective authorization context — an orchestrator
  * credential when the environment provides one, the derived defaults
- * otherwise — registers the model-facing CRG tools on the agent scope, and
+ * otherwise — registers the model-facing DLG tools on the agent scope, and
  * injects the initial task context as a durable plugin-sourced message.
  * Graphs above the auto-anchor budget get a minimal orientation instead of
  * silence. External `.refino` changes are watched and delivered as coalesced
