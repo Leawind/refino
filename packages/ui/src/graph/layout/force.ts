@@ -1,10 +1,7 @@
 import {
   forceCollide,
-  forceLink,
   forceManyBody,
   forceSimulation,
-  forceX,
-  forceY,
   type Simulation,
   type SimulationLinkDatum,
   type SimulationNodeDatum,
@@ -23,30 +20,40 @@ import type {
 /**
  * Force-directed layout (ui DESIGN.md, "布局"), powered by d3-force.
  *
- * First entry relaxes from the layered layout; later sessions carry the
- * previous session's coordinates over (options.seed) and only reheat
- * gently, so working-set changes nudge the layout instead of re-swimming
- * it. Nodes unknown to the seed join near the centroid of their grounds.
- * A d3 simulation relaxes the graph: springs on grounds edges, Barnes-Hut
- * pair repulsion, circle packing against card overlap, and a main-axis
- * pull that places every node at its grounds-depth layer along the display
- * direction — the upstream→downstream flow reads as position. The main
- * axis is owned outright by the layer targets: spring lengths scale with
- * the edge's layer span (a merge edge reaching three layers down pulls
- * toward three pitches, not one, so it never drags a deep node back
- * upstream), and repulsion and packing settle the cross axis and spacing
- * around them. d3's alpha schedule scales every force and decays it
- * exponentially, so motion shrinks smoothly to a stop instead of
- * rattling at full strength until a hard cutoff.
+ * The graph hangs from a pinned virtual root: one anchor body fixed one
+ * pitch upstream of the real roots, spring-linked to every root as their
+ * common ancestor. Every node feels a constant gravity along the display
+ * direction (downstream), and the spring network anchored at the virtual
+ * root holds the graph against that pull — a node's main-axis position
+ * emerges from the balance: the deeper its layer and the heavier its
+ * downstream subtree, the further it hangs. Cross-axis centering needs
+ * no extra force: every node is spring-connected to the anchor, so the
+ * graph settles around the anchor's cross position instead of drifting
+ * toward an absolute coordinate line (which is what made held drags
+ * slowly translate the whole graph in the previous design).
  *
- * Determinism: nodes are laid out in id-sorted array order (d3 iterates
- * nodes in array order), and the random source stays d3's fixed-seed LCG,
- * so the same input always converges to the same layout.
+ * Springs are Hookean — F = k·(l − natural), equal and opposite on both
+ * ends. The natural length grows with the edge's layer span (a merge
+ * edge reaching three layers down pulls toward three pitches, not one),
+ * and the stiffness shrinks with the width of the layer the edge
+ * enters: a wide layer receives many softer springs, keeping its total
+ * upstream pull constant instead of over-constraining crowded layers.
+ * Repulsion and circle packing keep cards apart and settle the cross
+ * axis; velocity decay and d3's alpha schedule scale every force down
+ * exponentially, so motion shrinks smoothly to a stop. Because every
+ * force (including the custom spring and gravity) is scaled by the same
+ * alpha, the equilibrium is alpha-invariant: holding a drag at the
+ * alpha floor relaxes neighbours toward the same resting shape.
+ *
+ * Determinism: nodes are laid out in id-sorted array order and the
+ * custom forces iterate their bodies and springs in construction
+ * order, and the random source stays d3's fixed-seed LCG, so the same
+ * input always converges to the same layout.
  */
 
-/** Desired center-to-center length of one grounds-layer pitch: the axis
- * target of layer k sits k pitches downstream, and a spring spanning one
- * layer pulls toward exactly that spacing. */
+/** Desired center-to-center length of one grounds-layer pitch: the
+ * spring rest length of an edge grows by one pitch per layer span, so a
+ * parent–child pair settles one pitch apart. */
 const EDGE_LENGTH = 240;
 /** Pair repulsion strength: d3 manyBody applies strength/d, so this is the
  * k in k/d — order-of-magnitude the d3 default (-30), a bit firmer for
@@ -55,17 +62,25 @@ const REPULSION = -100;
 /** Inverse-square floor: below this center distance the push stops growing,
  * keeping near-contact motion orderly instead of divergent. */
 const REPULSION_FLOOR = 160;
-/** Cross-axis gravity toward the viewport center line. Weak on purpose: it
- * only keeps disconnected groups from drifting apart on the cross axis —
- * the main axis is owned by the layer targets, spacing by repulsion and
- * packing. */
-const GRAVITY = 0.002;
-/** Main-axis pull toward each node's layer position (grounds longest-path
- * depth × the edge length, signed by the display direction). Strong
- * enough to win against springs and repulsion, which otherwise smear the
- * layers into a diagonal band and bury the flow direction; loose enough
- * that the cross axis stays organic. */
-const MAIN_AXIS_STRENGTH = 0.3;
+/** Repulsion cutoff: pair repulsion is a local spacing force (layer mates
+ * and adjacent layers sit well inside this radius), not a system-spanning
+ * load. Without the cutoff the far half of a long graph pushes on the
+ * near half faster than gravity, compressing the chain against the anchor
+ * and laterally buckling it — and the resulting collective mode relaxes
+ * slower than the alpha schedule, resuming as slow drift whenever a held
+ * drag keeps the simulation warm. */
+const REPULSION_RANGE = 500;
+/** Constant downstream gravity every node feels along the display
+ * direction. It loads the spring chain hanging from the anchor, so it
+ * must stay small next to the spring stiffness: near the anchor a
+ * spring carries the pull of the whole downstream subtree, and its
+ * stretch is load/k. */
+const GRAVITY = 0.05;
+/** Hookean spring stiffness scale: each spring gets this divided by the
+ * node count of the layer its downstream end sits in, so a wide layer
+ * receives many softer springs while the total pull entering the layer
+ * stays constant. */
+const SPRING_K = 0.3;
 /** Circle-packing slack beyond half the card diagonal: a center distance of
  * twice the packed radius separates any two card rectangles. The small
  * slack lets the iterative packing fully resolve, leaving no residual
@@ -96,22 +111,35 @@ const TICK_MS = 16;
 /** Clamp for huge frame gaps (tab background, debugger pause). */
 const MAX_DT = 48;
 
+/** Internal id of the virtual-root anchor body. Never exposed through
+ * positions() or the fix/release addressing, so it cannot collide with
+ * real node ids in any observable way. */
+const ANCHOR_ID = "\u0000anchor";
+
 interface Body extends SimulationNodeDatum {
   id: string;
+  /** Anchor bodies are spring endpoints only: pinned at construction,
+   * no charge, no collision radius, never reported as laid out. */
+  anchor: boolean;
 }
 
-/** A grounds spring. The target length scales with the edge's layer span:
- * a merge edge reaching several layers down pulls toward that many pitches,
- * aligned with the axis targets instead of fighting them. */
-interface GroundLink extends SimulationLinkDatum<Body> {
-  span: number;
+/** A Hookean grounds spring. */
+interface Spring {
+  source: Body;
+  target: Body;
+  /** Stiffness: F = k·(l − natural). */
+  k: number;
+  /** Rest length: the grounds layer span times one pitch. */
+  natural: number;
 }
 
 /** Relaxing session of a fixed node set; steps until alpha decays out. */
 class ForceSession implements LayoutSession {
   readonly #bodies: Body[];
   readonly #byId = new Map<string, Body>();
-  readonly #sim: Simulation<Body, GroundLink>;
+  /** Springs are custom Hookean forces, so the simulation carries the link
+   * datum type only to satisfy d3's generic signature. */
+  readonly #sim: Simulation<Body, SimulationLinkDatum<Body>>;
   /** The shared card geometry this session spaces and stamps. */
   readonly #size: { width: number; height: number };
   #ticks = 0;
@@ -133,28 +161,29 @@ class ForceSession implements LayoutSession {
       layeredLayout(nodes, direction, this.#size).map((n) => [n.id, n] as const),
     );
     const carried = options.seed;
-    // Main axis: grounds longest-path depth (the same layering the layered
-    // layout uses) sets each node's target coordinate along the display
-    // direction, so the upstream→downstream flow reads as position.
+    // Grounds longest-path layers (the same layering the layered layout
+    // uses): they set each spring's rest length and stiffness share.
     const layers = assignLayers([...nodes].sort((a, b) => (a.id < b.id ? -1 : 1)));
-    const axisTarget = (id: string): number => sign * (layers.get(id) ?? 0) * EDGE_LENGTH;
     // Id-sorted array order: d3 iterates nodes in array order, and the
     // layout must not depend on the input order (ui DESIGN, "布局").
     const ids = [...layered.keys()].sort();
     const grounds = new Map(nodes.map((n) => [n.id, n.grounds ?? []] as const));
-    // Known nodes keep their coordinates; new nodes start near the
-    // centroid of their (already placed) grounds, falling back to the
-    // layered position. Placing in id order makes each lookup deterministic.
+    // Known nodes keep their coordinates; new nodes join near the centroid
+    // of their (already placed) grounds. Without a carried seed every node
+    // takes its layered position instead — centroid joins would start a
+    // fresh graph as one tight blob, which the repulsion relaxes into a
+    // stable ring rather than unfolding into the flow direction.
+    // Placing in id order makes each lookup deterministic.
+    const carriedCount = ids.filter((id) => carried?.has(id) ?? false).length;
+    const seeded = carriedCount > 0;
     const start = new Map<string, { x: number; y: number }>();
-    let carriedCount = 0;
     ids.forEach((id, rank) => {
       const known = carried?.get(id);
       if (known !== undefined) {
-        carriedCount += 1;
         start.set(id, { x: known.x, y: known.y });
         return;
       }
-      const anchorIds = (grounds.get(id) ?? []).filter((g) => start.has(g));
+      const anchorIds = seeded ? (grounds.get(id) ?? []).filter((g) => start.has(g)) : [];
       if (anchorIds.length === 0) {
         const fallback = layered.get(id)!;
         start.set(id, { x: fallback.x, y: fallback.y });
@@ -176,42 +205,105 @@ class ForceSession implements LayoutSession {
     });
     this.#bodies = ids.map((id) => ({
       id,
+      anchor: false,
       x: start.get(id)!.x,
       y: start.get(id)!.y,
     }));
     for (const body of this.#bodies) this.#byId.set(body.id, body);
-    const links: GroundLink[] = this.#bodies.flatMap((body) =>
-      (grounds.get(body.id) ?? [])
-        .filter((g) => start.has(g))
-        .map((g) => ({
-          source: g,
-          target: body.id,
-          span: Math.max(1, (layers.get(body.id) ?? 0) - (layers.get(g) ?? 0)),
-        })),
-    );
-    const reheated = carried !== undefined && carriedCount > 0;
-    const axis = horizontal
-      ? forceX<Body>((body) => axisTarget(body.id)).strength(MAIN_AXIS_STRENGTH)
-      : forceY<Body>((body) => axisTarget(body.id)).strength(MAIN_AXIS_STRENGTH);
-    const crossGravity = horizontal
-      ? forceY<Body>(0).strength(GRAVITY)
-      : forceX<Body>(0).strength(GRAVITY);
-    this.#sim = forceSimulation<Body, GroundLink>(this.#bodies)
+    // Stiffness shares: a spring entering layer L gets SPRING_K split
+    // across that layer's node count.
+    const layerCounts = new Map<number, number>();
+    for (const id of ids) {
+      const layer = layers.get(id) ?? 0;
+      layerCounts.set(layer, (layerCounts.get(layer) ?? 0) + 1);
+    }
+    // The virtual root: pinned one pitch upstream of the roots' centroid,
+    // so every root spring starts near its rest length and the anchor
+    // keeps the carried-over graph where it is. Roots are nodes with no
+    // ground inside the working set.
+    const present = new Set(ids);
+    const rootIds = ids.filter((id) => !(grounds.get(id) ?? []).some((g) => present.has(g)));
+    let anchorBody: Body | null = null;
+    if (rootIds.length > 0) {
+      let ax = 0;
+      let ay = 0;
+      for (const id of rootIds) {
+        ax += start.get(id)!.x;
+        ay += start.get(id)!.y;
+      }
+      ax /= rootIds.length;
+      ay /= rootIds.length;
+      if (horizontal) ax -= sign * EDGE_LENGTH;
+      else ay -= sign * EDGE_LENGTH;
+      anchorBody = { id: ANCHOR_ID, anchor: true, x: ax, y: ay, fx: ax, fy: ay };
+    }
+    // Grounds springs, plus one anchor spring per root (span 1).
+    const springs: Spring[] = [];
+    if (anchorBody !== null) {
+      const k = SPRING_K / (layerCounts.get(0) ?? 1);
+      for (const id of rootIds) {
+        springs.push({
+          source: anchorBody,
+          target: this.#byId.get(id)!,
+          k,
+          natural: EDGE_LENGTH,
+        });
+      }
+    }
+    for (const body of this.#bodies) {
+      const layer = layers.get(body.id) ?? 0;
+      const k = SPRING_K / (layerCounts.get(layer) ?? 1);
+      for (const g of grounds.get(body.id) ?? []) {
+        const source = this.#byId.get(g);
+        if (source === undefined || source.anchor) continue;
+        const span = Math.max(1, layer - (layers.get(g) ?? 0));
+        springs.push({ source, target: body, k, natural: span * EDGE_LENGTH });
+      }
+    }
+    const bodies = this.#bodies;
+    /** Hookean springs, equal and opposite on both ends; scaled by alpha
+     * like the built-in forces so the equilibrium is alpha-invariant. */
+    const springForce = (alpha: number): void => {
+      for (const s of springs) {
+        const dx = s.target.x! - s.source.x!;
+        const dy = s.target.y! - s.source.y!;
+        const length = Math.hypot(dx, dy) || 1;
+        const magnitude = s.k * (length - s.natural) * alpha;
+        const fx = (dx / length) * magnitude;
+        const fy = (dy / length) * magnitude;
+        s.source.vx = (s.source.vx ?? 0) + fx;
+        s.source.vy = (s.source.vy ?? 0) + fy;
+        s.target.vx = (s.target.vx ?? 0) - fx;
+        s.target.vy = (s.target.vy ?? 0) - fy;
+      }
+    };
+    /** Constant downstream gravity: the load the anchored spring chain
+     * hangs against. The anchor itself is pinned and feels nothing. */
+    const gravityForce = (alpha: number): void => {
+      const g = GRAVITY * alpha * sign;
+      for (const body of bodies) {
+        if (horizontal) body.vx = (body.vx ?? 0) + g;
+        else body.vy = (body.vy ?? 0) + g;
+      }
+    };
+    const reheated = seeded;
+    const packedRadius = Math.hypot(this.#size.width, this.#size.height) / 2 + COLLIDE_SLACK;
+    this.#sim = forceSimulation<Body, SimulationLinkDatum<Body>>(
+      anchorBody !== null ? [anchorBody, ...this.#bodies] : this.#bodies,
+    )
+      .force("spring", springForce)
       .force(
-        "link",
-        forceLink<Body, GroundLink>(links)
-          .id((body) => body.id)
-          .distance((link) => link.span * EDGE_LENGTH),
+        "charge",
+        forceManyBody<Body>()
+          .strength((body) => (body.anchor ? 0 : REPULSION))
+          .distanceMin(REPULSION_FLOOR)
+          .distanceMax(REPULSION_RANGE),
       )
-      .force("charge", forceManyBody<Body>().strength(REPULSION).distanceMin(REPULSION_FLOOR))
       .force(
         "collide",
-        forceCollide<Body>(
-          Math.hypot(this.#size.width, this.#size.height) / 2 + COLLIDE_SLACK,
-        ).iterations(3),
+        forceCollide<Body>((body) => (body.anchor ? 0 : packedRadius)).iterations(3),
       )
-      .force("axis", axis)
-      .force("cross", crossGravity)
+      .force("gravity", gravityForce)
       .alpha(reheated ? REHEAT_ALPHA : 1)
       .alphaDecay(reheated ? REHEAT_ALPHA_DECAY : ALPHA_DECAY)
       .velocityDecay(VELOCITY_DECAY)

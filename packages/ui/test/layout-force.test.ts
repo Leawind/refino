@@ -318,4 +318,34 @@ describe("force session", () => {
     expect(Math.hypot(free.x - n4.x, free.y - n4.y)).toBeLessThan(600);
     session.dispose();
   });
+
+  it("holding a pinned node does not resume slow graph drift", () => {
+    const session = forceStrategy.createSession(chain(30), { direction: "LR" });
+    const atRest = new Map(settled(session).map((n) => [n.id, { x: n.x, y: n.y }] as const));
+    // Pin a mid node at its own settled position and hold: the relaxation
+    // then runs at the drag alpha floor indefinitely, so any unbalanced
+    // system-spanning force shows up as sustained translation of the whole
+    // graph (the absolute cross gravity of older designs did exactly this,
+    // and uncut far-field repulsion buckled the graph against the anchor).
+    session.fix?.("n15", atRest.get("n15")!.x, atRest.get("n15")!.y);
+    const hold = (ticks: number) => {
+      for (let i = 0; i < ticks; i++) session.step(16);
+      return new Map(session.positions().map((n) => [n.id, { x: n.x, y: n.y }] as const));
+    };
+    const mid = hold(1200);
+    const after = hold(1200);
+    let late = 0;
+    let total = 0;
+    for (const [id, p] of after) {
+      const m = mid.get(id)!;
+      const b = atRest.get(id)!;
+      late = Math.max(late, Math.hypot(p.x - m.x, p.y - m.y));
+      total = Math.max(total, Math.hypot(p.x - b.x, p.y - b.y));
+    }
+    // The held graph converges: residual settling finishes within the
+    // first window and a second window of holding moves nothing.
+    expect(late).toBeLessThan(5);
+    expect(total).toBeLessThan(60);
+    session.dispose();
+  });
 });
