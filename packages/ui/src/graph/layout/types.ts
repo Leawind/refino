@@ -80,6 +80,13 @@ export interface LayoutSession {
    * neighbourhood keeps relaxing — and releases it back to the forces. */
   fix?(id: string, x: number, y: number): void;
   release?(id: string): void;
+  /** The layout-internal anchor node (force layouts): the pinned virtual
+   * root the graph hangs from. Always maintained by the physics, exposed
+   * for display only — rendering it is the canvas's choice, and it must
+   * never take part in interaction (pick, drag, selection). */
+  anchorNode?(): LaidOutNode | null;
+  /** The anchor's links to the working set's roots, as id pairs. */
+  anchorEdges?(): readonly Readonly<{ source: string; target: string }>[];
 }
 
 /** A layout algorithm behind a `LayoutMode`. */

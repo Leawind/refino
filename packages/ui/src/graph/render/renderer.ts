@@ -63,6 +63,10 @@ export interface RenderNodeInput {
   hovered: boolean;
   /** Premise nodes draw as weakened capsules (README, "显示规则与样式"). */
   premise: boolean;
+  /** Display-only node: drawn but never picked — no hover, no drag, no
+   * selection; used for layout-internal helpers such as the force
+   * layout's virtual root. */
+  virtual?: boolean;
   /** Render priority class (CULL_*), decided by the component. */
   cls: number;
   /** Distance to the nearest selected node, ordering within a class. */
@@ -710,12 +714,14 @@ export class GraphRenderer {
     this.#schedule();
   }
 
-  /** Virtual-space node id under the CSS point, or null. */
+  /** Virtual-space node id under the CSS point, or null. Display-only
+   * (virtual) nodes are invisible to picking: pressing one pans instead
+   * of dragging, and hovering one highlights nothing. */
   pick(cssX: number, cssY: number): string | null {
     const vx = (cssX - this.#camera.tx) / this.#camera.scale;
     const vy = (cssY - this.#camera.ty) / this.#camera.scale;
     for (const [id, entry] of this.#entries) {
-      if (entry.alpha < 0.1 || !this.#admitted.has(id)) continue;
+      if (entry.alpha < 0.1 || !this.#admitted.has(id) || entry.node.virtual === true) continue;
       const node = entry.node;
       if (vx >= node.x && vx <= node.x + node.width && vy >= node.y && vy <= node.y + node.height) {
         return id;

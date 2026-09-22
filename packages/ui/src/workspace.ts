@@ -63,6 +63,9 @@ export interface CanvasConfig {
   forceFriction: number;
   forceRepulsion: number;
   forceSpring: number;
+  /** Whether the force layout's virtual root renders (display-only, with
+   * its edges to the real roots; force layout only). */
+  showVirtualRoot: boolean;
 }
 
 /** Bounds of the node card size, in virtual units. The minimum sits just
@@ -92,6 +95,7 @@ const DEFAULT_CONFIG: CanvasConfig = {
   forceFriction: FORCE_TUNING_DEFAULT.friction,
   forceRepulsion: FORCE_TUNING_DEFAULT.repulsion,
   forceSpring: FORCE_TUNING_DEFAULT.spring,
+  showVirtualRoot: false,
 };
 
 const CONFIG_KEYS: Record<keyof CanvasConfig, string> = {
@@ -114,6 +118,7 @@ const CONFIG_KEYS: Record<keyof CanvasConfig, string> = {
   forceFriction: "refino.canvas.forceFriction",
   forceRepulsion: "refino.canvas.forceRepulsion",
   forceSpring: "refino.canvas.forceSpring",
+  showVirtualRoot: "refino.canvas.showVirtualRoot",
 };
 
 /** Why the last range selection degraded to just the clicked node. */
@@ -215,6 +220,9 @@ function loadConfig(): CanvasConfig {
       FORCE_TUNING_MIN.spring,
       FORCE_TUNING_MAX.spring,
     ),
+    showVirtualRoot:
+      readPreference(CONFIG_KEYS.showVirtualRoot, String(DEFAULT_CONFIG.showVirtualRoot)) ===
+      "true",
   };
 }
 

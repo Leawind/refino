@@ -316,6 +316,32 @@ describe("force session", () => {
     }
   });
 
+  it("exposes the virtual root for display without leaking it into positions", () => {
+    const session = forceStrategy.createSession(diamond(), { direction: "LR" });
+    const final = settled(session);
+    const anchor = session.anchorNode?.() ?? null;
+    expect(anchor).not.toBeNull();
+    // The anchor is display-only: positions() (what the camera bounds and
+    // the drag/selection addressing see) never contains it.
+    expect(final.some((n) => n.id === anchor!.id)).toBe(false);
+    // One anchor link per working-set root; the diamond has exactly one.
+    const edges = session.anchorEdges?.() ?? [];
+    expect(edges).toHaveLength(1);
+    expect(edges[0]!.source).toBe(anchor!.id);
+    expect(edges[0]!.target).toBe("a");
+    // The anchor hangs roughly one pitch upstream of the root.
+    const root = final.find((n) => n.id === "a")!;
+    const d = Math.hypot(root.x - anchor!.x, root.y - anchor!.y);
+    expect(d).toBeGreaterThan(NODE_WIDTH);
+    expect(d).toBeLessThan(600);
+    // Pinning the anchor is a no-op: it is not a draggable node.
+    const before = session.positions();
+    session.fix?.(anchor!.id, 9999, 9999);
+    expect(session.positions()).toEqual(before);
+    session.release?.(anchor!.id);
+    session.dispose();
+  });
+
   it("pins a dragged node at the pointer and releases it back", () => {
     const session = forceStrategy.createSession(chain(8), { direction: "LR" });
     settled(session);

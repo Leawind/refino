@@ -51,6 +51,12 @@ let budget: AdaptiveBudget | null = null;
 // requestAnimationFrame loop until settled, snapshot layouts finish at
 // creation. The camera keeps the focus node in place.
 const layout = ref<LaidOutNode[]>([]);
+// The force layout's virtual root, kept alongside the layout: its position
+// advances with every step like any node, but it renders only when the
+// canvas config asks for it, and only in force mode. The anchor edges are
+// fixed per session (the anchor links the working set's roots).
+const anchor = ref<LaidOutNode | null>(null);
+const anchorEdges = ref<readonly Readonly<{ source: string; target: string }>[]>([]);
 let session: LayoutSession | null = null;
 let rafId = 0;
 let lastFrame = 0;
@@ -149,6 +155,8 @@ function startSession(): void {
     seed: seed ? new Map(seed.map((n) => [n.id, { x: n.x, y: n.y }] as const)) : undefined,
   });
   layout.value = [...session.positions()];
+  anchor.value = session.anchorNode?.() ?? null;
+  anchorEdges.value = session.anchorEdges?.() ?? [];
   runSession();
 }
 
@@ -161,6 +169,7 @@ function runSession(): void {
     const current = session;
     if (current === null) return;
     layout.value = [...current.step(now - lastFrame)];
+    anchor.value = current.anchorNode?.() ?? null;
     lastFrame = now;
     if (current.animating) rafId = requestAnimationFrame(tick);
     else rafId = 0;
@@ -242,6 +251,32 @@ const scene = computed<SceneInput>(() => {
           lite.id === hoveredId || (selectionSet.has(ground) && selectionSet.has(lite.id)),
         weak: byId.value.get(ground)?.type === "premise",
       });
+    }
+  }
+  // The force layout's virtual root renders on request (ui DESIGN.md,
+  // "力导向"): weakened capsule like a premise, but display-only — the
+  // renderer never picks it, so it cannot be hovered, dragged or selected,
+  // and it stays out of the camera bounds (positions() excludes it).
+  if (props.layoutMode === "force" && workspace.state.config.showVirtualRoot && anchor.value) {
+    const node = anchor.value;
+    nodes.push({
+      id: node.id,
+      x: node.x,
+      y: node.y,
+      width: cardWidth,
+      height: cardHeight,
+      label: t("canvas.virtualRoot"),
+      selected: false,
+      focus: false,
+      hovered: false,
+      premise: true,
+      virtual: true,
+      cls: CULL_OTHER,
+      distance: Infinity,
+    });
+    for (const edge of anchorEdges.value) {
+      if (!displayedIds.has(edge.target)) continue;
+      edges.push({ fromId: edge.source, toId: edge.target, emphasized: false, weak: true });
     }
   }
   return {

@@ -167,6 +167,11 @@ class ForceSession implements LayoutSession {
   /** True while a node is pinned to the pointer: the relaxation keeps
    * running (and neighbors keep reacting) no matter how quiet it is. */
   #dragging = false;
+  /** The pinned virtual root, if the working set has real roots; exposed
+   * read-only through anchorNode()/anchorEdges() for display. */
+  #anchor: Body | null = null;
+  /** The anchor's links to the working set's roots, fixed at construction. */
+  #anchorLinks: readonly Readonly<{ source: string; target: string }>[] = [];
 
   constructor(nodes: readonly LayoutNode[], options: LayoutOptions) {
     this.#size = resolveNodeSize(options);
@@ -267,6 +272,8 @@ class ForceSession implements LayoutSession {
       if (horizontal) ax -= sign * pitch;
       else ay -= sign * pitch;
       anchorBody = { id: ANCHOR_ID, anchor: true, x: ax, y: ay, fx: ax, fy: ay };
+      this.#anchor = anchorBody;
+      this.#anchorLinks = rootIds.map((id) => ({ source: ANCHOR_ID, target: id }));
     }
     // Grounds springs, plus one anchor spring per root (span 1).
     const springs: Spring[] = [];
@@ -355,6 +362,26 @@ class ForceSession implements LayoutSession {
       width: this.#size.width,
       height: this.#size.height,
     }));
+  }
+
+  /** The pinned virtual root, or null when the working set has no roots.
+   * Display-only: excluded from positions() on purpose, so the camera
+   * bounds and the drag/selection addressing never see it. */
+  anchorNode(): LaidOutNode | null {
+    const anchor = this.#anchor;
+    if (anchor === null) return null;
+    return {
+      id: anchor.id,
+      x: anchor.x ?? 0,
+      y: anchor.y ?? 0,
+      width: this.#size.width,
+      height: this.#size.height,
+    };
+  }
+
+  /** The anchor's links to the working set's roots. */
+  anchorEdges(): readonly Readonly<{ source: string; target: string }>[] {
+    return this.#anchorLinks;
   }
 
   step(dtMs: number): readonly LaidOutNode[] {

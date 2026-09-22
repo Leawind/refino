@@ -6,7 +6,7 @@
 // tuning coefficients (the force section only shows in force mode).
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { NButton, NPopselect, NSlider } from "naive-ui";
+import { NButton, NCheckbox, NPopselect, NSlider } from "naive-ui";
 import { injectRequired } from "../context";
 import { workspaceKey } from "../workspace";
 import { useDismissable } from "../useDismissable";
@@ -86,6 +86,12 @@ function resetTuning(): void {
     forceSpring: FORCE_TUNING_DEFAULT.spring,
   });
 }
+// Display-only virtual root (force layouts): pure visibility, toggling it
+// never restarts the layout.
+const showVirtualRoot = computed<boolean>({
+  get: () => workspace.state.config.showVirtualRoot,
+  set: (value) => workspace.setConfig({ showVirtualRoot: value }),
+});
 </script>
 
 <template>
@@ -148,6 +154,9 @@ function resetTuning(): void {
             :step="0.01"
             :tooltip="false"
           />
+          <NCheckbox v-model:checked="showVirtualRoot" size="small">
+            {{ t("canvas.showVirtualRoot") }}
+          </NCheckbox>
         </template>
         <NButton quaternary size="tiny" @click="resetTuning">
           {{ t("canvas.layoutTuningReset") }}

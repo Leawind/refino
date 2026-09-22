@@ -132,6 +132,8 @@ export default {
     forceFriction: "摩擦",
     forceRepulsion: "斥力",
     forceSpring: "弹簧劲度",
+    virtualRoot: "虚拟根",
+    showVirtualRoot: "显示虚拟根",
     rangeDisconnected: "两节点间未找到路径（无公共祖先或超出搜索预算），选择已替换为被点击的节点",
     glUnavailable: "当前环境不支持 WebGL 2，画布无法渲染",
   },
