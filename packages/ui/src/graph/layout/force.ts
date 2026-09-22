@@ -1,11 +1,10 @@
 import {
-  forceCollide,
-  forceManyBody,
   forceSimulation,
   type Simulation,
   type SimulationLinkDatum,
   type SimulationNodeDatum,
 } from "d3-force";
+import { quadtree, type QuadtreeLeaf } from "d3-quadtree";
 import { assignLayers } from "refino";
 import type { LayoutDirection } from "../../types";
 import { LAYER_GAP, layeredLayout, resolveNodeSize } from "./engine";
@@ -39,12 +38,28 @@ import type {
  * and the stiffness shrinks with the width of the layer the edge
  * enters: a wide layer receives many softer springs, keeping its total
  * upstream pull constant instead of over-constraining crowded layers.
- * Repulsion and circle packing keep cards apart and settle the cross
- * axis; velocity decay and d3's alpha schedule scale every force down
- * exponentially, so motion shrinks smoothly to a stop. Because every
- * force (including the custom spring and gravity) is scaled by the same
- * alpha, the equilibrium is alpha-invariant: holding a drag at the
- * alpha floor relaxes neighbours toward the same resting shape.
+ * Overlap is prevented by exact axis-aligned rectangle separation (push
+ * apart along the smaller overlap): the force vanishes whenever two
+ * rectangles are separated, so it cannot fight the spring network at the
+ * layout's natural spacing the way a covering-circle packing would —
+ * adjacent layers in a vertical direction sit closer than one card
+ * diagonal, and a circle large enough to guarantee rectangle separation
+ * pushed them apart forever. Velocity decay bleeds kinetic energy off as
+ * friction.
+ *
+ * Forces act at constant strength — there is no decaying alpha schedule.
+ * A session runs until the layout is actually stable: every body's speed
+ * stays under a threshold for a sustained run of ticks, which only a true
+ * force balance sustains (a swing's turning point is quiet for one tick,
+ * not thirty). Stopping is therefore decided by the physics, never by a
+ * step count; the one exception is a far-off anti-hang tick guard that
+ * normal relaxations never reach. An episode that relaxes far past its
+ * budget runs down a settling ramp of progressively stronger friction,
+ * which over-damps constrained shapes (deep merges into crowded layers
+ * keep creeping and clipping contacts) until the stable stop is reached —
+ * the ramp never stops anything by itself, it only makes rest reachable.
+ * A drag holds its neighbourhood in real-time relaxation; once it settles
+ * the physics sleeps, and the next pointer move wakes it again.
  *
  * Determinism: nodes are laid out in id-sorted array order and the
  * custom forces iterate their bodies and springs in construction
@@ -63,9 +78,7 @@ const REPULSION_FLOOR = 160;
  * and adjacent layers sit well inside this radius), not a system-spanning
  * load. Without the cutoff the far half of a long graph pushes on the
  * near half faster than gravity, compressing the chain against the anchor
- * and laterally buckling it — and the resulting collective mode relaxes
- * slower than the alpha schedule, resuming as slow drift whenever a held
- * drag keeps the simulation warm. */
+ * and laterally buckling it. */
 const REPULSION_RANGE = 500;
 /** Constant downstream gravity every node feels along the display
  * direction. It loads the spring chain hanging from the anchor, so it
@@ -78,32 +91,40 @@ const DEFAULT_GRAVITY = 0.05;
  * receives many softer springs while the total pull entering the layer
  * stays constant. Overridable via ForceTuning.spring. */
 const DEFAULT_SPRING = 0.3;
-/** Circle-packing slack beyond half the card diagonal: a center distance of
- * twice the packed radius separates any two card rectangles. The small
- * slack lets the iterative packing fully resolve, leaving no residual
- * overlaps. */
-const COLLIDE_SLACK = 2;
 /** Fraction of each body's velocity bled off every tick (friction);
  * passed straight to d3's velocityDecay, which decays velocities by this
  * factor. Overridable via ForceTuning.friction. */
 const DEFAULT_FRICTION = 0.4;
-/** Exponential cooling: forces scale by alpha, which decays per tick until
- * ALPHA_MIN — motion shrinks smoothly to zero (no hard cutoff). */
-const ALPHA_DECAY = 0.0228;
-const ALPHA_MIN = 0.001;
-/** A carried-over seed only needs a partial reheat: known coordinates are
- * already balanced, so a shorter, gentler relaxation suffices. */
-const REHEAT_ALPHA = 0.4;
-const REHEAT_ALPHA_DECAY = 0.06;
-/** Alpha floor while a node drag is in progress: the neighbourhood keeps
- * relaxing around the pinned node for the whole gesture. */
-const DRAG_ALPHA = 0.3;
+/** Contact stiffness: an overlapping pair's velocity push per tick is the
+ * overlap along the smaller axis times this, split over the pair. Stiff
+ * enough that the equilibrium overlap against spring loads stays well
+ * below a pixel, soft enough for the explicit integrator. */
+const CONTACT_STRENGTH = 2;
+/** Per-tick speed (px, any axis) below which a body counts as quiet.
+ * Friction shrinks coasting velocity geometrically, and at a true force
+ * balance the net force is float noise, so quiet is reachable. */
+const STOP_SPEED = 0.01;
+/** Consecutive quiet ticks required before the session counts as stable
+ * and stops. A single quiet tick can be a swing's turning point; only a
+ * sustained quiet run distinguishes a real equilibrium. */
+const STABLE_TICKS = 30;
 /** Offset that separates a new node from the exact centroid of its grounds
  * so coincident starts never happen; derived from the id's rank, hence
  * deterministic. */
 const JOIN_OFFSET = 12;
-/** Hard tick budget: converging layouts must still terminate. */
-const MAX_TICKS = 900;
+/** Anti-hang guard, not an operating stop: normal relaxations end via the
+ * stability criterion orders of magnitude earlier. */
+const MAX_TICKS = 50_000;
+/** Settling ramp: past this many ticks of one relaxation episode, friction
+ * ramps up so the system over-damps and slides into the stable stop. Some
+ * constrained shapes (deep merges into crowded layers) keep creeping and
+ * clipping contacts for a very long time; without the ramp they would
+ * need unpredictable relaxation budgets. The ramp never stops anything by
+ * itself — it only makes rest reachable, the stability criterion still
+ * decides. */
+const SETTLE_BEGIN_TICKS = 5000;
+const SETTLE_RAMP_TICKS = 10_000;
+const SETTLE_FRICTION = 0.98;
 /** Fixed-interval physics: one tick per this many ms of frame budget, so
  * the convergence path (and result) never depends on frame rate. */
 const TICK_MS = 16;
@@ -164,9 +185,12 @@ class ForceSession implements LayoutSession {
   readonly #size: { width: number; height: number };
   #ticks = 0;
   #animating = true;
-  /** True while a node is pinned to the pointer: the relaxation keeps
-   * running (and neighbors keep reacting) no matter how quiet it is. */
-  #dragging = false;
+  /** Consecutive ticks in which every body's speed stayed under
+   * STOP_SPEED; stability = a sustained quiet run, not a single quiet
+   * tick. */
+  #quiet = 0;
+  /** The configured (or default) friction the settling ramp starts from. */
+  #friction = DEFAULT_FRICTION;
   /** The pinned virtual root, if the working set has real roots; exposed
    * read-only through anchorNode()/anchorEdges() for display. */
   #anchor: Body | null = null;
@@ -181,6 +205,7 @@ class ForceSession implements LayoutSession {
     // Tuning coefficients (canvas config overrides the built-in defaults).
     const gravity = options.force?.gravity ?? DEFAULT_GRAVITY;
     const friction = options.force?.friction ?? DEFAULT_FRICTION;
+    this.#friction = friction;
     const repulsion = options.force?.repulsion ?? DEFAULT_REPULSION;
     const springK = options.force?.spring ?? DEFAULT_SPRING;
     // One grounds-layer pitch: the shared card dimension along the main
@@ -255,23 +280,39 @@ class ForceSession implements LayoutSession {
     }
     // The virtual root: pinned one pitch upstream of the roots' centroid,
     // so every root spring starts near its rest length and the anchor
-    // keeps the carried-over graph where it is. Roots are nodes with no
-    // ground inside the working set.
+    // keeps the carried-over graph where it is. A carried seed carries the
+    // anchor's own position too (under the anchor id in the seed map):
+    // re-deriving it would re-place the anchor relative to roots that
+    // have stretched downstream since, and the whole graph would slide
+    // a little further on every session — a downstream ratchet.
+    // Roots are nodes with no ground inside the working set.
     const present = new Set(ids);
     const rootIds = ids.filter((id) => !(grounds.get(id) ?? []).some((g) => present.has(g)));
     let anchorBody: Body | null = null;
     if (rootIds.length > 0) {
-      let ax = 0;
-      let ay = 0;
-      for (const id of rootIds) {
-        ax += start.get(id)!.x;
-        ay += start.get(id)!.y;
+      const carriedAnchor = carried?.get(ANCHOR_ID);
+      if (carriedAnchor !== undefined) {
+        anchorBody = {
+          id: ANCHOR_ID,
+          anchor: true,
+          x: carriedAnchor.x,
+          y: carriedAnchor.y,
+          fx: carriedAnchor.x,
+          fy: carriedAnchor.y,
+        };
+      } else {
+        let ax = 0;
+        let ay = 0;
+        for (const id of rootIds) {
+          ax += start.get(id)!.x;
+          ay += start.get(id)!.y;
+        }
+        ax /= rootIds.length;
+        ay /= rootIds.length;
+        if (horizontal) ax -= sign * pitch;
+        else ay -= sign * pitch;
+        anchorBody = { id: ANCHOR_ID, anchor: true, x: ax, y: ay, fx: ax, fy: ay };
       }
-      ax /= rootIds.length;
-      ay /= rootIds.length;
-      if (horizontal) ax -= sign * pitch;
-      else ay -= sign * pitch;
-      anchorBody = { id: ANCHOR_ID, anchor: true, x: ax, y: ay, fx: ax, fy: ay };
       this.#anchor = anchorBody;
       this.#anchorLinks = rootIds.map((id) => ({ source: ANCHOR_ID, target: id }));
     }
@@ -299,8 +340,7 @@ class ForceSession implements LayoutSession {
       }
     }
     const bodies = this.#bodies;
-    /** Hookean springs, equal and opposite on both ends; scaled by alpha
-     * like the built-in forces so the equilibrium is alpha-invariant. */
+    /** Hookean springs, equal and opposite on both ends. */
     const springForce = (alpha: number): void => {
       for (const s of springs) {
         const dx = s.target.x! - s.source.x!;
@@ -324,26 +364,124 @@ class ForceSession implements LayoutSession {
         else body.vy = (body.vy ?? 0) + g;
       }
     };
-    const reheated = seeded;
-    const packedRadius = Math.hypot(this.#size.width, this.#size.height) / 2 + COLLIDE_SLACK;
+    const width = this.#size.width;
+    const height = this.#size.height;
+    const bodyX = (body: Body): number => body.x ?? 0;
+    const bodyY = (body: Body): number => body.y ?? 0;
+    /** Exact pairwise repulsion, replacing d3's Barnes-Hut manyBody: the
+     * approximation computes each body's push from cluster aggregates, and
+     * the resulting forces are not exactly symmetric — the tiny residual
+     * never balances, and with no alpha schedule to freeze it, the whole
+     * graph drifts forever (a ~0.03px/tick limit cycle in practice). This
+     * walks the same quadtree but applies the exact central force to each
+     * pair, so internal forces cancel pairwise and friction can actually
+     * bring the layout to rest. Same falloff and limits as before: k/d
+     * with the d3 distanceMin softening inside REPULSION_FLOOR and a hard
+     * cutoff at REPULSION_RANGE. */
+    const repulsionForce = (alpha: number): void => {
+      const range2 = REPULSION_RANGE * REPULSION_RANGE;
+      const floor2 = REPULSION_FLOOR * REPULSION_FLOOR;
+      const tree = quadtree<Body>(bodies, bodyX, bodyY);
+      for (const body of bodies) {
+        if (body.anchor) continue;
+        const bx = bodyX(body);
+        const by = bodyY(body);
+        tree.visit((node, x0, y0, x1, y1) => {
+          // Prune subtrees whose extent cannot reach the cutoff radius.
+          if (
+            x0 > bx + REPULSION_RANGE ||
+            x1 < bx - REPULSION_RANGE ||
+            y0 > by + REPULSION_RANGE ||
+            y1 < by - REPULSION_RANGE
+          ) {
+            return true;
+          }
+          if (!Array.isArray(node)) {
+            for (
+              let leaf: QuadtreeLeaf<Body> | undefined = node as QuadtreeLeaf<Body>;
+              leaf !== undefined;
+              leaf = leaf.next
+            ) {
+              const other = leaf.data;
+              if (other === body || other.anchor) continue;
+              const dx = bodyX(other) - bx;
+              const dy = bodyY(other) - by;
+              let l = dx * dx + dy * dy;
+              if (l > range2 || l === 0) continue;
+              if (l < floor2) l = Math.sqrt(floor2 * l);
+              const w = (-repulsion * alpha) / l;
+              body.vx = (body.vx ?? 0) + dx * w;
+              body.vy = (body.vy ?? 0) + dy * w;
+            }
+          }
+          return false;
+        });
+      }
+    };
+    /** Exact axis-aligned rectangle separation: an overlapping pair pushes
+     * apart along the axis with the smaller overlap, and a separated pair
+     * feels nothing — packing cannot fight the springs at the layout's
+     * natural spacing the way a covering-circle packing would (adjacent
+     * layers in a vertical direction sit closer than one card diagonal,
+     * and a circle radius large enough to guarantee rectangle separation
+     * pushed them apart forever, which no decaying schedule is around
+     * anymore to freeze). A full-overlap push fully separates the pair,
+     * so the double visit of each pair is self-cancelling. */
+    const contactForce = (): void => {
+      const tree = quadtree<Body>(bodies, bodyX, bodyY);
+      for (const body of bodies) {
+        const bx = bodyX(body);
+        const by = bodyY(body);
+        tree.visit((node, x0, y0, x1, y1) => {
+          // Prune subtrees whose extent cannot reach this card.
+          if (x0 > bx + width || x1 < bx - width || y0 > by + height || y1 < by - height) {
+            return true;
+          }
+          if (!Array.isArray(node)) {
+            for (
+              let leaf: QuadtreeLeaf<Body> | undefined = node as QuadtreeLeaf<Body>;
+              leaf !== undefined;
+              leaf = leaf.next
+            ) {
+              const other = leaf.data;
+              if (other === body) continue;
+              const dx = bodyX(other) - bx;
+              const dy = bodyY(other) - by;
+              const overX = width - Math.abs(dx);
+              const overY = height - Math.abs(dy);
+              if (overX <= 0 || overY <= 0) continue;
+              // Contact acts as a stiff velocity spring along the axis with
+              // the smaller overlap, split over the pair. Like every other
+              // force it goes through velocity, so friction can dissipate
+              // it: contact and springs balance at a sub-pixel overlap and
+              // the layout truly rests instead of projecting in and out of
+              // the overlap forever.
+              const w = CONTACT_STRENGTH * 0.5;
+              if (overX < overY) {
+                const push = dx < 0 ? -overX : overX;
+                if (!body.anchor) body.vx = (body.vx ?? 0) - push * w;
+                if (!other.anchor) other.vx = (other.vx ?? 0) + push * w;
+              } else {
+                const push = dy < 0 ? -overY : overY;
+                if (!body.anchor) body.vy = (body.vy ?? 0) - push * w;
+                if (!other.anchor) other.vy = (other.vy ?? 0) + push * w;
+              }
+            }
+          }
+          return false;
+        });
+      }
+    };
     this.#sim = forceSimulation<Body, SimulationLinkDatum<Body>>(
       anchorBody !== null ? [anchorBody, ...this.#bodies] : this.#bodies,
     )
       .force("spring", springForce)
-      .force(
-        "charge",
-        forceManyBody<Body>()
-          .strength((body) => (body.anchor ? 0 : -repulsion))
-          .distanceMin(REPULSION_FLOOR)
-          .distanceMax(REPULSION_RANGE),
-      )
-      .force(
-        "collide",
-        forceCollide<Body>((body) => (body.anchor ? 0 : packedRadius)).iterations(3),
-      )
+      .force("charge", repulsionForce)
+      .force("collide", contactForce)
       .force("gravity", gravityForce)
-      .alpha(reheated ? REHEAT_ALPHA : 1)
-      .alphaDecay(reheated ? REHEAT_ALPHA_DECAY : ALPHA_DECAY)
+      // No alpha schedule: alpha stays 1 forever, forces act at constant
+      // strength, and stopping is decided by the stability criterion.
+      .alphaDecay(0)
       .velocityDecay(friction)
       .stop(); // no internal timer: the canvas drives ticks via step()
     // Nothing to relax with at most one body.
@@ -390,12 +528,30 @@ class ForceSession implements LayoutSession {
     // so the convergence path (and result) never depends on frame rate.
     let budget = Math.min(Math.max(dtMs, 0), MAX_DT);
     while (budget > 0 && this.#animating) {
+      // The settling ramp: once an episode has relaxed far past the normal
+      // budget, over-damp the system so rest becomes reachable for
+      // constrained shapes that keep creeping and clipping contacts.
+      if (this.#ticks > SETTLE_BEGIN_TICKS) {
+        const ramp = Math.min(1, (this.#ticks - SETTLE_BEGIN_TICKS) / SETTLE_RAMP_TICKS);
+        this.#sim.velocityDecay(this.#friction + (SETTLE_FRICTION - this.#friction) * ramp);
+      }
       this.#sim.tick();
       this.#ticks += 1;
       budget -= TICK_MS;
-      // A pinned node holds the relaxation open: the drag decides when it
-      // ends, not the alpha schedule.
-      if (!this.#dragging && (this.#sim.alpha() < ALPHA_MIN || this.#ticks >= MAX_TICKS)) {
+      // Stability decides the stop, never the step count: a sustained run
+      // of quiet ticks means the forces have actually balanced (a swing's
+      // turning point is quiet for one tick, not thirty). Every force is
+      // velocity-based and friction is dissipative, so quiet is reachable;
+      // the pinned node holds the relaxation open while its neighbourhood
+      // keeps moving — once everything settles the session sleeps until
+      // the next drag event revives it.
+      let maxSpeed = 0;
+      for (const body of this.#bodies) {
+        maxSpeed = Math.max(maxSpeed, Math.abs(body.vx ?? 0), Math.abs(body.vy ?? 0));
+      }
+      if (maxSpeed < STOP_SPEED) this.#quiet += 1;
+      else this.#quiet = 0;
+      if (this.#quiet >= STABLE_TICKS || this.#ticks >= MAX_TICKS) {
         this.#animating = false;
       }
     }
@@ -403,32 +559,29 @@ class ForceSession implements LayoutSession {
   }
 
   /** Pins the node at the pointer position and keeps the neighbourhood
-   * relaxing: the alpha floor holds the simulation warm for the whole
-   * drag, and neighbors react through their springs. */
+   * relaxing at full force: the drag owns the session's life, and each
+   * pointer move revives it after a settled (sleeping) hold. */
   fix(id: string, x: number, y: number): void {
     const body = this.#byId.get(id);
     if (body === undefined) return;
     body.fx = x;
     body.fy = y;
-    this.#dragging = true;
     this.#animating = true;
+    this.#quiet = 0;
     this.#ticks = 0;
-    this.#sim.alphaTarget(DRAG_ALPHA);
-    this.#sim.alpha(Math.max(this.#sim.alpha(), DRAG_ALPHA));
   }
 
   /** Releases the node from the pointer: the forces take it back and the
-   * session settles gently. */
+   * session relaxes until actually stable. */
   release(id: string): void {
     const body = this.#byId.get(id);
     if (body !== undefined) {
       body.fx = undefined;
       body.fy = undefined;
     }
-    this.#dragging = false;
     this.#animating = true;
+    this.#quiet = 0;
     this.#ticks = 0;
-    this.#sim.alphaTarget(0);
   }
 
   dispose(): void {

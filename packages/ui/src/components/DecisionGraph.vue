@@ -121,11 +121,21 @@ function startSession(): void {
     return;
   // Hand the outgoing session's coordinates to the next one before
   // disposing it, but only when mode and direction are unchanged: the
-  // force strategy carries known nodes over and reheats gently (a
+  // force strategy carries known nodes over and relaxes from them (a
   // working-set change must not re-swim the graph), while a mode or
   // direction switch means a fundamentally different layout and gets a
   // full relaxation. The layered strategy ignores the seed either way.
-  const seed = session !== null && sameOrientation ? session.positions() : undefined;
+  // The anchor's position rides along in the seed map (under its internal
+  // id) so a reseeded session hangs from exactly where the last one did
+  // instead of sliding downstream.
+  let seedMap: Map<string, { x: number; y: number }> | undefined;
+  if (session !== null && sameOrientation) {
+    seedMap = new Map(session.positions().map((n) => [n.id, { x: n.x, y: n.y }] as const));
+    const anchorNode = session.anchorNode?.();
+    if (anchorNode != null) {
+      seedMap.set(anchorNode.id, { x: anchorNode.x, y: anchorNode.y });
+    }
+  }
   lastStructure = {
     signature,
     mode,
@@ -152,7 +162,7 @@ function startSession(): void {
             spring: forceSpring,
           }
         : undefined,
-    seed: seed ? new Map(seed.map((n) => [n.id, { x: n.x, y: n.y }] as const)) : undefined,
+    seed: seedMap,
   });
   layout.value = [...session.positions()];
   anchor.value = session.anchorNode?.() ?? null;
