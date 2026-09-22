@@ -95,7 +95,7 @@ const DEFAULT_CONFIG: CanvasConfig = {
   forceFriction: FORCE_TUNING_DEFAULT.friction,
   forceRepulsion: FORCE_TUNING_DEFAULT.repulsion,
   forceSpring: FORCE_TUNING_DEFAULT.spring,
-  showVirtualRoot: false,
+  showVirtualRoot: true,
 };
 
 const CONFIG_KEYS: Record<keyof CanvasConfig, string> = {

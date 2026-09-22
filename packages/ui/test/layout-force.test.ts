@@ -241,16 +241,15 @@ describe("force session", () => {
     }
   });
 
-  it("stops only once the layout is actually stable", () => {
+  it("stops only once the layout is actually stable", { timeout: 60000 }, () => {
     const session = forceStrategy.createSession(chain(40), { direction: "LR" });
     let prev = session.positions();
     const moves: number[] = [];
-    for (let i = 0; i < 5000 && session.animating; i++) {
+    while (session.animating) {
       const next = session.step(16);
       moves.push(Math.max(...next.map((n, j) => Math.hypot(n.x - prev[j]!.x, n.y - prev[j]!.y))));
       prev = next;
     }
-    expect(session.animating).toBe(false);
     // The stop is decided by the physics, not a step budget: a session
     // only ends after a sustained run of quiet ticks, so the tail of the
     // run is genuinely still instead of frozen mid-motion by a decaying

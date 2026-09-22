@@ -67,10 +67,9 @@ import type {
  * input always converges to the same layout.
  */
 
-/** Pair repulsion magnitude: d3 manyBody applies strength/d, so this is
- * the k in k/d — order-of-magnitude the d3 default (-30), a bit firmer
- * for reference-size cards. Overridable via ForceTuning.repulsion. */
-const DEFAULT_REPULSION = 100;
+/** Pair repulsion magnitude: the k in the k/d falloff. Overridable via
+ * ForceTuning.repulsion. */
+const DEFAULT_REPULSION = 80;
 /** Inverse-square floor: below this center distance the push stops growing,
  * keeping near-contact motion orderly instead of divergent. */
 const REPULSION_FLOOR = 160;
@@ -81,20 +80,20 @@ const REPULSION_FLOOR = 160;
  * and laterally buckling it. */
 const REPULSION_RANGE = 500;
 /** Constant downstream gravity every node feels along the display
- * direction. It loads the spring chain hanging from the anchor, so it
- * must stay small next to the spring stiffness: near the anchor a
- * spring carries the pull of the whole downstream subtree, and its
- * stretch is load/k. Overridable via ForceTuning.gravity. */
-const DEFAULT_GRAVITY = 0.05;
+ * direction. It loads the spring chain hanging from the anchor: a spring
+ * near the anchor carries the pull of the whole downstream subtree, and
+ * its stretch is load/k — so with the default gravity, layers fan out
+ * gently with depth. Overridable via ForceTuning.gravity. */
+const DEFAULT_GRAVITY = 2.635;
 /** Hookean spring stiffness scale: each spring gets this divided by the
  * node count of the layer its downstream end sits in, so a wide layer
  * receives many softer springs while the total pull entering the layer
  * stays constant. Overridable via ForceTuning.spring. */
-const DEFAULT_SPRING = 0.3;
+const DEFAULT_SPRING = 0.35;
 /** Fraction of each body's velocity bled off every tick (friction);
  * passed straight to d3's velocityDecay, which decays velocities by this
  * factor. Overridable via ForceTuning.friction. */
-const DEFAULT_FRICTION = 0.4;
+const DEFAULT_FRICTION = 0.38;
 /** Contact stiffness: an overlapping pair's velocity push per tick is the
  * overlap along the smaller axis times this, split over the pair. Stiff
  * enough that the equilibrium overlap against spring loads stays well
@@ -146,7 +145,7 @@ export const FORCE_TUNING_MIN: ForceTuning = {
   spring: 0,
 };
 export const FORCE_TUNING_MAX: ForceTuning = {
-  gravity: 4,
+  gravity: 5,
   friction: 0.9,
   repulsion: 400,
   spring: 1,

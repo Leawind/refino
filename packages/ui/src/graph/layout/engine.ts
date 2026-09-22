@@ -38,7 +38,7 @@ export const NODE_WIDTH = 150;
 export const NODE_HEIGHT = 44;
 /** Default spacing between adjacent layers; the canvas config can widen
  * or narrow it (LayoutOptions.layerGap). */
-export const LAYER_GAP = 90;
+export const LAYER_GAP = 44;
 /** Persistence bounds of the layer-gap config. */
 export const LAYER_GAP_MIN = 0;
 export const LAYER_GAP_MAX = 400;
