@@ -125,7 +125,7 @@ export const FORCE_TUNING_MIN: ForceTuning = {
   spring: 0,
 };
 export const FORCE_TUNING_MAX: ForceTuning = {
-  gravity: 0.2,
+  gravity: 4,
   friction: 0.9,
   repulsion: 400,
   spring: 1,
