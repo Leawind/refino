@@ -294,6 +294,28 @@ describe("force session", () => {
     expect(Math.hypot(a.x - seedN19.x, a.y - seedN19.y)).toBeLessThan(150);
   });
 
+  it("honors force tuning and the common layer gap", () => {
+    // With gravity and repulsion switched off the springs are the only
+    // remaining force, so every link must rest at exactly one pitch —
+    // card length plus the configured gap. This pins the option plumbing
+    // end to end: layer gap, gravity, repulsion and friction all flow
+    // from LayoutOptions into the physics.
+    const gap = 200;
+    const pitch = NODE_WIDTH + gap;
+    const session = forceStrategy.createSession(chain(6), {
+      direction: "LR",
+      layerGap: gap,
+      force: { gravity: 0, friction: 0.6, repulsion: 0, spring: 0.5 },
+    });
+    const positions = new Map(settled(session).map((n) => [n.id, n] as const));
+    session.dispose();
+    for (let i = 1; i < 6; i++) {
+      const a = positions.get(`n${i - 1}`)!;
+      const b = positions.get(`n${i}`)!;
+      expect(Math.hypot(b.x - a.x, b.y - a.y)).toBeCloseTo(pitch, 4);
+    }
+  });
+
   it("pins a dragged node at the pointer and releases it back", () => {
     const session = forceStrategy.createSession(chain(8), { direction: "LR" });
     settled(session);

@@ -28,13 +28,36 @@ export interface LaidOutNode {
 /** Selectable layout algorithms. */
 export type LayoutMode = "layered" | "force";
 
+/** Tuning coefficients only the force-directed strategy reads. Every
+ * field has a built-in default; the canvas config overrides them. */
+export interface ForceTuning {
+  /** Constant downstream acceleration every node feels along the
+   * display direction (the load the anchored spring chain hangs against). */
+  gravity: number;
+  /** Fraction of a body's velocity bled off each tick (friction). */
+  friction: number;
+  /** Pair repulsion magnitude: the k in the k/d falloff. */
+  repulsion: number;
+  /** Spring stiffness scale: each spring gets this divided by the node
+   * count of the layer its downstream end sits in. */
+  spring: number;
+}
+
 /** Inputs a strategy may use; each strategy picks what applies to it
- * (direction matters for layered, is ignored by force-directed). */
+ * (direction signs the main axis in both strategies). */
 export interface LayoutOptions {
   direction: LayoutDirection;
+  /** Common spacing between adjacent grounds layers, in virtual units,
+   * added to the card dimension along the main axis. Layered maps one
+   * pitch per layer; force-directed springs rest at one pitch per layer
+   * span. Absent keeps the reference spacing. */
+  layerGap?: number;
   /** Shared node card geometry in virtual units; every strategy spaces and
    * stamps its output with it. Absent means the reference card size. */
   nodeSize?: { width: number; height: number };
+  /** Force-directed tuning; only the force strategy reads it. Absent
+   * keeps the built-in coefficients. */
+  force?: ForceTuning;
   /** Coordinates of the previous session's nodes, offered as a seed. The
    * layered strategy ignores it (always lays out from scratch); the
    * force-directed strategy carries known nodes over and reheats gently,

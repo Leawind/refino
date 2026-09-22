@@ -2,6 +2,8 @@ import { computed, reactive, readonly, shallowRef, type InjectionKey } from "vue
 import type { RefinoClient } from "./api";
 import { readNumberPreference, readPreference, writePreference } from "./preferences";
 import { TEXT_SCALE_MAX, TEXT_SCALE_MIN } from "./graph/render/renderer";
+import { LAYER_GAP, LAYER_GAP_MAX, LAYER_GAP_MIN } from "./graph/layout/engine";
+import { FORCE_TUNING_DEFAULT, FORCE_TUNING_MAX, FORCE_TUNING_MIN } from "./graph/layout/force";
 import type { LayoutMode } from "./graph/layout/types";
 import type { ChangeEvent, IssueRecord, LayoutDirection, NodeLite } from "./types";
 
@@ -51,8 +53,16 @@ export interface CanvasConfig {
   nodeHeight: number;
   /** Canvas layout algorithm. */
   layoutMode: LayoutMode;
-  /** Display direction for directional layouts (force ignores it). */
+  /** Display direction; both strategies sign their main axis with it. */
   direction: LayoutDirection;
+  /** Common spacing between adjacent grounds layers (all layouts). */
+  layerGap: number;
+  /** Force-directed tuning (force layout only): gravity, friction, pair
+   * repulsion magnitude and spring stiffness scale. */
+  forceGravity: number;
+  forceFriction: number;
+  forceRepulsion: number;
+  forceSpring: number;
 }
 
 /** Bounds of the node card size, in virtual units. The minimum sits just
@@ -77,6 +87,11 @@ const DEFAULT_CONFIG: CanvasConfig = {
   nodeHeight: NODE_SIZE_DEFAULT.height,
   layoutMode: "layered",
   direction: "LR",
+  layerGap: LAYER_GAP,
+  forceGravity: FORCE_TUNING_DEFAULT.gravity,
+  forceFriction: FORCE_TUNING_DEFAULT.friction,
+  forceRepulsion: FORCE_TUNING_DEFAULT.repulsion,
+  forceSpring: FORCE_TUNING_DEFAULT.spring,
 };
 
 const CONFIG_KEYS: Record<keyof CanvasConfig, string> = {
@@ -94,6 +109,11 @@ const CONFIG_KEYS: Record<keyof CanvasConfig, string> = {
   nodeHeight: "refino.canvas.nodeHeight",
   layoutMode: "refino.canvas.layoutMode",
   direction: "refino.canvas.direction",
+  layerGap: "refino.canvas.layerGap",
+  forceGravity: "refino.canvas.forceGravity",
+  forceFriction: "refino.canvas.forceFriction",
+  forceRepulsion: "refino.canvas.forceRepulsion",
+  forceSpring: "refino.canvas.forceSpring",
 };
 
 /** Why the last range selection degraded to just the clicked node. */
@@ -170,6 +190,31 @@ function loadConfig(): CanvasConfig {
         ? "force"
         : "layered",
     direction: parseDirection(readPreference(CONFIG_KEYS.direction, DEFAULT_CONFIG.direction)),
+    layerGap: clamp(
+      readNumberPreference(CONFIG_KEYS.layerGap, DEFAULT_CONFIG.layerGap),
+      LAYER_GAP_MIN,
+      LAYER_GAP_MAX,
+    ),
+    forceGravity: clamp(
+      readNumberPreference(CONFIG_KEYS.forceGravity, DEFAULT_CONFIG.forceGravity),
+      FORCE_TUNING_MIN.gravity,
+      FORCE_TUNING_MAX.gravity,
+    ),
+    forceFriction: clamp(
+      readNumberPreference(CONFIG_KEYS.forceFriction, DEFAULT_CONFIG.forceFriction),
+      FORCE_TUNING_MIN.friction,
+      FORCE_TUNING_MAX.friction,
+    ),
+    forceRepulsion: clamp(
+      readNumberPreference(CONFIG_KEYS.forceRepulsion, DEFAULT_CONFIG.forceRepulsion),
+      FORCE_TUNING_MIN.repulsion,
+      FORCE_TUNING_MAX.repulsion,
+    ),
+    forceSpring: clamp(
+      readNumberPreference(CONFIG_KEYS.forceSpring, DEFAULT_CONFIG.forceSpring),
+      FORCE_TUNING_MIN.spring,
+      FORCE_TUNING_MAX.spring,
+    ),
   };
 }
 

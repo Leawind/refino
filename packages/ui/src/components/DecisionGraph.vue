@@ -55,14 +55,20 @@ let session: LayoutSession | null = null;
 let rafId = 0;
 let lastFrame = 0;
 /** Structure of the live session: displayed ids + grounds edges, mode,
- * direction and card size. A selection change that alters none of them
- * must not restart (and wobble) the session. */
+ * direction, card size and the layout spacing/tuning inputs. A selection
+ * change that alters none of them must not restart (and wobble) the
+ * session. */
 let lastStructure: {
   signature: string;
   mode: LayoutMode;
   direction: LayoutDirection;
   nodeWidth: number;
   nodeHeight: number;
+  layerGap: number;
+  forceGravity: number;
+  forceFriction: number;
+  forceRepulsion: number;
+  forceSpring: number;
 } | null = null;
 
 function stopSession(): void {
@@ -79,20 +85,32 @@ function startSession(): void {
   const direction = props.direction;
   const displayed = workspace.displayed.value;
   const signature = structureSignature(displayed);
-  const nodeWidth = workspace.state.config.nodeWidth;
-  const nodeHeight = workspace.state.config.nodeHeight;
+  const config = workspace.state.config;
+  const nodeWidth = config.nodeWidth;
+  const nodeHeight = config.nodeHeight;
+  const layerGap = config.layerGap;
+  const forceGravity = config.forceGravity;
+  const forceFriction = config.forceFriction;
+  const forceRepulsion = config.forceRepulsion;
+  const forceSpring = config.forceSpring;
   const sameOrientation =
     session !== null &&
     lastStructure !== null &&
     lastStructure.mode === mode &&
     lastStructure.direction === direction;
-  // A selection change that alters neither the node set, the edges nor the
-  // card size keeps the settled session: restarting it would only wobble.
+  // A selection change that alters neither the node set, the edges, the
+  // card size nor the layout tuning keeps the settled session: restarting
+  // it would only wobble.
   if (
     sameOrientation &&
     lastStructure!.signature === signature &&
     lastStructure!.nodeWidth === nodeWidth &&
-    lastStructure!.nodeHeight === nodeHeight
+    lastStructure!.nodeHeight === nodeHeight &&
+    lastStructure!.layerGap === layerGap &&
+    lastStructure!.forceGravity === forceGravity &&
+    lastStructure!.forceFriction === forceFriction &&
+    lastStructure!.forceRepulsion === forceRepulsion &&
+    lastStructure!.forceSpring === forceSpring
   )
     return;
   // Hand the outgoing session's coordinates to the next one before
@@ -102,11 +120,32 @@ function startSession(): void {
   // direction switch means a fundamentally different layout and gets a
   // full relaxation. The layered strategy ignores the seed either way.
   const seed = session !== null && sameOrientation ? session.positions() : undefined;
-  lastStructure = { signature, mode, direction, nodeWidth, nodeHeight };
+  lastStructure = {
+    signature,
+    mode,
+    direction,
+    nodeWidth,
+    nodeHeight,
+    layerGap,
+    forceGravity,
+    forceFriction,
+    forceRepulsion,
+    forceSpring,
+  };
   stopSession();
   session = createLayoutSession(mode, displayed, {
     direction,
     nodeSize: { width: nodeWidth, height: nodeHeight },
+    layerGap,
+    force:
+      mode === "force"
+        ? {
+            gravity: forceGravity,
+            friction: forceFriction,
+            repulsion: forceRepulsion,
+            spring: forceSpring,
+          }
+        : undefined,
     seed: seed ? new Map(seed.map((n) => [n.id, { x: n.x, y: n.y }] as const)) : undefined,
   });
   layout.value = [...session.positions()];
@@ -290,17 +329,26 @@ watch(
   () => workspace.state.config.textScale,
   (scale) => renderer?.setTextScale(scale),
 );
-// A card-size change shows up in the scene immediately (nodes resize in
-// place); the layout only needs one restart once the resize settles, so
-// spacing and collision catch up without re-swimming on every tick.
-let sizeRestart: ReturnType<typeof setTimeout> | undefined;
+// Card-size, layer-gap and force-tuning changes restart the layout once
+// the slider settles (layered recomputes; force reheats from the current
+// coordinates), so spacing catches up without re-swimming on every tick.
+let layoutRestart: ReturnType<typeof setTimeout> | undefined;
 watch(
-  () => [workspace.state.config.nodeWidth, workspace.state.config.nodeHeight] as const,
+  () =>
+    [
+      workspace.state.config.nodeWidth,
+      workspace.state.config.nodeHeight,
+      workspace.state.config.layerGap,
+      workspace.state.config.forceGravity,
+      workspace.state.config.forceFriction,
+      workspace.state.config.forceRepulsion,
+      workspace.state.config.forceSpring,
+    ] as const,
   ([width, height]) => {
     renderer?.setNodeArea(width * height);
-    if (sizeRestart !== undefined) clearTimeout(sizeRestart);
-    sizeRestart = setTimeout(() => {
-      sizeRestart = undefined;
+    if (layoutRestart !== undefined) clearTimeout(layoutRestart);
+    layoutRestart = setTimeout(() => {
+      layoutRestart = undefined;
       startSession();
     }, 200);
   },
@@ -315,7 +363,7 @@ watch(
 );
 
 onBeforeUnmount(() => {
-  if (sizeRestart !== undefined) clearTimeout(sizeRestart);
+  if (layoutRestart !== undefined) clearTimeout(layoutRestart);
   stopSession();
   renderer?.dispose();
   renderer = null;

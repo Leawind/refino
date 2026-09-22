@@ -36,7 +36,12 @@ export type { LaidOutNode, LayoutNode } from "./types";
  * configurable per canvas (LayoutOptions.nodeSize). */
 export const NODE_WIDTH = 150;
 export const NODE_HEIGHT = 44;
-const LAYER_GAP = 90;
+/** Default spacing between adjacent layers; the canvas config can widen
+ * or narrow it (LayoutOptions.layerGap). */
+export const LAYER_GAP = 90;
+/** Persistence bounds of the layer-gap config. */
+export const LAYER_GAP_MIN = 0;
+export const LAYER_GAP_MAX = 400;
 const CROSS_GAP = 32;
 /** Empty rows between consecutive independent components. */
 const COMPONENT_GAP = 4;
@@ -60,6 +65,7 @@ export function layeredLayout(
   nodes: readonly LayoutNode[],
   direction: LayoutDirection,
   size = { width: NODE_WIDTH, height: NODE_HEIGHT },
+  layerGap = LAYER_GAP,
 ): LaidOutNode[] {
   const { width, height } = size;
   const graph = new Map(nodes.map((node) => [node.id, node] as const));
@@ -100,7 +106,7 @@ export function layeredLayout(
   const result: LaidOutNode[] = [];
   for (const id of ids) {
     const placement = placed.get(id)!;
-    const main = placement.layer * (horizontal ? width + LAYER_GAP : height + LAYER_GAP);
+    const main = placement.layer * (horizontal ? width + layerGap : height + layerGap);
     const cross = placement.order * (horizontal ? height + CROSS_GAP : width + CROSS_GAP);
     const [x, y] =
       direction === "LR"
@@ -120,7 +126,12 @@ export function layeredLayout(
 export const layeredStrategy: LayoutStrategy = {
   id: "layered",
   createSession(nodes: readonly LayoutNode[], options: LayoutOptions): LayoutSession {
-    const result = layeredLayout(nodes, options.direction, resolveNodeSize(options));
+    const result = layeredLayout(
+      nodes,
+      options.direction,
+      resolveNodeSize(options),
+      options.layerGap,
+    );
     return {
       animating: false,
       step: () => result,

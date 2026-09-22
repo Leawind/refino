@@ -8,8 +8,9 @@ import {
 } from "d3-force";
 import { assignLayers } from "refino";
 import type { LayoutDirection } from "../../types";
-import { layeredLayout, resolveNodeSize } from "./engine";
+import { LAYER_GAP, layeredLayout, resolveNodeSize } from "./engine";
 import type {
+  ForceTuning,
   LaidOutNode,
   LayoutNode,
   LayoutOptions,
@@ -51,14 +52,10 @@ import type {
  * input always converges to the same layout.
  */
 
-/** Desired center-to-center length of one grounds-layer pitch: the
- * spring rest length of an edge grows by one pitch per layer span, so a
- * parent–child pair settles one pitch apart. */
-const EDGE_LENGTH = 240;
-/** Pair repulsion strength: d3 manyBody applies strength/d, so this is the
- * k in k/d — order-of-magnitude the d3 default (-30), a bit firmer for
- * reference-size cards. */
-const REPULSION = -100;
+/** Pair repulsion magnitude: d3 manyBody applies strength/d, so this is
+ * the k in k/d — order-of-magnitude the d3 default (-30), a bit firmer
+ * for reference-size cards. Overridable via ForceTuning.repulsion. */
+const DEFAULT_REPULSION = 100;
 /** Inverse-square floor: below this center distance the push stops growing,
  * keeping near-contact motion orderly instead of divergent. */
 const REPULSION_FLOOR = 160;
@@ -74,20 +71,22 @@ const REPULSION_RANGE = 500;
  * direction. It loads the spring chain hanging from the anchor, so it
  * must stay small next to the spring stiffness: near the anchor a
  * spring carries the pull of the whole downstream subtree, and its
- * stretch is load/k. */
-const GRAVITY = 0.05;
+ * stretch is load/k. Overridable via ForceTuning.gravity. */
+const DEFAULT_GRAVITY = 0.05;
 /** Hookean spring stiffness scale: each spring gets this divided by the
  * node count of the layer its downstream end sits in, so a wide layer
  * receives many softer springs while the total pull entering the layer
- * stays constant. */
-const SPRING_K = 0.3;
+ * stays constant. Overridable via ForceTuning.spring. */
+const DEFAULT_SPRING = 0.3;
 /** Circle-packing slack beyond half the card diagonal: a center distance of
  * twice the packed radius separates any two card rectangles. The small
  * slack lets the iterative packing fully resolve, leaving no residual
  * overlaps. */
 const COLLIDE_SLACK = 2;
-/** Velocity kept after each tick; the rest bleeds off as friction. */
-const VELOCITY_DECAY = 0.4;
+/** Fraction of each body's velocity bled off every tick (friction);
+ * passed straight to d3's velocityDecay, which decays velocities by this
+ * factor. Overridable via ForceTuning.friction. */
+const DEFAULT_FRICTION = 0.4;
 /** Exponential cooling: forces scale by alpha, which decays per tick until
  * ALPHA_MIN — motion shrinks smoothly to zero (no hard cutoff). */
 const ALPHA_DECAY = 0.0228;
@@ -110,6 +109,27 @@ const MAX_TICKS = 900;
 const TICK_MS = 16;
 /** Clamp for huge frame gaps (tab background, debugger pause). */
 const MAX_DT = 48;
+
+/** Built-in tuning defaults and persistence bounds; the canvas config
+ * overrides the defaults through LayoutOptions.force. */
+export const FORCE_TUNING_DEFAULT: ForceTuning = {
+  gravity: DEFAULT_GRAVITY,
+  friction: DEFAULT_FRICTION,
+  repulsion: DEFAULT_REPULSION,
+  spring: DEFAULT_SPRING,
+};
+export const FORCE_TUNING_MIN: ForceTuning = {
+  gravity: 0,
+  friction: 0,
+  repulsion: 0,
+  spring: 0,
+};
+export const FORCE_TUNING_MAX: ForceTuning = {
+  gravity: 0.2,
+  friction: 0.9,
+  repulsion: 400,
+  spring: 1,
+};
 
 /** Internal id of the virtual-root anchor body. Never exposed through
  * positions() or the fix/release addressing, so it cannot collide with
@@ -153,12 +173,23 @@ class ForceSession implements LayoutSession {
     const direction: LayoutDirection = options.direction;
     const horizontal = direction === "LR" || direction === "RL";
     const sign = direction === "LR" || direction === "TB" ? 1 : -1;
+    // Tuning coefficients (canvas config overrides the built-in defaults).
+    const gravity = options.force?.gravity ?? DEFAULT_GRAVITY;
+    const friction = options.force?.friction ?? DEFAULT_FRICTION;
+    const repulsion = options.force?.repulsion ?? DEFAULT_REPULSION;
+    const springK = options.force?.spring ?? DEFAULT_SPRING;
+    // One grounds-layer pitch: the shared card dimension along the main
+    // axis plus the common layer gap — the same pitch the layered layout
+    // maps per layer, so both strategies space layers identically and
+    // node resizing re-spaces the force graph too.
+    const pitch =
+      (horizontal ? this.#size.width : this.#size.height) + (options.layerGap ?? LAYER_GAP);
     // Fallback seed: layered positions are deterministic, a natural starting
     // shape, and already oriented along the display direction, so the first
     // force session starts from a readable layout. A carried-over seed
     // (previous session) wins per node.
     const layered = new Map(
-      layeredLayout(nodes, direction, this.#size).map((n) => [n.id, n] as const),
+      layeredLayout(nodes, direction, this.#size, options.layerGap).map((n) => [n.id, n] as const),
     );
     const carried = options.seed;
     // Grounds longest-path layers (the same layering the layered layout
@@ -210,7 +241,7 @@ class ForceSession implements LayoutSession {
       y: start.get(id)!.y,
     }));
     for (const body of this.#bodies) this.#byId.set(body.id, body);
-    // Stiffness shares: a spring entering layer L gets SPRING_K split
+    // Stiffness shares: a spring entering layer L gets the spring stiffness split
     // across that layer's node count.
     const layerCounts = new Map<number, number>();
     for (const id of ids) {
@@ -233,31 +264,31 @@ class ForceSession implements LayoutSession {
       }
       ax /= rootIds.length;
       ay /= rootIds.length;
-      if (horizontal) ax -= sign * EDGE_LENGTH;
-      else ay -= sign * EDGE_LENGTH;
+      if (horizontal) ax -= sign * pitch;
+      else ay -= sign * pitch;
       anchorBody = { id: ANCHOR_ID, anchor: true, x: ax, y: ay, fx: ax, fy: ay };
     }
     // Grounds springs, plus one anchor spring per root (span 1).
     const springs: Spring[] = [];
     if (anchorBody !== null) {
-      const k = SPRING_K / (layerCounts.get(0) ?? 1);
+      const k = springK / (layerCounts.get(0) ?? 1);
       for (const id of rootIds) {
         springs.push({
           source: anchorBody,
           target: this.#byId.get(id)!,
           k,
-          natural: EDGE_LENGTH,
+          natural: pitch,
         });
       }
     }
     for (const body of this.#bodies) {
       const layer = layers.get(body.id) ?? 0;
-      const k = SPRING_K / (layerCounts.get(layer) ?? 1);
+      const k = springK / (layerCounts.get(layer) ?? 1);
       for (const g of grounds.get(body.id) ?? []) {
         const source = this.#byId.get(g);
         if (source === undefined || source.anchor) continue;
         const span = Math.max(1, layer - (layers.get(g) ?? 0));
-        springs.push({ source, target: body, k, natural: span * EDGE_LENGTH });
+        springs.push({ source, target: body, k, natural: span * pitch });
       }
     }
     const bodies = this.#bodies;
@@ -280,7 +311,7 @@ class ForceSession implements LayoutSession {
     /** Constant downstream gravity: the load the anchored spring chain
      * hangs against. The anchor itself is pinned and feels nothing. */
     const gravityForce = (alpha: number): void => {
-      const g = GRAVITY * alpha * sign;
+      const g = gravity * alpha * sign;
       for (const body of bodies) {
         if (horizontal) body.vx = (body.vx ?? 0) + g;
         else body.vy = (body.vy ?? 0) + g;
@@ -295,7 +326,7 @@ class ForceSession implements LayoutSession {
       .force(
         "charge",
         forceManyBody<Body>()
-          .strength((body) => (body.anchor ? 0 : REPULSION))
+          .strength((body) => (body.anchor ? 0 : -repulsion))
           .distanceMin(REPULSION_FLOOR)
           .distanceMax(REPULSION_RANGE),
       )
@@ -306,7 +337,7 @@ class ForceSession implements LayoutSession {
       .force("gravity", gravityForce)
       .alpha(reheated ? REHEAT_ALPHA : 1)
       .alphaDecay(reheated ? REHEAT_ALPHA_DECAY : ALPHA_DECAY)
-      .velocityDecay(VELOCITY_DECAY)
+      .velocityDecay(friction)
       .stop(); // no internal timer: the canvas drives ticks via step()
     // Nothing to relax with at most one body.
     if (this.#bodies.length <= 1) this.#animating = false;

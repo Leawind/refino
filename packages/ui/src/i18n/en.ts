@@ -126,6 +126,13 @@ export default {
     nodeSize: "Node size",
     nodeSizeResize: "Drag a corner to resize",
     nodeSizeReset: "Reset",
+    layoutTuning: "Layout tuning",
+    layoutTuningReset: "Reset",
+    layerGap: "Layer gap",
+    forceGravity: "Gravity",
+    forceFriction: "Friction",
+    forceRepulsion: "Repulsion",
+    forceSpring: "Spring stiffness",
     rangeDisconnected:
       "No path between the two nodes (no common ancestor or the search budget ran out); the selection is now just the clicked node",
     glUnavailable: "WebGL 2 is unavailable; the canvas cannot render",
