@@ -30,12 +30,13 @@ describe("layered session", () => {
 
 describe("layout registry", () => {
   it("lists every selectable mode", () => {
-    expect(layoutModes).toEqual(["layered", "force"]);
+    expect(layoutModes).toEqual(["layered", "force", "rail"]);
   });
 
   it("dispatches by mode", () => {
     expect(layoutStrategy("layered").id).toBe("layered");
     expect(layoutStrategy("force").id).toBe("force");
+    expect(layoutStrategy("rail").id).toBe("rail");
     const session = createLayoutSession("force", chain(2), { direction: "LR" });
     expect(session.animating).toBe(true);
     session.dispose();

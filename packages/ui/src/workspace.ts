@@ -190,10 +190,10 @@ function loadConfig(): CanvasConfig {
       NODE_SIZE_MIN.height,
       NODE_SIZE_MAX.height,
     ),
-    layoutMode:
-      readPreference(CONFIG_KEYS.layoutMode, DEFAULT_CONFIG.layoutMode) === "force"
-        ? "force"
-        : "layered",
+    layoutMode: (() => {
+      const mode = readPreference(CONFIG_KEYS.layoutMode, DEFAULT_CONFIG.layoutMode);
+      return mode === "force" || mode === "rail" ? mode : "layered";
+    })(),
     direction: parseDirection(readPreference(CONFIG_KEYS.direction, DEFAULT_CONFIG.direction)),
     layerGap: clamp(
       readNumberPreference(CONFIG_KEYS.layerGap, DEFAULT_CONFIG.layerGap),

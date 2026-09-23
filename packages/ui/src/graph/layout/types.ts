@@ -5,9 +5,10 @@ import type { LayoutDirection } from "../../types";
  *
  * A layout strategy owns one algorithm; a session is one live layout of
  * exactly the node set it was created with. Snapshot layouts (layered)
- * finish immediately; converging layouts (force-directed) keep stepping
- * until settled. The canvas drives sessions from its render loop and only
- * consumes geometry, so strategies stay free of Vue and renderer concerns.
+ * finish immediately; converging layouts (force-directed, rail) keep
+ * stepping until settled. The canvas drives sessions from its render loop
+ * and only consumes geometry, so strategies stay free of Vue and renderer
+ * concerns.
  */
 
 /** Minimal read-only node shape any layout needs. */
@@ -26,7 +27,7 @@ export interface LaidOutNode {
 }
 
 /** Selectable layout algorithms. */
-export type LayoutMode = "layered" | "force";
+export type LayoutMode = "layered" | "force" | "rail";
 
 /** Tuning coefficients only the force-directed strategy reads. Every
  * field has a built-in default; the canvas config overrides them. */
@@ -62,8 +63,9 @@ export interface LayoutOptions {
    * layered strategy ignores it (always lays out from scratch); the
    * force-directed strategy carries known nodes over — plus its virtual
    * root's position, stored under the root's internal id — and relaxes
-   * from them, so working-set changes nudge the layout instead of
-   * re-swimming it. */
+   * from them; the rail strategy carries the cross-axis coordinate only
+   * (the main axis is re-derived from the fresh layering), so working-set
+   * changes nudge the layout instead of re-swimming it. */
   seed?: ReadonlyMap<string, { x: number; y: number }>;
 }
 

@@ -14,6 +14,7 @@ export default {
     layout: "布局",
     layoutLayered: "分层",
     layoutForce: "力导向",
+    layoutRail: "轨道",
     collapse: "收起",
     expand: "展开侧栏",
     float: "切换为浮动侧栏",

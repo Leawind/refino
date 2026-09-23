@@ -1,5 +1,6 @@
 import { layeredStrategy } from "./engine";
 import { forceStrategy } from "./force";
+import { railStrategy } from "./rail";
 import type { LayoutMode, LayoutNode, LayoutOptions, LayoutSession, LayoutStrategy } from "./types";
 
 /**
@@ -11,6 +12,7 @@ import type { LayoutMode, LayoutNode, LayoutOptions, LayoutSession, LayoutStrate
 const strategies: Record<LayoutMode, LayoutStrategy> = {
   layered: layeredStrategy,
   force: forceStrategy,
+  rail: railStrategy,
 };
 
 /** All selectable layout modes, registry order. */

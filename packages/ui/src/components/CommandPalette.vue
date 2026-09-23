@@ -66,6 +66,11 @@ const actions = computed<ActionItem[]>(() => [
     run: () => workspace.setConfig({ layoutMode: "force" }),
   },
   {
+    key: "layout-rail",
+    label: t("app.layoutRail"),
+    run: () => workspace.setConfig({ layoutMode: "rail" }),
+  },
+  {
     key: "direction-lr",
     label: `${t("app.direction")} →`,
     run: () => workspace.setConfig({ direction: "LR" }),

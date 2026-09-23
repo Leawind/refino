@@ -293,11 +293,11 @@ const scene = computed<SceneInput>(() => {
     nodes,
     edges,
     focusId,
-    // Snapshot layouts pin the focus through relayouts; a converging
-    // (force) layout leaves the viewport entirely to the user — the layout
-    // itself moves the nodes, and camera reactions would only add noise
-    // (ui DESIGN.md, "视口").
-    focusFollow: props.layoutMode === "force" ? ("none" as const) : ("pin" as const),
+    // Snapshot layouts pin the focus through relayouts; converging
+    // layouts (force, rail) leave the viewport entirely to the user —
+    // the layout itself moves the nodes, and camera reactions would only
+    // add noise (ui DESIGN.md, "视口").
+    focusFollow: props.layoutMode === "layered" ? ("pin" as const) : ("none" as const),
   };
 });
 
@@ -309,9 +309,10 @@ function syncBudget(): void {
   renderer?.requestRender();
 }
 
-/** Node dragging (force layouts): the dragged node is pinned to the
- * pointer while the neighbourhood relaxes around it, and released back to
- * the forces on drop. */
+/** Node dragging (converging layouts): the dragged node is pinned to the
+ * pointer (on the rail layout, projected onto its layer line) while the
+ * neighbourhood relaxes around it, and released back to the forces on
+ * drop. */
 function dragNode(id: string, x: number, y: number, phase: "drag" | "end"): void {
   if (phase === "drag") session?.fix?.(id, x, y);
   else session?.release?.(id);
@@ -342,15 +343,15 @@ function ensureRenderer(): void {
   renderer.setTextScale(workspace.state.config.textScale);
   renderer.setNodeArea(workspace.state.config.nodeWidth * workspace.state.config.nodeHeight);
   renderer.setTheme(readThemeColors());
-  renderer.setNodeDragHandler(props.layoutMode === "force" ? dragNode : null);
+  renderer.setNodeDragHandler(props.layoutMode === "layered" ? null : dragNode);
   renderer.setScene(scene.value);
 }
 
-// Node dragging follows the layout mode: only the converging layout has
+// Node dragging follows the layout mode: only converging layouts have
 // nodes that react to being moved.
 watch(
   () => props.layoutMode,
-  (mode) => renderer?.setNodeDragHandler(mode === "force" ? dragNode : null),
+  (mode) => renderer?.setNodeDragHandler(mode === "layered" ? null : dragNode),
 );
 
 onMounted(ensureRenderer);

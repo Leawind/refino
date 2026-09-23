@@ -14,6 +14,7 @@ export default {
     layout: "Layout",
     layoutLayered: "Layered",
     layoutForce: "Force-directed",
+    layoutRail: "Rail",
     collapse: "Collapse",
     expand: "Expand sidebar",
     float: "Switch to floating sidebar",

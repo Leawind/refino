@@ -42,7 +42,9 @@ export const LAYER_GAP = 44;
 /** Persistence bounds of the layer-gap config. */
 export const LAYER_GAP_MIN = 0;
 export const LAYER_GAP_MAX = 400;
-const CROSS_GAP = 32;
+/** Spacing between adjacent cards within one layer row; the rail layout
+ * reuses it as the minimum cross-axis clearance between layer mates. */
+export const CROSS_GAP = 32;
 /** Empty rows between consecutive independent components. */
 const COMPONENT_GAP = 4;
 

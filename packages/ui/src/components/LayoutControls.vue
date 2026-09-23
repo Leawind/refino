@@ -45,6 +45,7 @@ const layoutMode = computed(() => workspace.state.config.layoutMode);
 const layoutOptions = computed(() => [
   { label: t("app.layoutLayered"), value: "layered" },
   { label: t("app.layoutForce"), value: "force" },
+  { label: t("app.layoutRail"), value: "rail" },
 ]);
 
 function setLayoutMode(mode: LayoutMode): void {
@@ -179,6 +180,7 @@ const showVirtualRoot = computed<boolean>({
     >
       <NButton circle :title="t('app.layout')">
         <span v-if="layoutMode === 'layered'">≡</span>
+        <span v-else-if="layoutMode === 'rail'">∥</span>
         <span v-else>⚛</span>
       </NButton>
     </NPopselect>
