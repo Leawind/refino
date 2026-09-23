@@ -124,6 +124,10 @@ const LABEL_LINE_HEIGHT = 1.4;
 const EDGE_WIDTH = 1.4;
 const EDGE_WIDTH_EMPHASIZED = 2.4;
 const EDGE_WIDTH_LOD = 1;
+/** Premise-ground edges fade this far toward the canvas background: the
+ * support facts read as context, a step weaker than ordinary edge ink
+ * (ui DESIGN.md, "显示规则与样式"). */
+const EDGE_WEAK_FADE = 0.55;
 const BORDER_WIDTH = 1.2;
 const BORDER_WIDTH_HOVERED = 2;
 const BORDER_WIDTH_SELECTED = 2.4;
@@ -916,7 +920,7 @@ export class GraphRenderer {
         (edge.emphasized ? EDGE_WIDTH_EMPHASIZED : lowLod ? EDGE_WIDTH_LOD : EDGE_WIDTH) *
         (edge.weak ? 0.75 : 1);
       const baseColor = edge.emphasized ? this.#theme.primary : this.#theme.edge;
-      const color = edge.weak ? premix(baseColor, this.#theme.canvasBg, 0.4) : baseColor;
+      const color = edge.weak ? premix(baseColor, this.#theme.canvasBg, EDGE_WEAK_FADE) : baseColor;
       const base = count * 9;
       // Trim both ends to the node outlines: the shaft must not run under
       // the opaque cards, and the arrow tip lands on the downstream border
