@@ -89,6 +89,66 @@ describe("rail layout", () => {
     session.dispose();
   });
 
+  it("a dragged body is no wall: mates dodge softly and everything returns", () => {
+    const session = railStrategy.createSession(fan(4), { direction: "LR" });
+    for (let step = 0; step < 400 && session.animating; step++) session.step(16);
+    const homes = new Map(session.positions().map((n) => [n.id, n.y] as const));
+    const leaves = [...homes.entries()]
+      .filter(([id]) => id.startsWith("leaf"))
+      .sort((a, b) => a[1] - b[1]);
+    const [low, mid] = [leaves[0]!, leaves[1]!];
+    // Hold the bottom leaf exactly on its upper neighbour's slot.
+    session.fix(low[0], 0, mid[1]);
+    for (let step = 0; step < 200; step++) session.step(16);
+    const during = new Map(session.positions().map((n) => [n.id, n.y] as const));
+    // Pointer wins: the dragged card sits exactly at the grab point, and
+    // the neighbour dodged clear of the card instead of holding a rigid
+    // wall against it or being crushed under it.
+    expect(during.get(low[0])).toBeCloseTo(mid[1], 6);
+    const dodged = during.get(mid[0])!;
+    expect(Math.abs(dodged - mid[1])).toBeGreaterThan(1);
+    expect(Math.abs(dodged - mid[1])).toBeGreaterThanOrEqual(NODE_HEIGHT - 1);
+    // Free mates stay separated among themselves while dodging.
+    const rest = [...during.entries()]
+      .filter(([id]) => id.startsWith("leaf") && id !== low[0])
+      .map(([, y]) => y)
+      .sort((a, b) => a - b);
+    for (let i = 1; i < rest.length; i++) {
+      expect(rest[i]! - rest[i - 1]!).toBeGreaterThanOrEqual(NODE_HEIGHT + CROSS_GAP - 0.5);
+    }
+    // Release: the anchors pull every body back to its home slot.
+    session.release(low[0]);
+    for (let step = 0; step < 400 && session.animating; step++) session.step(16);
+    expect(session.animating).toBe(false);
+    for (const n of session.positions()) {
+      expect(n.y).toBeCloseTo(homes.get(n.id)!, 6);
+    }
+    session.dispose();
+  });
+
+  it("releases cleanly after a drag slid into the row", () => {
+    const session = railStrategy.createSession(fan(4), { direction: "LR" });
+    for (let step = 0; step < 400 && session.animating; step++) session.step(16);
+    const homes = new Map(session.positions().map((n) => [n.id, n.y] as const));
+    const leaves = [...homes.entries()]
+      .filter(([id]) => id.startsWith("leaf"))
+      .sort((a, b) => a[1] - b[1]);
+    const low = leaves[0]!;
+    const mid = leaves[1]!;
+    // Drag the bottom leaf past its neighbour's home, then let go: the
+    // squeeze must not outlive the drag — every body relaxes back to its
+    // own slot instead of the row freezing in a shifted permutation.
+    session.fix(low[0], 0, mid[1] + 30);
+    for (let step = 0; step < 50; step++) session.step(16);
+    session.release(low[0]);
+    for (let step = 0; step < 400 && session.animating; step++) session.step(16);
+    expect(session.animating).toBe(false);
+    for (const n of session.positions()) {
+      expect(n.y).toBeCloseTo(homes.get(n.id)!, 6);
+    }
+    session.dispose();
+  });
+
   it("works in the vertical direction with the same invariants", () => {
     const laid = settled(chain(3), "TB");
     const byId = new Map(laid.map((n) => [n.id, n] as const));

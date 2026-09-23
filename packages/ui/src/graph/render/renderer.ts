@@ -888,6 +888,9 @@ export class GraphRenderer {
     const result = cullByBudget(cullEntries, this.#edges, budget);
     this.#admitted = result.admitted;
     this.#culled = result.culled;
+    // A dragged node never drops out of the render: it sits under the
+    // pointer, and losing it mid-gesture reads as a lost grab.
+    if (this.#nodeDrag !== null) this.#admitted.add(this.#nodeDrag.id);
 
     gl.viewport(0, 0, this.#canvas.width, this.#canvas.height);
     gl.clear(gl.COLOR_BUFFER_BIT);
@@ -970,11 +973,12 @@ export class GraphRenderer {
     const scale = this.#camera.scale;
     const tx = this.#camera.tx;
     const ty = this.#camera.ty;
+    // The node being dragged paints last, above the cards it passes over
+    // (its label follows in #drawText).
+    const draggedId = this.#nodeDrag?.id ?? null;
     let count = 0;
-    for (const [id, entry] of this.#entries) {
-      if (entry.alpha < 0.01 || !this.#admitted.has(id)) continue;
+    const emit = (node: RenderNodeInput, alpha: number): void => {
       if ((count + 1) * 15 > this.#nodeData.length) this.#nodeData = grow(this.#nodeData);
-      const node = entry.node;
       // The ordinary / hovered / selected / focus states differ only in the
       // border — width and color here, no in-card badges (DESIGN.md).
       const emphasized = node.selected || node.focus || node.hovered;
@@ -1007,8 +1011,18 @@ export class GraphRenderer {
         base + 6,
       );
       this.#nodeData.set(borderColor, base + 10);
-      this.#nodeData[base + 14] = entry.alpha;
+      this.#nodeData[base + 14] = alpha;
       count++;
+    };
+    for (const [id, entry] of this.#entries) {
+      if (id === draggedId || entry.alpha < 0.01 || !this.#admitted.has(id)) continue;
+      emit(entry.node, entry.alpha);
+    }
+    if (draggedId !== null) {
+      const dragged = this.#entries.get(draggedId);
+      if (dragged !== undefined && dragged.alpha >= 0.01 && this.#admitted.has(draggedId)) {
+        emit(dragged.node, dragged.alpha);
+      }
     }
 
     const { program, uniform } = this.#nodeProgram;
@@ -1044,9 +1058,9 @@ export class GraphRenderer {
     const glyphUnits = fontUnits / this.#atlas.fontPx; // atlas font pixels → virtual units
     const lineHeight = fontUnits * LABEL_LINE_HEIGHT;
     let count = 0;
-    for (const [id, entry] of this.#entries) {
-      if (entry.alpha < 0.02 || !this.#admitted.has(id) || !textShown.get(id)) continue;
-      const node = entry.node;
+    // Same paint order as #drawNodes: the dragged node's label on top.
+    const draggedId = this.#nodeDrag?.id ?? null;
+    const emit = (node: RenderNodeInput, alpha: number): void => {
       const maxWidth = (node.width - padUnits * 2) / glyphUnits;
       const maxLines = Math.max(1, Math.floor((node.height - padYUnits * 2) / lineHeight));
       const lines = this.#linesFor(node.label, maxWidth, maxLines);
@@ -1071,11 +1085,27 @@ export class GraphRenderer {
             this.#textData[base + 5] = glyph.v0;
             this.#textData[base + 6] = glyph.u1 - glyph.u0;
             this.#textData[base + 7] = glyph.v1 - glyph.v0;
-            this.#textData[base + 8] = entry.alpha;
+            this.#textData[base + 8] = alpha;
             count++;
           }
           penX += glyph.advance * glyphUnits;
         }
+      }
+    };
+    for (const [id, entry] of this.#entries) {
+      if (id === draggedId) continue;
+      if (entry.alpha < 0.02 || !this.#admitted.has(id) || !textShown.get(id)) continue;
+      emit(entry.node, entry.alpha);
+    }
+    if (draggedId !== null) {
+      const dragged = this.#entries.get(draggedId);
+      if (
+        dragged !== undefined &&
+        dragged.alpha >= 0.02 &&
+        this.#admitted.has(draggedId) &&
+        textShown.get(draggedId) === true
+      ) {
+        emit(dragged.node, dragged.alpha);
       }
     }
 

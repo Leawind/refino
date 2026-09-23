@@ -24,22 +24,32 @@ import type {
  * toward the mean cross position of its dependents (it clusters beside
  * the family it supports), remaining roots relax
  * toward their layered snapshot slot, and an order-preserving sweep
- * enforces an exact minimum gap between same-layer neighbors, re-centering
- * compressed families around their anchors. The session stops on the same
- * sustained-quiet criterion as the force layout — a genuinely converged
- * relaxation, never a step count. The result reads like the layered
- * layout, but layer order is a live equilibrium instead of a snapshot:
- * dragging a node slides its neighbourhood along the rails, and
- * working-set changes nudge the layout instead of re-stacking it.
+ * enforces an exact minimum gap between same-layer free neighbors,
+ * re-centering compressed families around their anchors. The session
+ * stops on the same sustained-quiet criterion as the force layout — a
+ * genuinely converged relaxation, never a step count. The result reads
+ * like the layered layout, but layer order is a live equilibrium instead
+ * of a snapshot: dragging a node slides it along its rail while its mates
+ * dodge a soft repulsion and spring back on release, and working-set
+ * changes nudge the layout instead of re-swimming it.
  *
  * Determinism: bodies are built and iterated in id-sorted order, collision
- * sweeps walk each layer's bodies in cross order, and the initial cross
+ * sweeps walk each layer's bodies in desired order, and the initial cross
  * positions come from the layered layout (id-ordered by construction), so
  * the same input always converges to the same layout.
  */
 
 /** Fraction of the distance to a body's anchor that one tick closes. */
 const RATE = 0.2;
+/** Within this distance of its anchor a body's desired cross snaps to the
+ * anchor exactly, so bodies sharing an anchor tie *exactly* and the sweep
+ * falls back to the layered home order — drags can never permute the row
+ * through float dust in the integrator. */
+const DESIRED_SNAP = 0.5;
+/** Fraction of the distance to the swept slot a body's cross closes per
+ * tick. Blending (instead of jumping to the slot) turns a release after a
+ * hold into a fast glide rather than a snap. */
+const SWEEP_RATE = 0.5;
 /** Per-tick cross displacement below which the session counts as quiet. */
 const STOP_DELTA = 0.01;
 /** Consecutive quiet ticks required before the session counts as stable. */
@@ -51,14 +61,26 @@ const TICK_MS = 16;
 const MAX_DT = 48;
 
 /** One relaxing body: a node pinned to its layer line, free on the cross
- * axis. `main` is the fixed line coordinate, `cross` the live coordinate. */
+ * axis. `main` is the fixed line coordinate, `cross` the live coordinate,
+ * `desired` the integrated relaxation goal the collision sweep works from
+ * (it converges toward the anchor whether or not the sweep currently
+ * clamps the body, so a body squeezed aside by a drag always slides back
+ * home once the clamp lifts — a cross-derived goal would freeze against
+ * the clamp and jam the row permanently). */
 interface Body {
   id: string;
   layer: number;
   main: number;
   cross: number;
+  desired: number;
+  /** Layered snapshot slot; the sweep's tie-break order when bodies'
+   * desired crosses coincide (equal-anchor families), so the row's slot
+   * assignment always falls back to the layered arrangement. */
   home: number;
-  /** Cross coordinate pinned by an active drag; null when free. */
+  /** Cross coordinate pinned by an active drag; null when free. A dragged
+   * body stands outside the collision sweep: it takes the pointer cross
+   * exactly and only repels its layer mates — never displaced, a wall to
+   * nobody. */
   fixed: number | null;
   /** Premise flag: premises anchor to their dependents' mean instead of
    * their home slot (root decisions must not chase their children). */
@@ -118,6 +140,7 @@ class RailSession implements LayoutSession {
         layer: layers.get(id)!,
         main: sign > 0 ? main : -main - (this.#horizontal ? width : height),
         cross,
+        desired: cross,
         home: this.#horizontal ? snap.y : snap.x,
         fixed: null,
         premise: premiseIds.has(id),
@@ -183,20 +206,23 @@ class RailSession implements LayoutSession {
     return this.positions();
   }
 
-  /** One relaxation tick: every body steps toward its anchor (the mean
-   * cross position of its grounds; a premise toward the mean of its
-   * dependents — it follows the family it supports; other roots step
-   * toward their layered home
-   * slot), then each layer resolves overlaps by an order-preserving
-   * forward sweep that enforces the exact minimum gap, re-centered so a
-   * compressed family stays centered on its anchors. Returns the largest
-   * displacement this tick produced. */
+  /** One relaxation tick. Every free body integrates its desired cross
+   * toward its anchor (the mean cross position of its grounds; a premise
+   * toward the mean of its dependents — it follows the family it supports;
+   * other roots toward their layered home slot), the sweep then parts the
+   * free bodies of each layer into a minimum-gap arrangement in desired
+   * order (ties in the layered home order) and their crosses glide toward
+   * it, and finally a dragged body — outside the sweep entirely — takes
+   * the pointer cross and its layer mates are projected out of the
+   * rectangle-and-gap zone around it: pure repulsion, no wall. Returns
+   * the largest displacement this tick produced. */
   #tick(): number {
     const byId = this.#byId;
-    const desired = new Map<Body, number>();
+    let dragged: Body | null = null;
     for (const body of this.#bodies) {
       if (body.fixed !== null) {
-        desired.set(body, body.fixed);
+        dragged = body;
+        body.desired = body.fixed;
         continue;
       }
       const anchors = body.grounds
@@ -210,20 +236,25 @@ class RailSession implements LayoutSession {
       } else {
         target = body.home;
       }
-      desired.set(body, body.cross + RATE * (target - body.cross));
+      // The goal integrates toward the target independently of `cross`:
+      // a body the sweep currently clamps keeps converging, so once the
+      // clamp lifts (drag moved on, released) it slides home instead of
+      // freezing in a squeezed-aside permutation of the row.
+      const next = body.desired + RATE * (target - body.desired);
+      body.desired = Math.abs(target - next) < DESIRED_SNAP ? target : next;
     }
     let moved = 0;
     const minDist = (this.#horizontal ? this.#size.height : this.#size.width) + CROSS_GAP;
     for (const bucket of this.#layers) {
-      const sorted = [...bucket].sort((a, b) => desired.get(a)! - desired.get(b)!);
+      const sorted = bucket
+        .filter((body) => body.fixed === null)
+        .sort((a, b) => a.desired - b.desired || a.home - b.home || (a.id < b.id ? -1 : 1));
       // Forward sweep: each body takes its desired slot unless the previous
-      // body's slot plus the minimum gap is past it. A dragged (fixed)
-      // body is a wall: free bodies slide against it, never through it.
+      // body's slot plus the minimum gap is past it.
       const slots: number[] = [];
       for (let i = 0; i < sorted.length; i++) {
-        const body = sorted[i]!;
-        const want = desired.get(body)!;
-        slots.push(i === 0 || body.fixed !== null ? want : Math.max(want, slots[i - 1]! + minDist));
+        const want = sorted[i]!.desired;
+        slots.push(i === 0 ? want : Math.max(want, slots[i - 1]! + minDist));
       }
       // Recenter contiguous compressed runs around their desired mean, so
       // a family pulled onto one spot spreads symmetrically instead of
@@ -232,13 +263,13 @@ class RailSession implements LayoutSession {
       let start = 0;
       while (start < sorted.length) {
         let end = start;
-        while (end + 1 < sorted.length && slots[end + 1]! > desired.get(sorted[end + 1]!)! + 1e-9) {
+        while (end + 1 < sorted.length && slots[end + 1]! > sorted[end + 1]!.desired + 1e-9) {
           end += 1;
         }
         if (end > start) {
           let shift = 0;
           for (let i = start; i <= end; i++) {
-            shift += desired.get(sorted[i]!)! - slots[i]!;
+            shift += sorted[i]!.desired - slots[i]!;
           }
           shift /= end - start + 1;
           // Shifting down must not collide with the body before the run.
@@ -250,9 +281,44 @@ class RailSession implements LayoutSession {
       }
       for (let i = 0; i < sorted.length; i++) {
         const body = sorted[i]!;
-        const slot = slots[i]!;
-        moved = Math.max(moved, Math.abs(slot - body.cross));
-        body.cross = slot;
+        const next = body.cross + SWEEP_RATE * (slots[i]! - body.cross);
+        moved = Math.max(moved, Math.abs(next - body.cross));
+        body.cross = next;
+      }
+    }
+    if (dragged !== null) {
+      moved = Math.max(moved, Math.abs(dragged.fixed! - dragged.cross));
+      dragged.cross = dragged.fixed!;
+      // Soft repulsion, same layer only (other layers' lines are a full
+      // pitch away, never within a card of it): mates are projected out of
+      // the dragged card's rectangle-plus-gap zone, nearest first, each
+      // chaining its own side outward. A pure positional projection — it
+      // never touches the desired goals or the sweep order, so nothing
+      // sticks: the anchors pull every mate back once the drag moves on
+      // or releases.
+      const at = dragged.fixed!;
+      const mates = this.#bodies
+        .filter((body) => body !== dragged && body.layer === dragged.layer)
+        .sort((a, b) => a.cross - b.cross);
+      // Mates below the pointer, nearest first, chained outward downward.
+      let upper: number | null = null;
+      let i = mates.length;
+      while (i > 0 && mates[i - 1]!.cross >= at) i -= 1;
+      for (; i > 0; i -= 1) {
+        const mate = mates[i - 1]!;
+        const pos = Math.min(mate.cross, (upper ?? at) - minDist);
+        moved = Math.max(moved, Math.abs(pos - mate.cross));
+        mate.cross = pos;
+        upper = pos;
+      }
+      // Mates above the pointer, nearest first, chained outward upward.
+      let lower: number | null = null;
+      for (const mate of mates) {
+        if (mate.cross < at) continue;
+        const pos = Math.max(mate.cross, (lower ?? at) + minDist);
+        moved = Math.max(moved, Math.abs(pos - mate.cross));
+        mate.cross = pos;
+        lower = pos;
       }
     }
     return moved;
