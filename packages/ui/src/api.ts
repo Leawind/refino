@@ -45,8 +45,8 @@ export interface RefinoClient {
   queryGrounds(ids: readonly string[]): Promise<QueryGroup<NodeLite>[]>;
 
   /** GET /api/search — keyset-paginated id/summary search. `unreferenced`
-   * restricts premises no decision grounds on; `roots` to root
-   * decisions. */
+   * restricts premises no decision grounds on; `roots` to decisions with
+   * no decision grounds. */
   search(params: {
     q?: string;
     type?: "premise" | "decision";

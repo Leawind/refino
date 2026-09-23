@@ -10,6 +10,7 @@ import { decision, createRefino, premise, removeRefino } from "@refino/testkit";
 
 const P1 = "1A2B3C4D";
 const R1 = "A1B2C3D4";
+const T1 = "B2C3D4E5";
 const C1 = "D4E5F6G7";
 
 let root: string;
@@ -21,6 +22,7 @@ beforeAll(async () => {
   root = await createRefino({
     "nodes/1A/2B3C4D-premise.md": premise(P1, "前提一。"),
     "nodes/A1/B2C3D4-decision.md": decision(R1, [], "根决策一。"),
+    "nodes/B2/C3D4E5-decision.md": decision(T1, [P1], "仅落前提的顶层决策。"),
     "nodes/D4/E5F6G7-decision.md": decision(C1, [R1, P1], "细化决策一。"),
   });
   refinoDir = join(root, ".refino");
@@ -36,19 +38,25 @@ describe("GET /api/stats", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       revision: 1,
-      nodes: 3,
-      decisions: 2,
+      nodes: 4,
+      decisions: 3,
       premises: 1,
-      roots: 1,
+      roots: 2,
     });
   });
 });
 
 describe("GET /api/search roots filter", () => {
-  it("returns only root decisions", async () => {
+  it("returns decisions with no decision grounds: grounds-less and premise-grounded alike", async () => {
     const res = await app().request("/api/search?roots=1");
     const body = (await res.json()) as { nodes: Array<{ id: string }> };
-    expect(body.nodes.map((n) => n.id)).toEqual([R1]);
+    expect(body.nodes.map((n) => n.id)).toEqual([R1, T1]);
+  });
+
+  it("excludes decisions grounded on another decision", async () => {
+    const res = await app().request("/api/search?roots=1");
+    const body = (await res.json()) as { nodes: Array<{ id: string }> };
+    expect(body.nodes.map((n) => n.id)).not.toContain(C1);
   });
 
   it("combines with the query and returns an empty page when nothing matches", async () => {
@@ -64,7 +72,7 @@ describe("GET /api/search roots filter", () => {
   it("ignores other spellings of the flag", async () => {
     const res = await app().request("/api/search?roots=yes");
     const body = (await res.json()) as { nodes: Array<{ id: string }> };
-    expect(body.nodes).toHaveLength(3);
+    expect(body.nodes).toHaveLength(4);
   });
 });
 

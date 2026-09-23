@@ -374,10 +374,13 @@ export function createWorkspace(client: RefinoClient) {
   /**
    * Cold start: expand from the root decisions down to the working set
    * limit so the canvas opens on the whole inheritance structure instead of
-   * an empty state (README, "数据：按需工作集"). Downstream depth is
-   * unbounded here — the limit is the bound. Seed content is stamped as
-   * least recently visited, so user exploration evicts it first. Best
-   * effort: a failed seed leaves the canvas to selection-driven expansion.
+   * an empty state (README, "数据：按需工作集"). A root decision is one with
+   * no decision among its direct grounds (premise-only or empty grounds);
+   * the definition lives in the server's `/api/search?roots` filter.
+   * Downstream depth is unbounded here — the limit is the bound. Seed
+   * content is stamped as least recently visited, so user exploration
+   * evicts it first. Best effort: a failed seed leaves the canvas to
+   * selection-driven expansion.
    */
   async function seedFromRoots(): Promise<void> {
     try {

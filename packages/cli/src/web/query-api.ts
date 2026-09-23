@@ -82,12 +82,18 @@ export async function postQueryExpand(c: Context, web: WebState): Promise<Respon
 const SEARCH_DEFAULT_LIMIT = 50;
 const SEARCH_MAX_LIMIT = 500;
 
+/** Canvas-scope root test: a decision is a root when none of its direct
+ * grounds is a decision — grounds may be premises only or empty. */
+function groundedOnDecision(web: WebState, grounds: readonly string[]): boolean {
+  return grounds.some((id) => web.store.entry(id)?.node.type === "decision");
+}
+
 /**
  * GET /api/search — keyset pagination over the ascending id view; `cursor`
  * is the id after which to continue. `q` matches id prefixes (case
  *-insensitive; ids are Crockford base32) and summary substrings. `roots`
- * restricts to root decisions (grounds-less), the cold-start overview's
- * entry points.
+ * restricts to canvas-scope root decisions — none of the direct grounds is
+ * a decision — the cold-start overview's entry points.
  */
 export async function getSearch(c: Context, web: WebState): Promise<Response> {
   try {
@@ -114,7 +120,10 @@ export async function getSearch(c: Context, web: WebState): Promise<Response> {
       const id = all[i]!;
       const entry = web.store.entry(id)!;
       if (type !== undefined && entry.node.type !== type) continue;
-      if (rootsOnly && (entry.node.type !== "decision" || entry.node.grounds.length > 0)) {
+      if (
+        rootsOnly &&
+        (entry.node.type !== "decision" || groundedOnDecision(web, entry.node.grounds))
+      ) {
         continue;
       }
       // Premises no decision grounds on (the CLI's list --unreferenced):

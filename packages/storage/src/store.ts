@@ -244,7 +244,9 @@ export class RefinoStore {
     return read.content;
   }
 
-  /** Counts for project-overview cold starts; derived from the resident graph. */
+  /** Counts for project-overview cold starts; derived from the resident graph.
+   * Roots are canvas-scope: a decision is a root when none of its direct
+   * grounds is a decision (premise-only or empty grounds both qualify). */
   stats(): { nodes: number; decisions: number; premises: number; roots: number } {
     let decisions = 0;
     let premises = 0;
@@ -254,10 +256,15 @@ export class RefinoStore {
         premises++;
       } else {
         decisions++;
-        if (node.grounds.length === 0) roots++;
+        if (!this.groundedOnDecision(node.grounds)) roots++;
       }
     }
     return { nodes: decisions + premises, decisions, premises, roots };
+  }
+
+  /** Whether any of the given ground ids resolves to a decision node. */
+  private groundedOnDecision(grounds: readonly string[]): boolean {
+    return grounds.some((id) => this.#entries.get(id)?.node.type === "decision");
   }
 
   /** Ids in ascending order; the sorted view is cached and invalidated on writes. */
