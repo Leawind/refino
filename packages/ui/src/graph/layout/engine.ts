@@ -17,9 +17,12 @@ import type {
  * history across calls.
  *
  * Layers follow the grounds edges (longest-path layering, sources at
- * layer 0); the chosen direction only maps canonical (layer, order)
- * coordinates to x/y, so switching direction never re-lays out. Within a
- * layer each node takes the row nearest to the average of its grounds'
+ * layer 0); premises are the one exception — they display just upstream
+ * of the shallowest decision they support instead of piling up on the
+ * upstream frontier (see `displayLayers`). The chosen direction only maps
+ * canonical (layer, order) coordinates to x/y, so switching direction
+ * never re-lays out. Within a layer each node takes the row nearest to
+ * the average of its grounds'
  * rows, so a family spreads symmetrically around its ground instead of
  * drifting to one side. Disjoint groups are laid out as independent
  * components stacked in row ranges (DESIGN.md: 无重叠则作为独立分量排布).
@@ -55,6 +58,45 @@ export function resolveNodeSize(options: LayoutOptions): {
   height: number;
 } {
   return options.nodeSize ?? { width: NODE_WIDTH, height: NODE_HEIGHT };
+}
+
+/**
+ * Display layers over the canonical longest-path layering: the layers
+ * layouts actually draw.
+ *
+ * Premises are canonical sources (layer 0), but a premise's whole
+ * structural meaning is the decisions it supports — pinning every premise
+ * to the upstream frontier stretches its edges across the entire graph no
+ * matter how deep those decisions sit. So a premise displays one layer
+ * upstream of its shallowest in-set dependent: strictly upstream of all
+ * of them on the main axis, and close to all of them. Decisions keep
+ * their canonical layers — the assignment still treats premises as
+ * sources, so nothing downstream shifts. A premise with no dependent in
+ * the working set keeps layer 0.
+ */
+export function displayLayers(nodes: readonly LayoutNode[]): Map<string, number> {
+  const layers = assignLayers(nodes);
+  const dependents = new Map<string, string[]>();
+  for (const node of nodes) {
+    for (const g of node.grounds ?? []) {
+      if (g === node.id) continue;
+      const list = dependents.get(g);
+      if (list) list.push(node.id);
+      else dependents.set(g, [node.id]);
+    }
+  }
+  for (const node of nodes) {
+    if (!node.premise) continue;
+    let shallowest = Number.POSITIVE_INFINITY;
+    for (const dependent of dependents.get(node.id) ?? []) {
+      const layer = layers.get(dependent);
+      if (layer !== undefined) shallowest = Math.min(shallowest, layer);
+    }
+    if (shallowest !== Number.POSITIVE_INFINITY) {
+      layers.set(node.id, Math.max(0, shallowest - 1));
+    }
+  }
+  return layers;
 }
 
 interface Placement {
@@ -99,7 +141,9 @@ export function layeredLayout(
 
   // Layers are shared across components: components are edge-disjoint, so
   // global longest-path layers equal per-component ones (refino, 分层).
-  const layers = assignLayers(nodes);
+  // Premises take their display layers (just upstream of the shallowest
+  // decision they support).
+  const layers = displayLayers(nodes);
 
   // Components stack in disjoint row ranges; every node is a regular node.
   placeComponents(ids, graph, layers, placed, place, freeOrder);
@@ -154,6 +198,7 @@ function placeComponents(
   freeOrder: (layer: number, desired: number) => number,
 ): void {
   const regularSet = new Set(regular);
+  const premises = new Set(regular.filter((id) => graph.get(id)!.premise ?? false));
   const groundsIn = new Map<string, string[]>();
   for (const id of regular) {
     groundsIn.set(
@@ -185,7 +230,7 @@ function placeComponents(
         }
       }
     }
-    placeComponent(component.sort(), groundsIn, layers, placed, place, freeOrder);
+    placeComponent(component.sort(), premises, groundsIn, layers, placed, place, freeOrder);
   }
 }
 
@@ -193,6 +238,7 @@ function placeComponents(
  * family-centering placement. */
 function placeComponent(
   component: readonly string[],
+  premises: ReadonlySet<string>,
   groundsIn: ReadonlyMap<string, string[]>,
   layers: ReadonlyMap<string, number>,
   placed: ReadonlyMap<string, Placement>,
@@ -208,6 +254,9 @@ function placeComponent(
 
   const byLayer = new Map<number, string[]>();
   for (const id of component) {
+    // Premises are placed after all their (deeper-layer) dependents in a
+    // second pass below.
+    if (premises.has(id)) continue;
     const layer = layers.get(id)!;
     const bucket = byLayer.get(layer);
     if (bucket) bucket.push(id);
@@ -246,5 +295,42 @@ function placeComponent(
       // Placing immediately keeps later nodes in this layer off the slot.
       place(id, { layer, order });
     }
+  }
+
+  // Second pass: premises, once every dependent is placed. A premise
+  // exists to support its dependents, so it takes the row nearest the
+  // mean of their rows on its display layer line — beside the family it
+  // backs, not among the upstream frontier. Premises without a dependent
+  // in the component fall back to the trailing root slots. (desired, id)
+  // order keeps the placement deterministic.
+  const dependents = new Map<string, string[]>();
+  for (const [id, list] of groundsIn) {
+    for (const g of list) {
+      if (!premises.has(g)) continue;
+      const entry = dependents.get(g);
+      if (entry) entry.push(id);
+      else dependents.set(g, [id]);
+    }
+  }
+  const desires = component
+    .filter((id) => premises.has(id))
+    .map((id) => {
+      const rows = (dependents.get(id) ?? [])
+        .map((d) => assigned.get(d))
+        .filter((order): order is number => order !== undefined);
+      return {
+        id,
+        layer: layers.get(id)!,
+        desired:
+          rows.length > 0
+            ? rows.reduce((sum, order) => sum + order, 0) / rows.length
+            : orderBase + rootCount++,
+      };
+    })
+    .sort((a, b) => (a.desired !== b.desired ? a.desired - b.desired : a.id < b.id ? -1 : 1));
+  for (const { id, layer, desired } of desires) {
+    const order = freeOrder(layer, desired);
+    assigned.set(id, order);
+    place(id, { layer, order });
   }
 }

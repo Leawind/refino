@@ -1,6 +1,5 @@
-import { assignLayers } from "refino";
 import type { LayoutDirection } from "../../types";
-import { CROSS_GAP, LAYER_GAP, layeredLayout, resolveNodeSize } from "./engine";
+import { CROSS_GAP, LAYER_GAP, displayLayers, layeredLayout, resolveNodeSize } from "./engine";
 import type {
   LaidOutNode,
   LayoutNode,
@@ -14,12 +13,16 @@ import type {
  * cross axis.
  *
  * Layers come from the same grounds longest-path layering as the layered
- * layout, and every node is pinned to its layer's line on the main axis —
+ * layout, with premises on their display layers (just upstream of the
+ * shallowest decision they support, `engine.displayLayers`), and every
+ * node is pinned to its layer's line on the main axis —
  * the line positions are the layered mapping exactly (one pitch per
  * layer, signed by the display direction). The cross axis is a one-
  * dimensional relaxation: each node feels a Hookean pull toward the mean
  * cross position of its grounds (a family stays centered on its upstream,
- * and multi-ground merges settle between their anchors), roots relax
+ * and multi-ground merges settle between their anchors), a premise pulls
+ * toward the mean cross position of its dependents (it clusters beside
+ * the family it supports), remaining roots relax
  * toward their layered snapshot slot, and an order-preserving sweep
  * enforces an exact minimum gap between same-layer neighbors, re-centering
  * compressed families around their anchors. The session stops on the same
@@ -57,7 +60,13 @@ interface Body {
   home: number;
   /** Cross coordinate pinned by an active drag; null when free. */
   fixed: number | null;
+  /** Premise flag: premises anchor to their dependents' mean instead of
+   * their home slot (root decisions must not chase their children). */
+  premise: boolean;
   grounds: readonly string[];
+  /** In-set dependents, filled once all bodies exist; a premise's cross
+   * anchor (the family it supports) reads this. */
+  children: Body[];
 }
 
 class RailSession implements LayoutSession {
@@ -83,13 +92,16 @@ class RailSession implements LayoutSession {
     const pitch = (this.#horizontal ? width : height) + layerGap;
     // Layering and the snapshot cross order: the layered layout is the
     // deterministic starting shape (its family-centering order is the
-    // equilibrium the relaxation starts from).
-    const layers = assignLayers([...nodes].sort((a, b) => (a.id < b.id ? -1 : 1)));
+    // equilibrium the relaxation starts from). Premises take their display
+    // layers, so their rail is the line just upstream of the shallowest
+    // decision they support.
+    const layers = displayLayers([...nodes].sort((a, b) => (a.id < b.id ? -1 : 1)));
     const snapshot = new Map(
       layeredLayout(nodes, direction, this.#size, layerGap).map((n) => [n.id, n] as const),
     );
     const carried = options.seed;
     const grounds = new Map(nodes.map((n) => [n.id, n.grounds ?? []] as const));
+    const premiseIds = new Set(nodes.filter((n) => n.premise ?? false).map((n) => n.id));
     const ids = [...snapshot.keys()].sort();
     for (const id of ids) {
       const snap = snapshot.get(id)!;
@@ -108,10 +120,18 @@ class RailSession implements LayoutSession {
         cross,
         home: this.#horizontal ? snap.y : snap.x,
         fixed: null,
+        premise: premiseIds.has(id),
         grounds: grounds.get(id) ?? [],
+        children: [],
       });
     }
     for (const body of this.#bodies) this.#byId.set(body.id, body);
+    for (const body of this.#bodies) {
+      for (const g of body.grounds) {
+        const source = this.#byId.get(g);
+        if (source !== undefined) source.children.push(body);
+      }
+    }
     const buckets = new Map<number, Body[]>();
     for (const body of this.#bodies) {
       const bucket = buckets.get(body.layer);
@@ -164,7 +184,9 @@ class RailSession implements LayoutSession {
   }
 
   /** One relaxation tick: every body steps toward its anchor (the mean
-   * cross position of its grounds; roots step toward their layered home
+   * cross position of its grounds; a premise toward the mean of its
+   * dependents — it follows the family it supports; other roots step
+   * toward their layered home
    * slot), then each layer resolves overlaps by an order-preserving
    * forward sweep that enforces the exact minimum gap, re-centered so a
    * compressed family stays centered on its anchors. Returns the largest
@@ -180,10 +202,14 @@ class RailSession implements LayoutSession {
       const anchors = body.grounds
         .map((g) => byId.get(g))
         .filter((b): b is Body => b !== undefined);
-      const target =
-        anchors.length > 0
-          ? anchors.reduce((sum, a) => sum + a.cross, 0) / anchors.length
-          : body.home;
+      let target: number;
+      if (anchors.length > 0) {
+        target = anchors.reduce((sum, a) => sum + a.cross, 0) / anchors.length;
+      } else if (body.premise && body.children.length > 0) {
+        target = body.children.reduce((sum, c) => sum + c.cross, 0) / body.children.length;
+      } else {
+        target = body.home;
+      }
       desired.set(body, body.cross + RATE * (target - body.cross));
     }
     let moved = 0;

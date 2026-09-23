@@ -149,21 +149,32 @@ function startSession(): void {
     forceSpring,
   };
   stopSession();
-  session = createLayoutSession(mode, displayed, {
-    direction,
-    nodeSize: { width: nodeWidth, height: nodeHeight },
-    layerGap,
-    force:
-      mode === "force"
-        ? {
-            gravity: forceGravity,
-            friction: forceFriction,
-            repulsion: forceRepulsion,
-            spring: forceSpring,
-          }
-        : undefined,
-    seed: seedMap,
-  });
+  // Layouts only see the placement-relevant shape of a node; the premise
+  // flag steers the display-layer placement (just upstream of the
+  // decisions a premise supports).
+  session = createLayoutSession(
+    mode,
+    displayed.map((lite) => ({
+      id: lite.id,
+      grounds: lite.grounds,
+      premise: lite.type === "premise",
+    })),
+    {
+      direction,
+      nodeSize: { width: nodeWidth, height: nodeHeight },
+      layerGap,
+      force:
+        mode === "force"
+          ? {
+              gravity: forceGravity,
+              friction: forceFriction,
+              repulsion: forceRepulsion,
+              spring: forceSpring,
+            }
+          : undefined,
+      seed: seedMap,
+    },
+  );
   layout.value = [...session.positions()];
   anchor.value = session.anchorNode?.() ?? null;
   anchorEdges.value = session.anchorEdges?.() ?? [];

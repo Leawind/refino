@@ -15,6 +15,13 @@ import type { LayoutDirection } from "../../types";
 export interface LayoutNode {
   id: string;
   grounds?: readonly string[];
+  /** Premise flag (DLG premise nodes carry no grounds, but root decisions
+   * are structurally identical, so the type must be told apart). Layouts
+   * only use it for placement: a premise sits on the main axis just
+   * upstream of the shallowest decision it supports and clusters toward
+   * its dependents on the cross axis, instead of joining the layer-0
+   * roots. Absent or false keeps the plain root placement. */
+  premise?: boolean;
 }
 
 /** Mapped node geometry in virtual space. */

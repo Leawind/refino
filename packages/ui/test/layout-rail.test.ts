@@ -98,3 +98,52 @@ describe("rail layout", () => {
     }
   });
 });
+
+describe("rail premises", () => {
+  const pitch = NODE_WIDTH + 44;
+  /** G(0) → M(1) → D(2); premise P supports only the deep D, so it
+   * displays on M's line (layer 1) instead of the frontier. */
+  function deepSupport(): LayoutNode[] {
+    return [
+      { id: "p", premise: true },
+      { id: "g", grounds: [] },
+      { id: "m", grounds: ["g"] },
+      { id: "d", grounds: ["m", "p"] },
+    ];
+  }
+
+  it("pins a premise to the line just upstream of its shallowest dependent", () => {
+    const laid = settled(deepSupport());
+    const byId = new Map(laid.map((n) => [n.id, n] as const));
+    expect(byId.get("p")!.x).toBeCloseTo(pitch, 6);
+    expect(byId.get("p")!.x).toBeCloseTo(byId.get("m")!.x, 6);
+    expect(byId.get("d")!.x).toBeCloseTo(2 * pitch, 6);
+  });
+
+  it("drops an orphan premise back to the frontier line", () => {
+    const laid = settled([
+      { id: "p", premise: true },
+      { id: "g", grounds: [] },
+    ]);
+    const byId = new Map(laid.map((n) => [n.id, n] as const));
+    expect(byId.get("p")!.x).toBeCloseTo(0, 6);
+  });
+
+  it("a premise's cross axis follows the family it supports", () => {
+    const nodes: LayoutNode[] = [
+      { id: "p", premise: true },
+      { id: "d", grounds: ["p"] },
+    ];
+    const session = railStrategy.createSession(nodes, { direction: "LR" });
+    for (let step = 0; step < 400 && session.animating; step++) session.step(16);
+    const before = session.positions().find((n) => n.id === "p")!.y;
+    // Drag the dependent to a far cross slot: the premise relaxes toward
+    // it (its anchor is the dependents' mean), staying on its own rail.
+    session.fix("d", session.positions().find((n) => n.id === "d")!.x, 500);
+    for (let step = 0; step < 400 && session.animating; step++) session.step(16);
+    const after = session.positions().find((n) => n.id === "p")!.y;
+    expect(after).toBeGreaterThan(before);
+    expect(after).toBeGreaterThan(400);
+    session.dispose();
+  });
+});

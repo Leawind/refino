@@ -5,9 +5,8 @@ import {
   type SimulationNodeDatum,
 } from "d3-force";
 import { quadtree, type QuadtreeLeaf } from "d3-quadtree";
-import { assignLayers } from "refino";
 import type { LayoutDirection } from "../../types";
-import { LAYER_GAP, layeredLayout, resolveNodeSize } from "./engine";
+import { LAYER_GAP, displayLayers, layeredLayout, resolveNodeSize } from "./engine";
 import type {
   ForceTuning,
   LaidOutNode,
@@ -38,6 +37,11 @@ import type {
  * and the stiffness shrinks with the width of the layer the edge
  * enters: a wide layer receives many softer springs, keeping its total
  * upstream pull constant instead of over-constraining crowded layers.
+ * Premises join the network on their display layers
+ * (engine.displayLayers): a premise rests one pitch upstream of the
+ * shallowest decision it supports, so its edges stay short no matter how
+ * deep those decisions sit, instead of stretching all the way from the
+ * upstream frontier.
  * Overlap is prevented by exact axis-aligned rectangle separation (push
  * apart along the smaller overlap): the force vanishes whenever two
  * rectangles are separated, so it cannot fight the spring network at the
@@ -221,9 +225,11 @@ class ForceSession implements LayoutSession {
       layeredLayout(nodes, direction, this.#size, options.layerGap).map((n) => [n.id, n] as const),
     );
     const carried = options.seed;
-    // Grounds longest-path layers (the same layering the layered layout
-    // uses): they set each spring's rest length and stiffness share.
-    const layers = assignLayers([...nodes].sort((a, b) => (a.id < b.id ? -1 : 1)));
+    // Grounds longest-path layers with premises on their display layers
+    // (engine.displayLayers): they set each spring's rest length and
+    // stiffness share, so a premise hangs just upstream of the decisions
+    // it supports instead of at the upstream frontier.
+    const layers = displayLayers([...nodes].sort((a, b) => (a.id < b.id ? -1 : 1)));
     // Id-sorted array order: d3 iterates nodes in array order, and the
     // layout must not depend on the input order (ui DESIGN, "布局").
     const ids = [...layered.keys()].sort();
@@ -277,14 +283,17 @@ class ForceSession implements LayoutSession {
       const layer = layers.get(id) ?? 0;
       layerCounts.set(layer, (layerCounts.get(layer) ?? 0) + 1);
     }
-    // The virtual root: pinned one pitch upstream of the roots' centroid,
-    // so every root spring starts near its rest length and the anchor
-    // keeps the carried-over graph where it is. A carried seed carries the
-    // anchor's own position too (under the anchor id in the seed map):
+    // The virtual root: pinned one pitch upstream of the upstream
+    // frontier's centroid (the roots sitting at display layer 0), so every
+    // frontier spring starts near its rest length and the anchor keeps the
+    // carried-over graph where it is. A carried seed carries the anchor's
+    // own position too (under the anchor id in the seed map):
     // re-deriving it would re-place the anchor relative to roots that
     // have stretched downstream since, and the whole graph would slide
     // a little further on every session — a downstream ratchet.
-    // Roots are nodes with no ground inside the working set.
+    // Roots are nodes with no ground inside the working set; a premise is
+    // a root too, but hangs from its display layer (deeper than 0 when it
+    // only supports deep decisions), so the frontier may be empty.
     const present = new Set(ids);
     const rootIds = ids.filter((id) => !(grounds.get(id) ?? []).some((g) => present.has(g)));
     let anchorBody: Body | null = null;
@@ -300,14 +309,16 @@ class ForceSession implements LayoutSession {
           fy: carriedAnchor.y,
         };
       } else {
+        const frontier = rootIds.filter((id) => (layers.get(id) ?? 0) === 0);
+        const frontierIds = frontier.length > 0 ? frontier : rootIds;
         let ax = 0;
         let ay = 0;
-        for (const id of rootIds) {
+        for (const id of frontierIds) {
           ax += start.get(id)!.x;
           ay += start.get(id)!.y;
         }
-        ax /= rootIds.length;
-        ay /= rootIds.length;
+        ax /= frontierIds.length;
+        ay /= frontierIds.length;
         if (horizontal) ax -= sign * pitch;
         else ay -= sign * pitch;
         anchorBody = { id: ANCHOR_ID, anchor: true, x: ax, y: ay, fx: ax, fy: ay };
@@ -315,16 +326,19 @@ class ForceSession implements LayoutSession {
       this.#anchor = anchorBody;
       this.#anchorLinks = rootIds.map((id) => ({ source: ANCHOR_ID, target: id }));
     }
-    // Grounds springs, plus one anchor spring per root (span 1).
+    // Grounds springs, plus one anchor spring per root: the spring into a
+    // root at display layer L rests at (L + 1) pitches — one per layer it
+    // spans, so a premise supporting only deep decisions hangs deep too —
+    // and its stiffness shares the layer it enters, as any other spring.
     const springs: Spring[] = [];
     if (anchorBody !== null) {
-      const k = springK / (layerCounts.get(0) ?? 1);
       for (const id of rootIds) {
+        const layer = layers.get(id) ?? 0;
         springs.push({
           source: anchorBody,
           target: this.#byId.get(id)!,
-          k,
-          natural: pitch,
+          k: springK / (layerCounts.get(layer) ?? 1),
+          natural: (layer + 1) * pitch,
         });
       }
     }

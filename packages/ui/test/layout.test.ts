@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { layeredLayout } from "../src/graph/layout/engine";
+import { CROSS_GAP, layeredLayout } from "../src/graph/layout/engine";
 import type { LayoutNode } from "../src/graph/layout/engine";
 
 /**
@@ -16,7 +16,7 @@ const C2 = "D4E5F6G7";
 const C3 = "E5F6G7H8";
 
 const decision = (id: string, grounds: string[]): LayoutNode => ({ id, grounds });
-const premise = (id: string): LayoutNode => ({ id });
+const premise = (id: string): LayoutNode => ({ id, premise: true });
 
 const byId = (nodes: ReturnType<typeof layeredLayout>, id: string) => {
   const node = nodes.find((n) => n.id === id);
@@ -142,6 +142,63 @@ describe("independent components", () => {
     // Each component keeps its internal chain: C1 right of P1, C2 of P2.
     expect(byId(laid, C1).x).toBeGreaterThan(byId(laid, P1).x);
     expect(byId(laid, C2).x).toBeGreaterThan(byId(laid, P2).x);
+  });
+});
+
+describe("premise placement", () => {
+  const P = "P1A2B3C4";
+  const G = "G1A2B3C4";
+  const M = "M1N2O3P4";
+  const D = "D1E2F3G4";
+
+  it("displays a premise beside the shallowest decision it supports, not on the frontier", () => {
+    // Layers: G 0, M 1, D 2. P only supports D, so it displays at layer 1 —
+    // M's line — instead of the layer-0 frontier (README: 前提就近放置).
+    const laid = layeredLayout(
+      [premise(P), decision(G, []), decision(M, [G]), decision(D, [M, P])],
+      "LR",
+    );
+    const pitch = byId(laid, M).x - byId(laid, G).x;
+    expect(byId(laid, P).x).toBe(byId(laid, M).x);
+    expect(byId(laid, D).x - byId(laid, P).x).toBe(pitch);
+    expect(byId(laid, P).x).toBeGreaterThan(byId(laid, G).x);
+  });
+
+  it("keeps decision layers canonical: the premise never pushes decisions deeper", () => {
+    const withPremise = layeredLayout(
+      [premise(P), decision(G, []), decision(M, [G]), decision(D, [M, P])],
+      "LR",
+    );
+    const withoutPremise = layeredLayout(
+      [decision(P), decision(G, []), decision(M, [G]), decision(D, [M, P])],
+      "LR",
+    );
+    // D sits two pitches past G in both graphs; only P's own line differs.
+    expect(byId(withPremise, D).x - byId(withPremise, G).x).toBe(
+      byId(withoutPremise, D).x - byId(withoutPremise, G).x,
+    );
+    expect(byId(withPremise, P).x).not.toBe(byId(withoutPremise, P).x);
+  });
+
+  it("clusters a premise on the cross axis beside its dependents' rows", () => {
+    // P supports C alone; C hangs off root R, so P must land right beside
+    // C's row — the nearest free slot when the exact row is taken.
+    const R = "R1A2B3C4";
+    const C = "C1A2B3C4";
+    const laid = layeredLayout([premise(P), decision(R, []), decision(C, [R, P])], "LR");
+    const slot = byId(laid, C).height + CROSS_GAP;
+    expect(Math.abs(byId(laid, P).y - byId(laid, C).y)).toBeLessThanOrEqual(slot + 1e-9);
+  });
+
+  it("drops an orphan premise (no dependent in the set) back to the frontier", () => {
+    const laid = layeredLayout([premise(P), decision(G, [])], "LR");
+    expect(byId(laid, P).x).toBe(byId(laid, G).x);
+  });
+
+  it("is order-independent with premise flags", () => {
+    const input = [premise(P), decision(G, []), decision(M, [G]), decision(D, [M, P])];
+    const shuffled = layeredLayout([input[2]!, input[0]!, input[3]!, input[1]!], "LR");
+    expect(shuffled).toEqual(layeredLayout(input, "LR"));
   });
 });
 

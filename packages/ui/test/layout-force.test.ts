@@ -419,4 +419,45 @@ describe("force session", () => {
     expect(total).toBeLessThan(60);
     session.dispose();
   });
+
+  describe("premises", () => {
+    /** G(0) → M(1) → D(2); premise P supports only the deep D. */
+    function deepSupport(): LayoutNode[] {
+      return [
+        { id: "p", premise: true },
+        { id: "g", grounds: [] },
+        { id: "m", grounds: ["g"] },
+        { id: "d", grounds: ["m", "p"] },
+      ];
+    }
+
+    it("hangs a premise just upstream of the decision it supports", () => {
+      const session = forceStrategy.createSession(deepSupport(), { direction: "LR" });
+      const positions = new Map(settled(session).map((n) => [n.id, n] as const));
+      session.dispose();
+      const g = positions.get("g")!;
+      const m = positions.get("m")!;
+      const p = positions.get("p")!;
+      const d = positions.get("d")!;
+      // The premise rests near its display layer (beside M, layer 1) —
+      // not on the layer-0 frontier next to G.
+      expect(p.x).toBeGreaterThan(g.x + (m.x - g.x) / 2);
+      expect(Math.abs(p.x - m.x)).toBeLessThan(NODE_WIDTH);
+      // Its support edge stays near one pitch instead of spanning the
+      // whole graph, and everything keeps flowing downstream.
+      expect(d.x).toBeGreaterThan(p.x);
+      expect(d.x - p.x).toBeLessThan(600);
+    });
+
+    it("is deterministic and order-independent with premise flags", () => {
+      const run = (input: LayoutNode[]) => {
+        const session = forceStrategy.createSession(input, { direction: "LR" });
+        const final = settled(session).map((n) => [n.id, n.x, n.y]);
+        session.dispose();
+        return final;
+      };
+      const input = deepSupport();
+      expect(run(input)).toEqual(run([...input].reverse()));
+    });
+  });
 });
