@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ToolDefinition } from "@deepseek-ai/dsh-tools";
 import type { ApprovalOutcome } from "@deepseek-ai/dsh-user-approval";
-import { constraint, createRefino, premise, removeRefino } from "@refino/testkit";
+import { decision, createRefino, premise, removeRefino } from "@refino/testkit";
 import { createSigningTools, type AuthorizationOrigin, type SigningDeps } from "../src/signing.js";
 import { RefinoWorkspace } from "@refino/harness/host";
 
@@ -27,9 +27,9 @@ afterEach(async () => {
 async function fixtureWorkspace(): Promise<RefinoWorkspace> {
   const root = await createRefino({
     "nodes/P1/PREMISE-premise.md": premise("P1PREMISE", "事实一"),
-    "nodes/R1/ROOT-constraint.md": constraint("R1ROOT", undefined, "根约束"),
-    "nodes/C1/CHILD-constraint.md": constraint("C1CHILD", ["R1ROOT", "P1PREMISE"], "子约束"),
-    "nodes/C2/GRAND-constraint.md": constraint("C2GRAND", ["C1CHILD"], "孙约束"),
+    "nodes/R1/ROOT-decision.md": decision("R1ROOT", undefined, "根决策"),
+    "nodes/C1/CHILD-decision.md": decision("C1CHILD", ["R1ROOT", "P1PREMISE"], "子决策"),
+    "nodes/C2/GRAND-decision.md": decision("C2GRAND", ["C1CHILD"], "孙决策"),
   });
   cleanup.push(root);
   const ws = await RefinoWorkspace.open(root + "/.refino");
@@ -85,16 +85,16 @@ describe("refino_request_authorization", () => {
     const result = await run<{
       ok: boolean;
       frontier?: string[];
-      frozen_constraints?: number;
+      frozen_decisions?: number;
       frozen_premises?: number;
     }>(h.tools.refino_request_authorization, {
       frozen_frontier: ["C1CHILD"],
-      rationale: "任务需要细化根约束",
+      rationale: "任务需要细化根决策",
     });
     expect(result.ok).toBe(true);
-    // Zone of C1CHILD: constraints C1CHILD + R1ROOT plus premise P1PREMISE;
+    // Zone of C1CHILD: decisions C1CHILD + R1ROOT plus premise P1PREMISE;
     // C2GRAND stays modifiable.
-    expect(result.frozen_constraints).toBe(2);
+    expect(result.frozen_decisions).toBe(2);
     expect(result.frozen_premises).toBe(1);
     expect(result.frontier).toEqual(["C1CHILD"]);
 
@@ -105,7 +105,7 @@ describe("refino_request_authorization", () => {
 
     // The delta went out as one injected update, and the origin moved.
     expect(h.injected).toHaveLength(1);
-    expect(h.injected[0]).toContain("新增冻结约束（只读）: C1CHILD");
+    expect(h.injected[0]).toContain("新增冻结决策（只读）: C1CHILD");
     expect(h.origin.source).toBe("session");
     expect(h.origin.signedAt).not.toBe("");
   });
@@ -171,7 +171,7 @@ describe("refino_request_authorization", () => {
       { frozen_frontier: ["P1PREMISE"] },
     );
     expect(premise.ok).toBe(false);
-    expect(premise.error).toContain("constraint");
+    expect(premise.error).toContain("decision");
   });
 
   it("leaves no files behind after a signing", async () => {
@@ -194,13 +194,13 @@ describe("refino_context", () => {
       source: string;
       signed_at: string;
       frontier: string[];
-      frozen_constraints: number;
+      frozen_decisions: number;
       anchors_complete: boolean;
       orchestrator_credential: boolean;
     }>(h.tools.refino_context, {});
     expect(result.source).toBe("default");
     expect(result.frontier).toEqual(["R1ROOT"]);
-    expect(result.frozen_constraints).toBe(1);
+    expect(result.frozen_decisions).toBe(1);
     expect(result.anchors_complete).toBe(true);
     expect(result.orchestrator_credential).toBe(false);
   });

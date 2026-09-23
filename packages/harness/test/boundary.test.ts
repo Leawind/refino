@@ -3,7 +3,7 @@ import { buildGraph } from "refino";
 import type { Graph, NodeType, RefinoNode } from "refino";
 import {
   checkModification,
-  freezableConstraints,
+  freezableDecisions,
   frozenFrontier,
   frozenZone,
   validateContext,
@@ -13,14 +13,14 @@ import type { AuthorizationContext } from "../src/types.js";
 
 function node(id: string, type: NodeType, grounds?: string[]): RefinoNode {
   if (type === "premise") return { id, type: "premise", summary: "Body." };
-  return { id, type: "constraint", summary: "Body.", grounds: grounds ?? [] };
+  return { id, type: "decision", summary: "Body.", grounds: grounds ?? [] };
 }
 
 /**
  * Fixture shape:
  *   1A2B3C4D (premise) ──┬→ D4E5F6G7 → E5F6G7H8 → B2C3D4E5
  *   A1B2C3D4 (root) ─────┘
- *   Z9Y8X7W6 (standalone root constraint)
+ *   Z9Y8X7W6 (standalone root decision)
  */
 const A1 = "A1B2C3D4";
 const D4 = "D4E5F6G7";
@@ -32,11 +32,11 @@ const P1 = "1A2B3C4D";
 function graphOf(): Graph {
   return buildGraph([
     node(P1, "premise"),
-    node(A1, "constraint"),
-    node(D4, "constraint", [A1]),
-    node(E5, "constraint", [P1, D4]),
-    node(B2, "constraint", [E5]),
-    node(Z9, "constraint"),
+    node(A1, "decision"),
+    node(D4, "decision", [A1]),
+    node(E5, "decision", [P1, D4]),
+    node(B2, "decision", [E5]),
+    node(Z9, "decision"),
   ]);
 }
 
@@ -75,7 +75,7 @@ describe("validateContext", () => {
 });
 
 describe("frozenZone", () => {
-  it("returns the named constraints closed upwards over all ancestors, sorted", () => {
+  it("returns the named decisions closed upwards over all ancestors, sorted", () => {
     expect(frozenZone(graphOf(), { anchors: [], frozen: [E5, A1] }).map((n) => n.id)).toEqual([
       P1,
       A1,
@@ -84,7 +84,7 @@ describe("frozenZone", () => {
     ]);
   });
 
-  it("freezing a node implicitly freezes its ancestors, constraints and premises alike", () => {
+  it("freezing a node implicitly freezes its ancestors, decisions and premises alike", () => {
     expect(frozenZone(graphOf(), { anchors: [], frozen: [D4] }).map((n) => n.id)).toEqual([A1, D4]);
     expect(frozenZone(graphOf(), { anchors: [], frozen: [E5] }).map((n) => n.id)).toEqual([
       P1,
@@ -109,7 +109,7 @@ describe("checkModification", () => {
     expect(checkModification(graph, ctx, B2)).toMatchObject({ zone: "modifiable", allowed: true });
   });
 
-  it("blocks frozen constraints with an escalation report", () => {
+  it("blocks frozen decisions with an escalation report", () => {
     const check = checkModification(graphOf(), ctx, A1);
     expect(check.allowed).toBe(false);
     expect(check.zone).toBe("frozen");
@@ -125,7 +125,7 @@ describe("checkModification", () => {
     });
   });
 
-  it("allows premise updates outside the frozen zone: same mechanism as constraints", () => {
+  it("allows premise updates outside the frozen zone: same mechanism as decisions", () => {
     // ctx freezes {A1, Z9}; the premise P1 is not in the zone.
     const check = checkModification(graphOf(), ctx, P1);
     expect(check.allowed).toBe(true);
@@ -147,7 +147,7 @@ describe("checkModification", () => {
 });
 
 describe("frozenFrontier", () => {
-  it("returns the zone's most downstream constraints", () => {
+  it("returns the zone's most downstream decisions", () => {
     expect(frozenFrontier(graphOf(), { anchors: [], frozen: [E5] }).map((n) => n.id)).toEqual([E5]);
   });
 
@@ -169,15 +169,16 @@ describe("frozenFrontier", () => {
   });
 });
 
-describe("freezableConstraints", () => {
-  it("offers every constraint outside the frozen zone, premises excluded", () => {
-    expect(freezableConstraints(graphOf(), { anchors: [], frozen: [E5] }).map((n) => n.id)).toEqual(
-      [B2, Z9],
-    );
+describe("freezableDecisions", () => {
+  it("offers every decision outside the frozen zone, premises excluded", () => {
+    expect(freezableDecisions(graphOf(), { anchors: [], frozen: [E5] }).map((n) => n.id)).toEqual([
+      B2,
+      Z9,
+    ]);
   });
 
-  it("offers all constraints when nothing is frozen", () => {
-    expect(freezableConstraints(graphOf(), { anchors: [], frozen: [] }).map((n) => n.id)).toEqual([
+  it("offers all decisions when nothing is frozen", () => {
+    expect(freezableDecisions(graphOf(), { anchors: [], frozen: [] }).map((n) => n.id)).toEqual([
       A1,
       B2,
       D4,
@@ -192,7 +193,7 @@ describe("modification-space closure", () => {
   // closes downwards along dependents: no target that passes checkModification
   // can have a frozen transitive dependent. This is why there is no
   // "frozen dependents" write check (docs/dlg.md 2.4).
-  it("keeps every transitive dependent of a modifiable constraint modifiable", () => {
+  it("keeps every transitive dependent of a modifiable decision modifiable", () => {
     const graph = graphOf();
     for (const frozen of [[E5], [B2], [A1, Z9], []] as const) {
       const ctx: AuthorizationContext = { anchors: [], frozen: [...frozen] };

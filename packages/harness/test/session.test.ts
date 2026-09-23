@@ -24,10 +24,10 @@ const Z9 = "Z9Y8X7W6";
 function graphOf(): Graph {
   return buildGraph([
     node("1A2B3C4D", "premise"),
-    node(A1, "constraint"),
-    node(D4, "constraint", [A1, "1A2B3C4D"]),
-    node(E5, "constraint", [D4]),
-    node(Z9, "constraint", ["1A2B3C4D"]),
+    node(A1, "decision"),
+    node(D4, "decision", [A1, "1A2B3C4D"]),
+    node(E5, "decision", [D4]),
+    node(Z9, "decision", ["1A2B3C4D"]),
   ]);
 }
 

@@ -108,7 +108,7 @@ function payload(): NodePayload {
     rationale: form.rationale.trim() === "" ? undefined : form.rationale.trim(),
     grounds: form.grounds,
     exploring:
-      (selected.value?.type ?? store.state.creatingType) === "constraint"
+      (selected.value?.type ?? store.state.creatingType) === "decision"
         ? form.exploring
         : undefined,
     confirmed: form.confirmed.trim() === "" ? undefined : form.confirmed.trim(),
@@ -268,7 +268,7 @@ function nodeLabel(id: string): string {
           </FormField>
 
           <FormField
-            v-if="(selected?.type ?? store.state.creatingType) === 'constraint'"
+            v-if="(selected?.type ?? store.state.creatingType) === 'decision'"
             class="f-grounds"
             :label="t('node.grounds')"
           >
@@ -281,11 +281,11 @@ function nodeLabel(id: string): string {
           </FormField>
 
           <FormField
-            v-if="(selected?.type ?? store.state.creatingType) === 'constraint'"
+            v-if="(selected?.type ?? store.state.creatingType) === 'decision'"
             class="f-exploring"
             :label="t('node.exploring')"
           >
-            <!-- The form always states the mark: saving a constraint sends an
+            <!-- The form always states the mark: saving a decision sends an
                  explicit boolean, so wholesale-replacement PUTs never settle a
                  trial node by omission. -->
             <div class="exploring-row">
@@ -295,7 +295,7 @@ function nodeLabel(id: string): string {
           </FormField>
 
           <FormField
-            v-if="(selected?.type ?? store.state.creatingType) === 'constraint'"
+            v-if="(selected?.type ?? store.state.creatingType) === 'decision'"
             class="f-rationale"
             :label="t('node.rationale')"
           >
@@ -432,34 +432,34 @@ function nodeLabel(id: string): string {
 /* Wide bars: grounds/rationale in the left column, summary+body on the
  * right so the long content stays last. */
 @container (min-width: 640px) {
-  .fields.constraint {
+  .fields.decision {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
     column-gap: 16px;
   }
 
-  .fields.constraint .f-summary,
-  .fields.constraint .f-body {
+  .fields.decision .f-summary,
+  .fields.decision .f-body {
     grid-column: 2;
   }
 
-  .fields.constraint .f-grounds,
-  .fields.constraint .f-rationale {
+  .fields.decision .f-grounds,
+  .fields.decision .f-rationale {
     grid-column: 1;
   }
 
-  .fields.constraint .f-summary {
+  .fields.decision .f-summary {
     grid-row: 1;
   }
 
-  .fields.constraint .f-grounds {
+  .fields.decision .f-grounds {
     grid-row: 1;
   }
 
-  .fields.constraint .f-rationale {
+  .fields.decision .f-rationale {
     grid-row: 2;
   }
 
-  .fields.constraint .f-body {
+  .fields.decision .f-body {
     grid-row: 2 / span 2;
   }
 }

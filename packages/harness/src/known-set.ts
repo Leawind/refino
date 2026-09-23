@@ -24,7 +24,7 @@ export interface KnownEntry {
   grounds?: string[];
   /** Direct dependents snapshot, recorded when the list itself was delivered. */
   children?: string[];
-  /** Derived effective exploring status at see time (constraints only, resolver provided). */
+  /** Derived effective exploring status at see time (decisions only, resolver provided). */
   exploring?: boolean;
   /** Body/rationale delivered (show) or authored (write tools). */
   bodySeen?: boolean;
@@ -61,7 +61,7 @@ export class SessionKnownSet {
   #entries = new Map<string, KnownEntry>();
   #touched = false;
   /**
-   * Live derived-exploring resolver (constraints only). When provided, every
+   * Live derived-exploring resolver (decisions only). When provided, every
    * summary/full harvest snapshots the effective status and the diff reports
    * flips — including downstream nodes whose status shifted because an
    * unseen upstream settled or was marked. Absent (standalone tests) the
@@ -111,7 +111,7 @@ export class SessionKnownSet {
     const entry = this.#entry(node.id);
     entry.type = node.type;
     entry.summary = node.summary;
-    if (node.type === "constraint") entry.grounds = [...node.grounds];
+    if (node.type === "decision") entry.grounds = [...node.grounds];
     Object.assign(entry, this.#exploringOf(node));
     entry.bodySeen = true;
     entry.revision = revision;
@@ -179,7 +179,7 @@ export class SessionKnownSet {
       }
       if (
         this.#effectiveOf !== undefined &&
-        node.type === "constraint" &&
+        node.type === "decision" &&
         entry.exploring !== undefined
       ) {
         const to = this.#effectiveOf(id);
@@ -188,7 +188,7 @@ export class SessionKnownSet {
           entry.exploring = to;
         }
       }
-      if (entry.grounds !== undefined && node.type === "constraint") {
+      if (entry.grounds !== undefined && node.type === "decision") {
         const diff = diffIds(entry.grounds, node.grounds);
         if (diff !== undefined) {
           changes.push({ id, kind: "grounds", ...diff });
@@ -258,7 +258,7 @@ export class SessionKnownSet {
       }
       if (entry.type !== undefined) entry.type = node.type;
       if (entry.summary !== undefined) entry.summary = node.summary;
-      if (entry.grounds !== undefined && node.type === "constraint") {
+      if (entry.grounds !== undefined && node.type === "decision") {
         entry.grounds = [...node.grounds];
       }
       if (entry.children !== undefined) entry.children = [...node.children];
@@ -284,13 +284,13 @@ export class SessionKnownSet {
 
   /** Snapshot fields for the derived exploring status; empty without a resolver or on premises. */
   #exploringOf(node: RefinoNode): { exploring?: boolean } {
-    if (this.#effectiveOf === undefined || node.type !== "constraint") return {};
+    if (this.#effectiveOf === undefined || node.type !== "decision") return {};
     return { exploring: this.#effectiveOf(node.id) };
   }
 }
 
 function groundsOf(node: RefinoNode): readonly string[] {
-  return node.type === "constraint" ? node.grounds : [];
+  return node.type === "decision" ? node.grounds : [];
 }
 
 /** Sorted-list membership diff; undefined when the lists are equal. */

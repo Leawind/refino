@@ -8,7 +8,7 @@
 - 加载：读取 `.refino/` 目录并构建常驻内存图（图逻辑委托给 `refino` 引擎；body/rationale 不驻留）
 - 内容分页：按 ID 按需读取节点内容（body、rationale），带 LRU 缓存
 - 单节点读取：按 ID 直接读取并解析单个节点文件（候选路径的取舍与重复检出规则与全量加载一致）
-- 创建、更新、删除：写入前提节点与约束节点文件（创建时 id 可显式指定，省略则由 `refino` 引擎生成；同 id 重复写入报 `DUPLICATE_ID`）
+- 创建、更新、删除：写入前提节点与决策节点文件（创建时 id 可显式指定，省略则由 `refino` 引擎生成；同 id 重复写入报 `DUPLICATE_ID`）
 - 原子写：所有写入操作采用临时文件 + rename，保证监听与并发读取不会撞到半写文件
 - 变更监听：对 `nodes/` 分片目录的外部变更监听（`startNodeWatcher`），事件按防抖批量报告受影响节点 ID
 - 存储格式的定义：目录结构、节点文件格式、Markdown/YAML 解析、序列化与摘要提取规则
@@ -29,21 +29,21 @@
         └── <id_2>-<node_type>.md
 ```
 
-- 所有节点放入单一顶层目录 `nodes/`，不区分前提与约束子目录。
+- 所有节点放入单一顶层目录 `nodes/`，不区分前提与决策子目录。
 - `.refino/` 目录名专属仓库内 DLG 存储，不存在仓库外的用户级 refino 目录；存储层不感知仓库内除 `nodes/` 之外的任何文件。
-- `id_1` 为节点 ID 的前 2 个字符，作为分片目录名；`id_2` 为 ID 的剩余字符。`<node_type>` 取 `premise` 或 `constraint`。
+- `id_1` 为节点 ID 的前 2 个字符，作为分片目录名；`id_2` 为 ID 的剩余字符。`<node_type>` 取 `premise` 或 `decision`。
 - `-` 是 `id_2` 与 `node_type` 之间的专属分隔符：节点 ID 不含 `-`，因此该分隔符无歧义。
 - Windows 保留设备名规避：文件名主段 `<id_2>-<node_type>` 必含连字符，而所有保留名均不含连字符，故不可能命中；`id_1` 固定 2 字符，亦不可能命中保留名。
 
 ## ID 推导规则（路径即身份）
 
-节点 ID 与类型完全由文件路径推导：按文件名主段中唯一的 `-` 切分即可得到 `id_2` 与 `node_type`，无需依赖大小写区分；ID 为分片目录名加 `id_2`。因此不存在"ID 与分片不符"或"类型不一致"的情况。存储层不定义 ID 合法性规则，只负责将合法 ID 映射为安全路径，ID 的生成与校验统一由 `refino` 引擎负责；文件名不具 `<id_2>-<node_type>` 形状时报 `INVALID_NODE_PATH`。同一 ID 的全部候选位置恰为两条路径（`-premise.md` 与 `-constraint.md`），ID 全局唯一在写入时即可通过这两条路径检出。
+节点 ID 与类型完全由文件路径推导：按文件名主段中唯一的 `-` 切分即可得到 `id_2` 与 `node_type`，无需依赖大小写区分；ID 为分片目录名加 `id_2`。因此不存在"ID 与分片不符"或"类型不一致"的情况。存储层不定义 ID 合法性规则，只负责将合法 ID 映射为安全路径，ID 的生成与校验统一由 `refino` 引擎负责；文件名不具 `<id_2>-<node_type>` 形状时报 `INVALID_NODE_PATH`。同一 ID 的全部候选位置恰为两条路径（`-premise.md` 与 `-decision.md`），ID 全局唯一在写入时即可通过这两条路径检出。
 
 ## 节点文件格式
 
 每个节点文件是可选 YAML frontmatter 加 Markdown 正文：
 
-- frontmatter 字段：约束节点可用 `grounds`（依据 ID 列表）、`rationale`（理由）与 `exploring`（布尔试行标记，规范形为只在取 true 时落盘，缺席与显式 false 均解析为定案，非布尔取值报 `INVALID_EXPLORING`；生效探索状态不落盘，由引擎沿依据闭包读时派生）；前提节点可用 `confirmed`（文件中为 RFC 3339 带显式 UTC 偏移的确认时间，内存中由本包转换为 epoch 毫秒 number，重写时规范化为 UTC Z 形式）；两类节点均可用 `summary`（独立摘要属性）。
+- frontmatter 字段：决策节点可用 `grounds`（依据 ID 列表）、`rationale`（理由）与 `exploring`（布尔试行标记，规范形为只在取 true 时落盘，缺席与显式 false 均解析为定案，非布尔取值报 `INVALID_EXPLORING`；生效探索状态不落盘，由引擎沿依据闭包读时派生）；前提节点可用 `confirmed`（文件中为 RFC 3339 带显式 UTC 偏移的确认时间，内存中由本包转换为 epoch 毫秒 number，重写时规范化为 UTC Z 形式）；两类节点均可用 `summary`（独立摘要属性）。
 - ID 与类型都不出现在文件内容中（类型由文件名表达）。
 - frontmatter 中的未知字段，以及已知字段出现在错误类型的节点上（如 premise 文件声明 `grounds` 或 `exploring`），一律静默忽略，不作错误处理（见 [docs/design.md](../../docs/design.md)“存储格式容错”）。
 

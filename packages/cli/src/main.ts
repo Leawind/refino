@@ -81,7 +81,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
             io.stdout.write(`${renderIssues(issues)}\n`);
           } else {
             io.stdout.write(
-              `valid: ${counts.constraints} constraints, ${counts.premises} premises (${refinoDir(opts)})\n`,
+              `valid: ${counts.decisions} decisions, ${counts.premises} premises (${refinoDir(opts)})\n`,
             );
           }
           return issues.length > 0 ? 1 : 0;
@@ -93,20 +93,17 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
     .command("list")
     .description("list all nodes (id, type, summary)")
     .addOption(
-      new Option("--type <type>", "only list nodes of this type").choices([
-        "premise",
-        "constraint",
-      ]),
+      new Option("--type <type>", "only list nodes of this type").choices(["premise", "decision"]),
     )
-    .addOption(new Option("--unreferenced", "list only premises that no constraint grounds on"))
+    .addOption(new Option("--unreferenced", "list only premises that no decision grounds on"))
     .action((_opts, cmd) =>
       run(cmd, async (opts) =>
         withStore(io, opts, async (store) => {
           const { type: typeFilter, unreferenced } = cmd.opts() as {
-            type?: "premise" | "constraint";
+            type?: "premise" | "decision";
             unreferenced?: boolean;
           };
-          if (unreferenced && typeFilter === "constraint") {
+          if (unreferenced && typeFilter === "decision") {
             io.stderr.write("error: --unreferenced only applies to premises\n");
             return 1;
           }
@@ -116,7 +113,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
           if (unreferenced) {
             const referenced = new Set<string>();
             for (const node of graph.nodes.values()) {
-              if (node.type !== "constraint") continue;
+              if (node.type !== "decision") continue;
               for (const ground of node.grounds) referenced.add(ground);
             }
             nodes = nodes.filter((n) => n.type === "premise" && !referenced.has(n.id));
@@ -125,10 +122,10 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
             io.stdout.write("(no nodes)\n");
           } else {
             // Annotation uses the derived effective status: downstream of an
-            // exploring constraint explores too, stored mark or not.
+            // exploring decision explores too, stored mark or not.
             const rows = nodes.map((n) => ({
               ...n,
-              exploring: n.type === "constraint" && effectiveExploring(graph, n.id),
+              exploring: n.type === "decision" && effectiveExploring(graph, n.id),
             }));
             io.stdout.write(`${renderNodeTable(rows)}\n`);
           }
@@ -209,7 +206,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
 
   program
     .command("dependents")
-    .description("constraints potentially affected if these nodes change")
+    .description("decisions potentially affected if these nodes change")
     .argument("<ids...>", "node ids")
     .action((ids: string[], _opts, cmd) =>
       run(cmd, async (opts) =>
@@ -273,14 +270,14 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
         ),
     )
     .addCommand(
-      new Command("constraint")
-        .description("create a constraint node")
+      new Command("decision")
+        .description("create a decision node")
         .option("--id <text>", "explicit node id (3-16 characters: A-Z, 0-9, _)")
         .option("--body <text>", "decision content (markdown body); may be empty")
         .option("--grounds <ids>", "comma-separated ground node ids")
         .option("--rationale <text>", "why the decision was made")
         .option("--summary <text>", "short summary for relevance checks (stored in frontmatter)")
-        .option("--exploring", "mark the constraint as a trial commitment (default: settled)")
+        .option("--exploring", "mark the decision as a trial commitment (default: settled)")
         .action((_opts, cmd) =>
           run(cmd, async (opts) => {
             const { id, body, grounds, rationale, summary, exploring } = cmd.opts() as {
@@ -305,7 +302,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
             return withStoreForWrite(io, opts, async (store) => {
               // Grounds validation runs inside the store's write method;
               // pre-existing parse issues elsewhere do not block creation.
-              const outcome = await store.createConstraint({
+              const outcome = await store.createDecision({
                 id,
                 body: body ?? "",
                 grounds: groundIds.length > 0 ? groundIds : undefined,
@@ -313,7 +310,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
                 summary,
                 exploring: exploring === true,
               });
-              emitWritten(io, outcome.id, "constraint", "created");
+              emitWritten(io, outcome.id, "decision", "created");
               return 0;
             });
           }),
@@ -326,18 +323,18 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
     .argument("<id>", "node id")
     .option("--body <text>", "new content (markdown body)")
     .option("--summary <text>", "short summary for relevance checks (stored in frontmatter)")
-    .option("--rationale <text>", "why the decision was made (constraints only)")
+    .option("--rationale <text>", "why the decision was made (decisions only)")
     .option(
       "--grounds <ids>",
-      "comma-separated ground node ids, replacing the whole list (constraints only)",
+      "comma-separated ground node ids, replacing the whole list (decisions only)",
     )
     .option(
       "--confirmed <timestamp>",
       "RFC 3339 timestamp with an explicit UTC offset (premises only)",
     )
     .option("--now", 'confirm now: use the current UTC time as "confirmed" (premises only)')
-    .option("--exploring", "mark the constraint as a trial commitment (constraints only)")
-    .option("--no-exploring", "settle the constraint (remove the trial mark)")
+    .option("--exploring", "mark the decision as a trial commitment (decisions only)")
+    .option("--no-exploring", "settle the decision (remove the trial mark)")
     .action((id: string, _opts, cmd) =>
       run(cmd, async (opts) => {
         const o = cmd.opts() as {
@@ -418,7 +415,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
               }
             }
             // Grounds validation runs inside the store's write method.
-            outcome = await store.updateConstraint(id, {
+            outcome = await store.updateDecision(id, {
               body: o.body ?? content.body,
               summary,
               rationale: o.rationale ?? content.rationale,
@@ -553,7 +550,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
 function emitWritten(
   io: CliIo,
   id: string,
-  type: "premise" | "constraint",
+  type: "premise" | "decision",
   verb: "created" | "updated",
   affected?: string[],
 ): void {
@@ -572,7 +569,7 @@ function emitNodes(io: CliIo, graph: Graph, nodes: RefinoNode[]): void {
   } else {
     const rows = nodes.map((node) => ({
       ...node,
-      exploring: node.type === "constraint" && effectiveExploring(graph, node.id),
+      exploring: node.type === "decision" && effectiveExploring(graph, node.id),
     }));
     io.stdout.write(`${renderNodeTable(rows)}\n`);
   }
@@ -644,7 +641,7 @@ function emitDepths(
     const rows = results.map((r) => ({
       ...r.node,
       depth: r.depth,
-      exploring: r.node.type === "constraint" && effectiveExploring(graph, r.node.id),
+      exploring: r.node.type === "decision" && effectiveExploring(graph, r.node.id),
     }));
     io.stdout.write(`${renderNodeTable(rows)}\n`);
   }
@@ -660,11 +657,11 @@ function sortNodes(graph: Graph): RefinoNode[] {
   });
 }
 
-function countNodes(graph: Graph): { premises: number; constraints: number } {
-  const counts = { premises: 0, constraints: 0 };
+function countNodes(graph: Graph): { premises: number; decisions: number } {
+  const counts = { premises: 0, decisions: 0 };
   for (const node of graph.nodes.values()) {
     if (node.type === "premise") counts.premises++;
-    else counts.constraints++;
+    else counts.decisions++;
   }
   return counts;
 }

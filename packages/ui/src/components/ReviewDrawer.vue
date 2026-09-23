@@ -16,7 +16,7 @@ const { t } = useI18n();
 
 function locate(id: string): void {
   const cached = workspace.displayed.value.find((node) => node.id === id);
-  workspace.select(cached ?? { id, type: "constraint", summary: "" });
+  workspace.select(cached ?? { id, type: "decision", summary: "" });
 }
 
 /** Entries render by summary; the id is the last resort for nodes the

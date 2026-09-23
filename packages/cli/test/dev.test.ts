@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { main } from "../src/main.js";
 import type { CliIo } from "../src/format.js";
 import { loadGraph } from "@refino/storage";
-import { constraint, createRefino, premise, removeRefino } from "@refino/testkit";
+import { decision, createRefino, premise, removeRefino } from "@refino/testkit";
 
 function capture(): { io: CliIo; out(): string; err(): string } {
   const out: string[] = [];
@@ -27,16 +27,16 @@ async function run(argv: string[]) {
 
 interface ListedNode {
   id: string;
-  type: "premise" | "constraint";
+  type: "premise" | "decision";
   grounds?: string[];
 }
 
-/** Constraint-chain depth per constraint id (premises do not extend chains). */
-function constraintDepths(nodes: ListedNode[]): Map<string, number> {
-  const constraints = nodes.filter((n) => n.type === "constraint");
+/** Decision-chain depth per decision id (premises do not extend chains). */
+function decisionDepths(nodes: ListedNode[]): Map<string, number> {
+  const decisions = nodes.filter((n) => n.type === "decision");
   const depths = new Map<string, number>();
   const depth = (id: string): number => {
-    const node = constraints.find((n) => n.id === id);
+    const node = decisions.find((n) => n.id === id);
     // Premises (and any unknown id) never extend a chain; they must not
     // enter the map, or layer statistics would count them as a layer.
     if (node === undefined) return 0;
@@ -47,34 +47,34 @@ function constraintDepths(nodes: ListedNode[]): Map<string, number> {
     depths.set(id, value);
     return value;
   };
-  for (const node of constraints) depth(node.id);
+  for (const node of decisions) depth(node.id);
   return depths;
 }
 
-/** Longest constraint-chain in the listed graph. */
+/** Longest decision-chain in the listed graph. */
 function maxChainDepth(nodes: ListedNode[]): number {
-  return Math.max(0, ...constraintDepths(nodes).values());
+  return Math.max(0, ...decisionDepths(nodes).values());
 }
 
-/** Number of constraints per layer, ordered from the shallowest layer. */
+/** Number of decisions per layer, ordered from the shallowest layer. */
 function layerSizes(nodes: ListedNode[]): number[] {
   const sizes = new Map<number, number>();
-  for (const depth of constraintDepths(nodes).values()) {
+  for (const depth of decisionDepths(nodes).values()) {
     sizes.set(depth, (sizes.get(depth) ?? 0) + 1);
   }
   return [...sizes.entries()].sort(([a], [b]) => a - b).map(([, size]) => size);
 }
 
 /**
- * Distribution of ground-layer spans: how many non-root constraints ground
+ * Distribution of ground-layer spans: how many non-root decisions ground
  * within a single layer (premises count as their own, bottom layer) versus
  * across several. Same seed and options give exact, stable numbers.
  */
 function groundLayerSpans(nodes: ListedNode[]): { single: number; multi: number } {
   const premiseIds = new Set(nodes.filter((n) => n.type === "premise").map((n) => n.id));
-  const depths = constraintDepths(nodes);
+  const depths = decisionDepths(nodes);
   const spans = { single: 0, multi: 0 };
-  for (const node of nodes.filter((n) => n.type === "constraint")) {
+  for (const node of nodes.filter((n) => n.type === "decision")) {
     if ((node.grounds?.length ?? 0) === 0) continue; // roots span nothing
     const layers = new Set(node.grounds!.map((g) => (premiseIds.has(g) ? -1 : depths.get(g)!)));
     spans[layers.size > 1 ? "multi" : "single"]++;
@@ -89,7 +89,7 @@ async function listedNodes(root: string): Promise<ListedNode[]> {
   return [...graph.nodes.values()].map((n) => ({
     id: n.id,
     type: n.type,
-    grounds: n.type === "constraint" ? [...n.grounds] : undefined,
+    grounds: n.type === "decision" ? [...n.grounds] : undefined,
   }));
 }
 
@@ -161,7 +161,7 @@ describe("refino dev (hidden command)", { timeout: 20000 }, () => {
       ]);
       expect(code).toBe(0);
       expect(out).toContain("10 premises");
-      expect(out).toContain("40 constraints");
+      expect(out).toContain("40 decisions");
       expect(out).toContain("(seed 42)");
 
       const validate = await run(["--root", root, "validate"]);
@@ -171,15 +171,13 @@ describe("refino dev (hidden command)", { timeout: 20000 }, () => {
       const nodes = await listedNodes(root);
       expect(nodes).toHaveLength(50);
       const premises = nodes.filter((n) => n.type === "premise");
-      const constraints = nodes.filter((n) => n.type === "constraint");
+      const decisions = nodes.filter((n) => n.type === "decision");
       expect(premises).toHaveLength(10);
-      expect(constraints).toHaveLength(40);
-      // Root constraints exist and everything else has at least one ground.
-      const roots = constraints.filter((n) => (n.grounds?.length ?? 0) === 0);
+      expect(decisions).toHaveLength(40);
+      // Root decisions exist and everything else has at least one ground.
+      const roots = decisions.filter((n) => (n.grounds?.length ?? 0) === 0);
       expect(roots.length).toBeGreaterThanOrEqual(1);
-      expect(constraints.filter((n) => (n.grounds?.length ?? 0) > 0).length).toBe(
-        40 - roots.length,
-      );
+      expect(decisions.filter((n) => (n.grounds?.length ?? 0) > 0).length).toBe(40 - roots.length);
       // Default confirmed-ratio 1: every premise carries a timestamp.
       expect(await countConfirmedPremises(root, nodes)).toBe(10);
     } finally {
@@ -238,18 +236,16 @@ describe("refino dev (hidden command)", { timeout: 20000 }, () => {
       ]);
       expect(code).toBe(0);
       expect(out).toContain("10 premises");
-      expect(out).toContain("30 constraints");
+      expect(out).toContain("30 decisions");
       expect(out).toContain("(3 roots)");
       expect(out).toContain("(seed 1)");
 
       const nodes = await listedNodes(root);
       expect(maxChainDepth(nodes)).toBeLessThanOrEqual(2);
-      const constraintGrounds = nodes
-        .filter((n) => n.type === "constraint")
+      const decisionGrounds = nodes
+        .filter((n) => n.type === "decision")
         .map((n) => n.grounds?.length ?? 0);
-      expect(constraintGrounds.filter((count) => count > 0).every((count) => count === 1)).toBe(
-        true,
-      );
+      expect(decisionGrounds.filter((count) => count > 0).every((count) => count === 1)).toBe(true);
     } finally {
       await removeRefino(root);
     }
@@ -278,10 +274,10 @@ describe("refino dev (hidden command)", { timeout: 20000 }, () => {
       expect(code).toBe(0);
 
       const nodes = await listedNodes(root);
-      // With no root constraints, every constraint still grounds on at least
-      // one node (premises and/or earlier constraints).
+      // With no root decisions, every decision still grounds on at least
+      // one node (premises and/or earlier decisions).
       expect(
-        nodes.filter((n) => n.type === "constraint").every((n) => (n.grounds?.length ?? 0) > 0),
+        nodes.filter((n) => n.type === "decision").every((n) => (n.grounds?.length ?? 0) > 0),
       ).toBe(true);
       expect(await countConfirmedPremises(root, nodes)).toBe(4);
     } finally {
@@ -317,8 +313,8 @@ describe("refino dev (hidden command)", { timeout: 20000 }, () => {
       // The graph must not collapse into its first layers: real refinement
       // graphs keep several levels with no layer holding most nodes.
       expect(maxChainDepth(nodes)).toBeGreaterThanOrEqual(4);
-      const constraints = nodes.filter((n) => n.type === "constraint").length;
-      expect(Math.max(...layerSizes(nodes))).toBeLessThan(constraints / 3);
+      const decisions = nodes.filter((n) => n.type === "decision").length;
+      expect(Math.max(...layerSizes(nodes))).toBeLessThan(decisions / 3);
     } finally {
       await removeRefino(root);
     }
@@ -343,7 +339,7 @@ describe("refino dev (hidden command)", { timeout: 20000 }, () => {
         "8",
       ]);
       expect(none.code).toBe(0);
-      // Without cross-layer grounds, every non-root constraint grounds
+      // Without cross-layer grounds, every non-root decision grounds
       // strictly within its anchor's layer.
       expect(groundLayerSpans(await listedNodes(root)).multi).toBe(0);
 
@@ -369,7 +365,7 @@ describe("refino dev (hidden command)", { timeout: 20000 }, () => {
     }
   });
 
-  it("keeps every non-root constraint to a single ground with --max-grounds 1", async () => {
+  it("keeps every non-root decision to a single ground with --max-grounds 1", async () => {
     vi.stubEnv("REFINO_DEV", "true");
     const root = await createRefino({});
     try {
@@ -391,11 +387,11 @@ describe("refino dev (hidden command)", { timeout: 20000 }, () => {
       ]);
       expect(code).toBe(0);
       const nodes = await listedNodes(root);
-      const constraints = nodes.filter((n) => n.type === "constraint");
-      expect(constraints).toHaveLength(12);
-      expect(
-        constraints.filter((n) => n.grounds !== undefined && n.grounds.length > 1),
-      ).toHaveLength(0);
+      const decisions = nodes.filter((n) => n.type === "decision");
+      expect(decisions).toHaveLength(12);
+      expect(decisions.filter((n) => n.grounds !== undefined && n.grounds.length > 1)).toHaveLength(
+        0,
+      );
       // Deterministic for the fixed seed; deeper layers keep receiving
       // anchors, so the graph grows past a flat fan.
       expect(maxChainDepth(nodes)).toBe(4);
@@ -462,7 +458,7 @@ describe("refino dev (hidden command)", { timeout: 20000 }, () => {
     try {
       await run(["--root", root, "dev", "generate", "--nodes", "8", "--seed", "9"]);
       const nodes = await listedNodes(root);
-      const grounded = nodes.filter((n) => n.type === "constraint" && (n.grounds?.length ?? 0) > 0);
+      const grounded = nodes.filter((n) => n.type === "decision" && (n.grounds?.length ?? 0) > 0);
       const target = grounded[grounded.length - 1] ?? nodes[0]!;
       const ancestors = await run(["--root", root, "ancestors", target.id]);
       expect(ancestors.code).toBe(0);
@@ -479,7 +475,7 @@ describe("refino dev (hidden command)", { timeout: 20000 }, () => {
   it("coexists with hand-written fixture files under --force", async () => {
     vi.stubEnv("REFINO_DEV", "true");
     const root = await createRefino({
-      "nodes/DE/ADBEEF-constraint.md": constraint("DEADBEEF", undefined, "手写根约束。"),
+      "nodes/DE/ADBEEF-decision.md": decision("DEADBEEF", undefined, "手写根决策。"),
     });
     try {
       const { code } = await run(["--root", root, "dev", "generate", "--nodes", "6", "--force"]);

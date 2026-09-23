@@ -15,7 +15,7 @@ const C1 = "A1B2C3D4";
 const C2 = "D4E5F6G7";
 const C3 = "E5F6G7H8";
 
-const constraint = (id: string, grounds: string[]): LayoutNode => ({ id, grounds });
+const decision = (id: string, grounds: string[]): LayoutNode => ({ id, grounds });
 const premise = (id: string): LayoutNode => ({ id });
 
 const byId = (nodes: ReturnType<typeof layeredLayout>, id: string) => {
@@ -27,7 +27,7 @@ const byId = (nodes: ReturnType<typeof layeredLayout>, id: string) => {
 describe("layer assignment", () => {
   it("sits nodes one layer below their deepest ground", () => {
     const laid = layeredLayout(
-      [premise(P1), constraint(C1, [P1]), constraint(C2, [C1]), constraint(C3, [C1, C2])],
+      [premise(P1), decision(C1, [P1]), decision(C2, [C1]), decision(C3, [C1, C2])],
       "LR",
     );
     expect(byId(laid, C1).x).toBeGreaterThan(byId(laid, P1).x);
@@ -37,7 +37,7 @@ describe("layer assignment", () => {
 
   it("spreads siblings of one ground over distinct rows", () => {
     const laid = layeredLayout(
-      [premise(P1), constraint(C1, [P1]), constraint(C2, [P1]), constraint(C3, [P1])],
+      [premise(P1), decision(C1, [P1]), decision(C2, [P1]), decision(C3, [P1])],
       "LR",
     );
     const ys = [C1, C2, C3].map((id) => byId(laid, id).y);
@@ -47,11 +47,11 @@ describe("layer assignment", () => {
   it("places a joiner between the rows of its grounds", () => {
     const laid = layeredLayout(
       [
-        constraint("G1A2B3C4"),
-        constraint("G2A2B3C4"),
-        constraint("J1A2B3C4", ["G1A2B3C4"]),
-        constraint("J2A2B3C4", ["G2A2B3C4"]),
-        constraint("M1N2O3P4", ["J1A2B3C4", "J2A2B3C4"]),
+        decision("G1A2B3C4"),
+        decision("G2A2B3C4"),
+        decision("J1A2B3C4", ["G1A2B3C4"]),
+        decision("J2A2B3C4", ["G2A2B3C4"]),
+        decision("M1N2O3P4", ["J1A2B3C4", "J2A2B3C4"]),
       ],
       "LR",
     );
@@ -67,7 +67,7 @@ describe("layer assignment", () => {
   it("spreads several children symmetrically around their ground's row", () => {
     const ids = ["D1A2B3C4", "D2A2B3C4", "D3A2B3C4", "D4A2B3C4"];
     const laid = layeredLayout(
-      [constraint("G1A2B3C4"), ...ids.map((id) => constraint(id, ["G1A2B3C4"]))],
+      [decision("G1A2B3C4"), ...ids.map((id) => decision(id, ["G1A2B3C4"]))],
       "LR",
     );
     const parentY = byId(laid, "G1A2B3C4").y;
@@ -90,16 +90,9 @@ describe("statelessness", () => {
   it("recomputes positions so they stay consistent with the current structure", () => {
     // A second ground entering changes the joiner's row: with one ground it
     // sits straight below it; with two it centers between their rows.
-    const small = layeredLayout(
-      [constraint("G1A2B3C4"), constraint("J1A2B3C4", ["G1A2B3C4"])],
-      "LR",
-    );
+    const small = layeredLayout([decision("G1A2B3C4"), decision("J1A2B3C4", ["G1A2B3C4"])], "LR");
     const grown = layeredLayout(
-      [
-        constraint("G1A2B3C4"),
-        constraint("G2A2B3C4"),
-        constraint("J1A2B3C4", ["G1A2B3C4", "G2A2B3C4"]),
-      ],
+      [decision("G1A2B3C4"), decision("G2A2B3C4"), decision("J1A2B3C4", ["G1A2B3C4", "G2A2B3C4"])],
       "LR",
     );
     expect(byId(small, "J1A2B3C4").y).not.toBe(byId(grown, "J1A2B3C4").y);
@@ -114,9 +107,9 @@ describe("statelessness", () => {
     const input = [
       premise(P1),
       premise(P2),
-      constraint(C1, [P1]),
-      constraint(C2, [C1, P2]),
-      constraint(C3, [C2]),
+      decision(C1, [P1]),
+      decision(C2, [C1, P2]),
+      decision(C3, [C2]),
     ];
     const forward = layeredLayout(input, "LR");
     const shuffled = layeredLayout([input[3]!, input[0]!, input[4]!, input[2]!, input[1]!], "LR");
@@ -127,9 +120,9 @@ describe("statelessness", () => {
     const input = [
       premise(P1),
       premise(P2),
-      constraint(C1, [P1]),
-      constraint(C2, [C1, P2]),
-      constraint(C3, [C2]),
+      decision(C1, [P1]),
+      decision(C2, [C1, P2]),
+      decision(C3, [C2]),
     ];
     expect(layeredLayout(input, "LR")).toEqual(layeredLayout(input, "LR"));
   });
@@ -138,7 +131,7 @@ describe("statelessness", () => {
 describe("independent components", () => {
   it("places disjoint components in non-overlapping row ranges", () => {
     const laid = layeredLayout(
-      [premise(P1), constraint(C1, [P1]), premise(P2), constraint(C2, [P2])],
+      [premise(P1), decision(C1, [P1]), premise(P2), decision(C2, [P2])],
       "LR",
     );
     const first = [P1, C1].map((id) => byId(laid, id));
@@ -157,11 +150,11 @@ describe("cyclic input", () => {
   // edges deterministically so every node still gets finite coordinates.
   it("lays out every node of a cycle without NaN and deterministically", () => {
     const cyclic = [
-      constraint(C1, [C3]),
-      constraint(C2, [C1]),
-      constraint(C3, [C2]),
+      decision(C1, [C3]),
+      decision(C2, [C1]),
+      decision(C3, [C2]),
       premise(P1),
-      constraint("D4E5F6G8", [P1, C1]),
+      decision("D4E5F6G8", [P1, C1]),
     ];
     const first = layeredLayout(cyclic, "LR");
     expect(first).toHaveLength(cyclic.length);
@@ -174,7 +167,7 @@ describe("cyclic input", () => {
 });
 
 describe("direction mapping", () => {
-  const chain = [premise(P1), constraint(C1, [P1]), constraint(C2, [C1])];
+  const chain = [premise(P1), decision(C1, [P1]), decision(C2, [C1])];
 
   it("maps layers to the chosen axis without changing the layout", () => {
     const lr = layeredLayout(chain, "LR");
@@ -197,8 +190,8 @@ describe("direction mapping", () => {
 });
 
 describe("card size", () => {
-  const chain = [premise(P1), constraint(C1, [P1]), constraint(C2, [C1])];
-  const family = [premise(P1), constraint(C1, [P1]), constraint(C2, [P1])];
+  const chain = [premise(P1), decision(C1, [P1]), decision(C2, [C1])];
+  const family = [premise(P1), decision(C1, [P1]), decision(C2, [P1])];
 
   it("spaces and stamps nodes with the configured card size", () => {
     const size = { width: 300, height: 88 };
@@ -224,7 +217,7 @@ describe("card size", () => {
   });
 
   it("stays deterministic and order-independent at a custom size", () => {
-    const input = [premise(P1), premise(P2), constraint(C1, [P1]), constraint(C2, [C1, P2])];
+    const input = [premise(P1), premise(P2), decision(C1, [P1]), decision(C2, [C1, P2])];
     const size = { width: 220, height: 60 };
     expect(layeredLayout(input, "LR", size)).toEqual(layeredLayout(input, "LR", size));
     expect(layeredLayout([...input].reverse(), "LR", size)).toEqual(

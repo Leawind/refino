@@ -7,8 +7,8 @@ import type { AuthorizationContext, ModificationCheck, NodeZone } from "./types.
 
 /**
  * Validate an authorization context against the graph: all ids must exist,
- * appear at most once per list, and frozen ids must reference constraint
- * nodes (premises join the zone only as ancestors of frozen constraints).
+ * appear at most once per list, and frozen ids must reference decision
+ * nodes (premises join the zone only as ancestors of frozen decisions).
  * Throws `HarnessError` on the first violation.
  */
 export function validateContext(graph: Graph, context: AuthorizationContext): void {
@@ -23,11 +23,11 @@ export function validateContext(graph: Graph, context: AuthorizationContext): vo
       `Authorization context lists duplicate ids: ${duplicated.join(", ")}`,
     );
   }
-  const notConstraint = context.frozen.filter((id) => graph.nodes.get(id)!.type !== "constraint");
-  if (notConstraint.length > 0) {
+  const notDecision = context.frozen.filter((id) => graph.nodes.get(id)!.type !== "decision");
+  if (notDecision.length > 0) {
     throw new HarnessError(
       "FROZEN_NOT_CONSTRAINT",
-      `The frozen list must reference constraint nodes: ${notConstraint.join(", ")}`,
+      `The frozen list must reference decision nodes: ${notDecision.join(", ")}`,
     );
   }
 }
@@ -44,8 +44,8 @@ function duplicates(ids: readonly string[]): string[] {
 }
 
 /**
- * The frozen zone: the constraints named by the context closed upwards along
- * `grounds` — a frozen node's ancestors join the zone, constraints and
+ * The frozen zone: the decisions named by the context closed upwards along
+ * `grounds` — a frozen node's ancestors join the zone, decisions and
  * premises alike (docs/dlg.md 2.4). Sorted by id.
  */
 export function frozenZone(graph: Graph, context: AuthorizationContext): RefinoNode[] {
@@ -55,7 +55,7 @@ export function frozenZone(graph: Graph, context: AuthorizationContext): RefinoN
 }
 
 /**
- * The most downstream constraints of the frozen zone: zone nodes none of
+ * The most downstream decisions of the frozen zone: zone nodes none of
  * whose direct dependents are in the zone. The zone is their upward closure,
  * so they are its minimal representation — user-facing surfaces show and
  * unfreeze the zone through them (docs/dlg.md 2.4). Sorted by id.
@@ -68,21 +68,21 @@ export function frozenFrontier(graph: Graph, context: AuthorizationContext): Ref
 }
 
 /**
- * Constraints that may still be frozen under the context: every constraint
+ * Decisions that may still be frozen under the context: every decision
  * outside the frozen zone. Freeze candidates exclude zone members — freezing
  * them would change nothing. Premises are never named directly; they join
- * the zone as ancestors of frozen constraints. Sorted by id.
+ * the zone as ancestors of frozen decisions. Sorted by id.
  */
-export function freezableConstraints(graph: Graph, context: AuthorizationContext): RefinoNode[] {
+export function freezableDecisions(graph: Graph, context: AuthorizationContext): RefinoNode[] {
   validateContext(graph, context);
   const zone = frozenIds(graph, context);
-  return byId([...graph.nodes.values()].filter((n) => n.type === "constraint" && !zone.has(n.id)));
+  return byId([...graph.nodes.values()].filter((n) => n.type === "decision" && !zone.has(n.id)));
 }
 
 /**
  * Check whether a node may be modified under the given authorization context.
  * Everything outside the frozen zone is within the modification space,
- * constraints and premises alike; a node in the zone — whatever its type —
+ * decisions and premises alike; a node in the zone — whatever its type —
  * is blocked with an escalation report. Unknown ids throw `HarnessError`.
  */
 export function checkModification(
@@ -117,9 +117,9 @@ function frozenIds(graph: Graph, context: AuthorizationContext): Set<string> {
   const queue = [...context.frozen];
   for (let head = 0; head < queue.length; head++) {
     const id = queue[head]!;
-    // Premises declare no grounds, so only constraints extend the closure.
+    // Premises declare no grounds, so only decisions extend the closure.
     const node = graph.nodes.get(id);
-    const grounds = node?.type === "constraint" ? node.grounds : [];
+    const grounds = node?.type === "decision" ? node.grounds : [];
     for (const ground of grounds) {
       if (!frozen.has(ground)) {
         frozen.add(ground);

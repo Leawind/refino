@@ -9,7 +9,7 @@ import type { RefinoClient } from "../src/api";
 
 /**
  * The status pill (ui DESIGN.md, "布局"): read-only canvas statistics and
- * warnings — constraint count, truncation, render culling (via the shared
+ * warnings — decision count, truncation, render culling (via the shared
  * render state), issue count and the current focus.
  */
 
@@ -55,9 +55,9 @@ beforeEach(() => {
 });
 
 describe("StatusPill", () => {
-  it("renders the constraint count and the peek hint", () => {
+  it("renders the decision count and the peek hint", () => {
     const { wrapper } = mountPill();
-    expect(wrapper.text()).toContain("约束: 0");
+    expect(wrapper.text()).toContain("决策: 0");
     expect(wrapper.text()).toContain("按住 Alt 悬停可速览节点");
   });
 
@@ -72,7 +72,7 @@ describe("StatusPill", () => {
 
   it("shows the focus id from the workspace selection", async () => {
     const { wrapper, workspace } = mountPill();
-    workspace.toggle({ id: "A1B2C3D4", type: "constraint", summary: "约束一" });
+    workspace.toggle({ id: "A1B2C3D4", type: "decision", summary: "决策一" });
     await vi.waitFor(() => expect(wrapper.text()).toContain("选中: A1B2C3D4"));
   });
 });

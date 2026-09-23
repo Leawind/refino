@@ -38,22 +38,22 @@ export interface RangeNode extends NodeLite {
 export interface RangeResult {
   mode: RangeMode;
   /**
-   * Constraints between the endpoints plus the endpoints themselves (kept
+   * Decisions between the endpoints plus the endpoints themselves (kept
    * even when premises), ordered by depth from focusId.
    */
   nodes: RangeNode[];
 }
 
 export function toLite(node: RefinoNode): NodeLite {
-  return node.type === "constraint"
+  return node.type === "decision"
     ? { id: node.id, type: node.type, summary: node.summary, grounds: node.grounds }
     : { id: node.id, type: node.type, summary: node.summary };
 }
 
 /**
  * Per-id neighborhood: the anchor itself at depth 0, ancestors up to
- * `ancestorDepth` (constraints and premises) plus descendants up to
- * `descendantDepth` (constraints only — only constraints carry grounds).
+ * `ancestorDepth` (decisions and premises) plus descendants up to
+ * `descendantDepth` (decisions only — only decisions carry grounds).
  * Nearest-first; `limit` truncates. The group's `results` array holds
  * exactly one neighborhood object.
  */
@@ -85,7 +85,7 @@ export function neighbors(
   });
 }
 
-/** Per-id direct grounds (single hop, premises and constraints, declared order). */
+/** Per-id direct grounds (single hop, premises and decisions, declared order). */
 export function grounds(graph: Graph, ids: readonly string[]): QueryGroup<NodeLite>[] {
   return queryGroups(graph, ids, (g, id) => getGrounds(g, id).map(toLite));
 }
@@ -93,10 +93,10 @@ export function grounds(graph: Graph, ids: readonly string[]): QueryGroup<NodeLi
 /**
  * Per-id expansion block: the unit the canvas working set grows by. The
  * anchor's full upstream closure, `descendantDepth` generations of
- * constraints downstream (unbounded when omitted — the canvas cold start
+ * decisions downstream (unbounded when omitted — the canvas cold start
  * walks down from the roots until the limit), strong siblings (undirected
  * distance 2 via a shared ground), and the upstream closure of every block
- * constraint — so each rendered edge has both ends on the canvas.
+ * decision — so each rendered edge has both ends on the canvas.
  * Nearest-first; `limit` truncates and caps traversal. The group's
  * `results` array holds exactly one expansion object.
  */
@@ -107,7 +107,7 @@ export interface Expansion {
 
 export interface ExpandParams {
   /**
-   * Descendant constraint generations per anchor; unbounded when omitted.
+   * Descendant decision generations per anchor; unbounded when omitted.
    */
   descendantDepth?: number;
   /** Whether strong siblings of the anchor join the block. */
@@ -129,7 +129,7 @@ export function expand(
 function expandOne(graph: Graph, id: string, params: ExpandParams): Expansion {
   const depth = new Map<string, number>([[id, 0]]);
 
-  // Downstream constraints (only constraints carry grounds), nearest-first
+  // Downstream decisions (only decisions carry grounds), nearest-first
   // min-depth merge. Omitted depth walks the full descendant closure.
   const maxDepth = params.descendantDepth;
   for (const entry of getDependents(graph, id, maxDepth === undefined ? {} : { maxDepth })) {
@@ -169,7 +169,7 @@ export const DEFAULT_RANGE_BUDGET = 10_000;
 
 /**
  * Range selection between two endpoints (the canvas's shift+click):
- * ancestor — one endpoint reaches the other, nodes are the constraints on
+ * ancestor — one endpoint reaches the other, nodes are the decisions on
  * all paths between them plus the endpoints; branches — a single shortest
  * path between the endpoints, each side walking its grounds upstream to the
  * nearest common ancestor (minimal total path length, ties by id);
@@ -201,9 +201,9 @@ export function range(
     return ancestorRange(graph, focusId, clickedId, focusId, focusAnc, clickedAnc);
   }
 
-  // Nearest common ancestor: minimal total path length, then constraint
+  // Nearest common ancestor: minimal total path length, then decision
   // nodes before premises (a premise LCA would cut both paths short of the
-  // constraint structure the selection is about), then id order.
+  // decision structure the selection is about), then id order.
   let lca: string | undefined;
   let best = Infinity;
   let lcaIsPremise = false;
@@ -211,7 +211,7 @@ export function range(
     const fromClicked = clickedAnc.depths.get(id);
     if (fromClicked === undefined) continue;
     const total = fromFocus + fromClicked;
-    const premise = graph.nodes.get(id)?.type !== "constraint";
+    const premise = graph.nodes.get(id)?.type !== "decision";
     const better =
       total < best ||
       (total === best &&
@@ -258,7 +258,7 @@ export function range(
 }
 
 /**
- * Ancestor relationship: constraints on all paths between the endpoints
+ * Ancestor relationship: decisions on all paths between the endpoints
  * (dependents of the ancestor intersected with the descendant's ancestors)
  * plus both endpoints, ordered by depth from focus.
  */
@@ -298,11 +298,11 @@ function ancestorRange(
 }
 
 /**
- * One shortest constraint path from the LCA down to an endpoint: at each
+ * One shortest decision path from the LCA down to an endpoint: at each
  * hop the id-ascending direct dependent whose remaining depth to the
  * endpoint is exactly one less. Intermediates need no type filter — a
  * dependent must carry grounds, so premises never appear mid-path. Only
- * constraints are assigned: a premise LCA is neither a constraint nor an
+ * decisions are assigned: a premise LCA is neither a decision nor an
  * endpoint, and the endpoints themselves are the caller's to set.
  */
 function shortestPathDown(
@@ -313,7 +313,7 @@ function shortestPathDown(
   assign: (id: string, left: number) => void,
 ): void {
   let current = lcaId;
-  if (graph.nodes.get(current)?.type === "constraint") assign(current, depths.get(current)!);
+  if (graph.nodes.get(current)?.type === "decision") assign(current, depths.get(current)!);
   while (current !== endId) {
     const remaining = depths.get(current)!;
     let next: string | undefined;
@@ -323,7 +323,7 @@ function shortestPathDown(
     }
     if (next === undefined) break; // unreachable while the depths agree
     current = next;
-    if (graph.nodes.get(current)?.type === "constraint") {
+    if (graph.nodes.get(current)?.type === "decision") {
       assign(current, depths.get(current)!);
     }
   }
@@ -362,7 +362,7 @@ function ancestorsWithin(graph: Graph, start: string, budget: number): BoundedAn
 }
 
 /**
- * Multi-source upstream closure over grounds edges (only constraints carry
+ * Multi-source upstream closure over grounds edges (only decisions carry
  * them). Sources are processed in ascending seed-depth order; each runs one
  * breadth-first walk merging minimal depths into `depths`. A ground already
  * mapped stays unexpanded — an earlier (nearer) source merged its chain
@@ -395,7 +395,7 @@ function upstreamClosure(
       const [current, depth] = queue[head]!;
       expansions++;
       const node = graph.nodes.get(current);
-      for (const ground of node?.type === "constraint" ? node.grounds : []) {
+      for (const ground of node?.type === "decision" ? node.grounds : []) {
         if (!graph.nodes.has(ground) || visited.has(ground)) continue;
         visited.add(ground);
         if (!depths.has(ground)) depths.set(ground, depth + 1);

@@ -27,7 +27,7 @@ import type { ChangeEvent, IssueRecord, LayoutDirection, NodeLite } from "./type
  */
 
 export interface CanvasConfig {
-  /** Descendant constraint generations fetched per anchor. */
+  /** Descendant decision generations fetched per anchor. */
   descendantDepth: number;
   /** Whether strong siblings of the selection join the working set. */
   showSiblings: boolean;
@@ -372,7 +372,7 @@ export function createWorkspace(client: RefinoClient) {
   }
 
   /**
-   * Cold start: expand from the root constraints down to the working set
+   * Cold start: expand from the root decisions down to the working set
    * limit so the canvas opens on the whole inheritance structure instead of
    * an empty state (README, "数据：按需工作集"). Downstream depth is
    * unbounded here — the limit is the bound. Seed content is stamped as
@@ -632,15 +632,15 @@ export function createWorkspace(client: RefinoClient) {
   }
 
   /**
-   * Nodes the canvas draws: the working set's constraints, plus its premises
+   * Nodes the canvas draws: the working set's decisions, plus its premises
    * when the facts layer is on (README, "显示规则与样式" — premises render
    * as weakened capsules). Edges come from the grounds of the displayed
-   * constraints, restricted to grounds that are themselves displayed nodes.
+   * decisions, restricted to grounds that are themselves displayed nodes.
    */
   const displayed = computed<NodeLite[]>(() => {
     const result: NodeLite[] = [];
     for (const node of workingSet.value.values()) {
-      if (node.type === "constraint" || state.config.showPremises) result.push(node);
+      if (node.type === "decision" || state.config.showPremises) result.push(node);
     }
     return result;
   });

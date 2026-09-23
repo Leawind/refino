@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { buildGraph, effectiveExploring } from "refino";
 import type { Graph, RefinoNode } from "refino";
-import { createConstraint, updatePremise } from "@refino/storage";
-import { constraint, createRefino, premise, removeRefino } from "@refino/testkit";
-import { RefinoWorkspace, runCreateConstraint, runDependents, runShow } from "../src/host.js";
+import { createDecision, updatePremise } from "@refino/storage";
+import { decision, createRefino, premise, removeRefino } from "@refino/testkit";
+import { RefinoWorkspace, runCreateDecision, runDependents, runShow } from "../src/host.js";
 import { contentHash, SessionKnownSet } from "../src/known-set.js";
 
 /** Scripted store reads: revisions and content hashes the tests control. */
@@ -14,7 +14,7 @@ function readOf(revisions: Record<string, number>, hashes: Record<string, string
   };
 }
 
-function node(id: string, type: "premise" | "constraint", grounds?: string[]): RefinoNode {
+function node(id: string, type: "premise" | "decision", grounds?: string[]): RefinoNode {
   const base = {
     id,
     file: `nodes/${id.slice(0, 2)}/${id.slice(2)}-${type}.md`,
@@ -32,16 +32,16 @@ function graphOf(...nodes: RefinoNode[]): Graph {
 describe("SessionKnownSet (unit)", () => {
   it("diffs summary, grounds and children against recorded snapshots", async () => {
     const known = new SessionKnownSet();
-    known.recordSummaries([node("X1NODE1", "constraint", ["R1ROOT1"])]);
-    known.recordGroundsOf("X1NODE1", ["R1ROOT1"], "constraint");
-    known.recordChildrenOf("X1NODE1", ["C1CHILD"], "constraint");
+    known.recordSummaries([node("X1NODE1", "decision", ["R1ROOT1"])]);
+    known.recordGroundsOf("X1NODE1", ["R1ROOT1"], "decision");
+    known.recordChildrenOf("X1NODE1", ["C1CHILD"], "decision");
     // Grounds swap R1ROOT1 → P1PREM1, a new dependent appears, summary edited.
-    const edited = { ...node("X1NODE1", "constraint", ["P1PREM1"]), summary: "edited summary" };
+    const edited = { ...node("X1NODE1", "decision", ["P1PREM1"]), summary: "edited summary" };
     const graph = graphOf(
       edited,
       node("P1PREM1", "premise"),
-      node("C1CHILD", "constraint", ["X1NODE1"]),
-      node("C2NEWCH", "constraint", ["X1NODE1"]),
+      node("C1CHILD", "decision", ["X1NODE1"]),
+      node("C2NEWCH", "decision", ["X1NODE1"]),
     );
     const changes = await known.drainDiff(graph, readOf({}));
     expect(changes).toContainEqual({
@@ -70,21 +70,21 @@ describe("SessionKnownSet (unit)", () => {
     // The resolver reads a mutable graph, mirroring the workspace wiring.
     const R1 = "R1ROOT1";
     const D1 = "D1DOWN1";
-    let graph = graphOf(node(R1, "constraint"), node(D1, "constraint", [R1]));
+    let graph = graphOf(node(R1, "decision"), node(D1, "decision", [R1]));
     const known = new SessionKnownSet((id) => effectiveExploring(graph, id));
-    known.recordSummaries([node(D1, "constraint", [R1])]);
+    known.recordSummaries([node(D1, "decision", [R1])]);
     expect(await known.drainDiff(graph, readOf({}))).toEqual([]);
 
     // Marking the unseen upstream flips the known downstream's derived
     // status: the model saw D1 settled and must hear about the flip.
-    graph = graphOf({ ...node(R1, "constraint"), exploring: true }, node(D1, "constraint", [R1]));
+    graph = graphOf({ ...node(R1, "decision"), exploring: true }, node(D1, "decision", [R1]));
     expect(await known.drainDiff(graph, readOf({}))).toContainEqual({
       id: D1,
       kind: "exploring",
       to: true,
     });
     // The pass re-synced; settling the upstream flips it back.
-    graph = graphOf(node(R1, "constraint"), node(D1, "constraint", [R1]));
+    graph = graphOf(node(R1, "decision"), node(D1, "decision", [R1]));
     expect(await known.drainDiff(graph, readOf({}))).toContainEqual({
       id: D1,
       kind: "exploring",
@@ -94,7 +94,7 @@ describe("SessionKnownSet (unit)", () => {
 
   it("reports deletions with the delivered summary and rebuilds by type", async () => {
     const known = new SessionKnownSet();
-    known.recordSummaries([node("D1GONE1", "premise"), node("B1REBUIL", "constraint")]);
+    known.recordSummaries([node("D1GONE1", "premise"), node("B1REBUIL", "decision")]);
     const graph = graphOf(node("B1REBUIL", "premise"));
     const changes = await known.drainDiff(graph, readOf({}));
     expect(changes).toContainEqual({
@@ -105,14 +105,14 @@ describe("SessionKnownSet (unit)", () => {
     expect(changes).toContainEqual({
       id: "B1REBUIL",
       kind: "rebuilt",
-      fromType: "constraint",
+      fromType: "decision",
       toType: "premise",
     });
   });
 
   it("flags content changes by revision drift, separating mtime-only rewrites by hash", async () => {
     const known = new SessionKnownSet();
-    const seen = node("C1NODE1", "constraint");
+    const seen = node("C1NODE1", "decision");
     known.recordFull(seen, 3, contentHash({ body: "body of C1NODE1" }));
     const graph = graphOf(seen);
 
@@ -144,16 +144,13 @@ describe("SessionKnownSet (unit)", () => {
 
   it("reabsorbs neighborhoods silently so own writes are never reported back", async () => {
     const known = new SessionKnownSet();
-    known.recordSummaries([
-      node("X1NODE1", "constraint"),
-      node("C2NEWCH", "constraint", ["X1NODE1"]),
-    ]);
-    known.recordChildrenOf("X1NODE1", ["C2NEWCH"], "constraint");
+    known.recordSummaries([node("X1NODE1", "decision"), node("C2NEWCH", "decision", ["X1NODE1"])]);
+    known.recordChildrenOf("X1NODE1", ["C2NEWCH"], "decision");
     // A write creates Y grounded on X: X's dependents list changed.
     const graph = graphOf(
-      node("X1NODE1", "constraint"),
-      node("C2NEWCH", "constraint", ["X1NODE1"]),
-      node("Y3NEWGR", "constraint", ["X1NODE1"]),
+      node("X1NODE1", "decision"),
+      node("C2NEWCH", "decision", ["X1NODE1"]),
+      node("Y3NEWGR", "decision", ["X1NODE1"]),
     );
     known.reabsorb(graph, ["Y3NEWGR"]);
     expect(await known.drainDiff(graph, readOf({}))).toEqual([]);
@@ -182,9 +179,9 @@ afterEach(async () => {
 async function fixture(): Promise<string> {
   const root = await createRefino({
     "nodes/P1/PREMISE-premise.md": premise("P1PREMISE", "事实一"),
-    "nodes/R1/ROOT-constraint.md": constraint("R1ROOT", undefined, "根约束"),
-    "nodes/C1/CHILD-constraint.md": constraint("C1CHILD", ["R1ROOT", "P1PREMISE"], "子约束"),
-    "nodes/C2/GRAND-constraint.md": constraint("C2GRAND", ["C1CHILD"], "孙约束"),
+    "nodes/R1/ROOT-decision.md": decision("R1ROOT", undefined, "根决策"),
+    "nodes/C1/CHILD-decision.md": decision("C1CHILD", ["R1ROOT", "P1PREMISE"], "子决策"),
+    "nodes/C2/GRAND-decision.md": decision("C2GRAND", ["C1CHILD"], "孙决策"),
   });
   cleanup.push(root);
   return root;
@@ -218,7 +215,7 @@ describe("known set over a workspace", () => {
     const ws = await open(root);
     // The anchor block never delivered children lists: dependents does.
     await runDependents(ws, ["C1CHILD"]);
-    const fresh = await createConstraint(root + "/.refino", {
+    const fresh = await createDecision(root + "/.refino", {
       body: "新下游",
       grounds: ["C1CHILD"],
     });
@@ -254,7 +251,7 @@ describe("known set over a workspace", () => {
     const root = await fixture();
     const ws = await open(root);
     await runDependents(ws, ["C1CHILD"]);
-    const result = await runCreateConstraint(ws, { body: "模型写的下游", grounds: ["C1CHILD"] });
+    const result = await runCreateDecision(ws, { body: "模型写的下游", grounds: ["C1CHILD"] });
     expect(result.ok).toBe(true);
     expect(await ws.knownDiff()).toEqual([]);
   });

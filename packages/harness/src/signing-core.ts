@@ -104,7 +104,7 @@ export function createSigningCore(deps: SigningDeps): SigningCore {
     return {
       ok: true,
       frontier: doc.frozenFrontier,
-      frozen_constraints: preview.frozenConstraints,
+      frozen_decisions: preview.frozenDecisions,
       frozen_premises: preview.frozenPremises,
       ...(preview.redundantFrontier.length > 0 && {
         redundant_frontier: preview.redundantFrontier,
@@ -126,7 +126,7 @@ export function createSigningCore(deps: SigningDeps): SigningCore {
       source: origin.source,
       signed_at: origin.signedAt,
       frontier,
-      frozen_constraints: zone.filter((n) => n.type === "constraint").length,
+      frozen_decisions: zone.filter((n) => n.type === "decision").length,
       frozen_premises: zone.filter((n) => n.type === "premise").length,
       anchors_complete: defaultAuthorizationContext(graph).complete,
       orchestrator_credential: orchestratorCredential(env) !== undefined,
@@ -145,13 +145,13 @@ export function approvalReason(
   return [
     "refino 冻结区签发请求（对话签发，会话内生效）：",
     rationale !== undefined && rationale.length > 0 ? `理由：${rationale}` : "理由：（模型未提供）",
-    `新冻结区：${preview.frozenConstraints} 个约束、${preview.frozenPremises} 个前提`,
+    `新冻结区：${preview.frozenDecisions} 个决策、${preview.frozenPremises} 个前提`,
     `frontier：${doc.frozenFrontier.length > 0 ? doc.frozenFrontier.join(", ") : "（空，全部解冻）"}`,
     ...(preview.redundantFrontier.length > 0
-      ? [`frontier 归约：${preview.redundantFrontier.join(", ")} 被其他 frontier 约束覆盖`]
+      ? [`frontier 归约：${preview.redundantFrontier.join(", ")} 被其他 frontier 决策覆盖`]
       : []),
     ...(preview.unfrozenRoots.length > 0
-      ? [`警告：以下根约束将解冻，需要项目最高级别的授权：${preview.unfrozenRoots.join(", ")}`]
+      ? [`警告：以下根决策将解冻，需要项目最高级别的授权：${preview.unfrozenRoots.join(", ")}`]
       : []),
     "批准后在会话内立即生效；拒绝则维持当前授权。",
   ].join("\n");

@@ -113,7 +113,7 @@ describe("toEditorFields", () => {
   it("carries the stored exploring mark as an explicit boolean", () => {
     const editor = toEditorFields({
       id: "B2C3D4E5",
-      type: "constraint",
+      type: "decision",
       summary: "试行",
       body: "正文",
       exploring: true,

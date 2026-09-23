@@ -6,7 +6,7 @@
  * longest grounds chain ending there. Layer 0 is the upstream frontier,
  * higher layers are strictly downstream.
  *
- * Constraint→constraint cycles cannot be layered strictly, and the graph
+ * Decision→decision cycles cannot be layered strictly, and the graph
  * tolerates them until validated. For the leftovers the assignment breaks
  * back edges deterministically: unlayered grounds are ignored, and each
  * remaining node takes max(layer of layered grounds) + 1, iterating in id

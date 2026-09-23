@@ -1,5 +1,5 @@
 import { IssueCode, RefinoError } from "./types.js";
-import type { ConstraintNode, Graph, GraphNode, RefinoNode } from "./types.js";
+import type { DecisionNode, Graph, GraphNode, RefinoNode } from "./types.js";
 
 /**
  * Graph assembly and in-memory mutation. Pure and filesystem-free so the
@@ -16,7 +16,7 @@ export function buildGraph(nodes: Iterable<RefinoNode>): Graph {
   const byId = new Map<string, GraphNode>();
   for (const node of nodes) byId.set(node.id, { ...node, children: [] });
   for (const node of byId.values()) {
-    if (node.type !== "constraint") continue;
+    if (node.type !== "decision") continue;
     internGrounds(byId, node);
     for (const ground of node.grounds) addChild(byId.get(ground), node.id);
   }
@@ -33,7 +33,7 @@ export function addNode(graph: Graph, node: RefinoNode): void {
   }
   const attached: GraphNode = { ...node, children: [] };
   graph.nodes.set(node.id, attached);
-  if (attached.type === "constraint") {
+  if (attached.type === "decision") {
     internGrounds(graph.nodes, attached);
     for (const ground of attached.grounds) addChild(graph.nodes.get(ground), attached.id);
   }
@@ -49,21 +49,21 @@ export function removeNode(graph: Graph, id: string): GraphNode {
     throw new RefinoError(IssueCode.NodeNotFound, `Node "${id}" does not exist.`);
   }
   graph.nodes.delete(id);
-  if (node.type === "constraint") {
+  if (node.type === "decision") {
     for (const ground of node.grounds) dropChild(graph.nodes.get(ground), id);
   }
   return node;
 }
 
 /**
- * Replace a constraint's grounds, maintaining the children back-references.
+ * Replace a decision's grounds, maintaining the children back-references.
  * Validity (existing references, acyclicity) is the caller's job — run
  * `checkGroundsChange` before persisting; the primitive only keeps the
  * two-directional representation consistent.
  */
-export function setGrounds(graph: Graph, node: ConstraintNode, grounds: readonly string[]): void {
+export function setGrounds(graph: Graph, node: DecisionNode, grounds: readonly string[]): void {
   const attached = graph.nodes.get(node.id);
-  if (attached === undefined || attached.type !== "constraint") {
+  if (attached === undefined || attached.type !== "decision") {
     throw new RefinoError(IssueCode.NodeNotFound, `Node "${node.id}" does not exist.`);
   }
   replaceGrounds(graph, attached, grounds);
@@ -71,7 +71,7 @@ export function setGrounds(graph: Graph, node: ConstraintNode, grounds: readonly
 
 /**
  * Replace a node's resident fields with a fresh record (e.g. one re-read
- * from storage): summary, premise `confirmed`, constraint `exploring` and
+ * from storage): summary, premise `confirmed`, decision `exploring` and
  * grounds in one step. The id and type of the attached node are fixed;
  * grounds back-references are maintained.
  */
@@ -85,7 +85,7 @@ export function updateNode(graph: Graph, node: RefinoNode): void {
   if (node.type === "premise" && attached.type === "premise") {
     if (node.confirmed === undefined) delete attached.confirmed;
     else attached.confirmed = node.confirmed;
-  } else if (node.type === "constraint" && attached.type === "constraint") {
+  } else if (node.type === "decision" && attached.type === "decision") {
     if (node.exploring === undefined) delete attached.exploring;
     else attached.exploring = node.exploring;
     replaceGrounds(graph, attached, node.grounds);
@@ -95,7 +95,7 @@ export function updateNode(graph: Graph, node: RefinoNode): void {
 /** Replace the attached node's grounds with id-interned copies and update both directions. */
 function replaceGrounds(
   graph: Graph,
-  attached: GraphNode & { type: "constraint" },
+  attached: GraphNode & { type: "decision" },
   grounds: readonly string[],
 ): void {
   for (const ground of attached.grounds) dropChild(graph.nodes.get(ground), attached.id);
@@ -104,7 +104,7 @@ function replaceGrounds(
 }
 
 /** Point the node's grounds at the canonical id string instances. */
-function internGrounds(nodes: Graph["nodes"], node: GraphNode & { type: "constraint" }): void {
+function internGrounds(nodes: Graph["nodes"], node: GraphNode & { type: "decision" }): void {
   node.grounds = node.grounds.map((g) => nodes.get(g)?.id ?? g);
 }
 

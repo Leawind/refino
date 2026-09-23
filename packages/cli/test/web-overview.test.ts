@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createWebApp } from "../src/web/server.js";
-import { constraint, createRefino, premise, removeRefino } from "@refino/testkit";
+import { decision, createRefino, premise, removeRefino } from "@refino/testkit";
 
 /**
  * Project-overview endpoints (docs/design.md, "后端 API 契约"): /api/stats
@@ -20,8 +20,8 @@ const app = (): ReturnType<typeof createWebApp> => createWebApp({ refinoDir });
 beforeAll(async () => {
   root = await createRefino({
     "nodes/1A/2B3C4D-premise.md": premise(P1, "前提一。"),
-    "nodes/A1/B2C3D4-constraint.md": constraint(R1, [], "根约束一。"),
-    "nodes/D4/E5F6G7-constraint.md": constraint(C1, [R1, P1], "细化约束一。"),
+    "nodes/A1/B2C3D4-decision.md": decision(R1, [], "根决策一。"),
+    "nodes/D4/E5F6G7-decision.md": decision(C1, [R1, P1], "细化决策一。"),
   });
   refinoDir = join(root, ".refino");
 });
@@ -37,7 +37,7 @@ describe("GET /api/stats", () => {
     expect(await res.json()).toEqual({
       revision: 1,
       nodes: 3,
-      constraints: 2,
+      decisions: 2,
       premises: 1,
       roots: 1,
     });
@@ -45,7 +45,7 @@ describe("GET /api/stats", () => {
 });
 
 describe("GET /api/search roots filter", () => {
-  it("returns only root constraints", async () => {
+  it("returns only root decisions", async () => {
     const res = await app().request("/api/search?roots=1");
     const body = (await res.json()) as { nodes: Array<{ id: string }> };
     expect(body.nodes.map((n) => n.id)).toEqual([R1]);
@@ -55,7 +55,7 @@ describe("GET /api/search roots filter", () => {
     const miss = await app().request("/api/search?roots=1&q=细化");
     expect(((await miss.json()) as { nodes: unknown[] }).nodes).toEqual([]);
 
-    const hit = await app().request("/api/search?roots=1&q=根约束");
+    const hit = await app().request("/api/search?roots=1&q=根决策");
     expect(((await hit.json()) as { nodes: Array<{ id: string }> }).nodes.map((n) => n.id)).toEqual(
       [R1],
     );
@@ -69,7 +69,7 @@ describe("GET /api/search roots filter", () => {
 });
 
 describe("GET /api/search unreferenced filter", () => {
-  it("returns only premises no constraint grounds on", async () => {
+  it("returns only premises no decision grounds on", async () => {
     // The fixture's premise is referenced by C1; create an unreferenced one.
     const created = await app().request("/api/nodes/premise", {
       method: "POST",

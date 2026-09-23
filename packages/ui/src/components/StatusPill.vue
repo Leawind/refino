@@ -12,14 +12,14 @@ const { t } = useI18n();
 
 const workspace = injectRequired(workspaceKey, "workspace");
 
-const constraintCount = computed(
-  () => workspace.displayed.value.filter((n) => n.type === "constraint").length,
+const decisionCount = computed(
+  () => workspace.displayed.value.filter((n) => n.type === "decision").length,
 );
 </script>
 
 <template>
   <div class="status-pill">
-    <span>{{ t("status.constraints") }}: {{ constraintCount }}</span>
+    <span>{{ t("status.decisions") }}: {{ decisionCount }}</span>
     <span v-if="workspace.state.truncated" class="issues">
       {{ t("canvas.truncated") }}
     </span>

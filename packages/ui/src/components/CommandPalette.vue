@@ -38,10 +38,10 @@ interface ActionItem {
 
 const actions = computed<ActionItem[]>(() => [
   {
-    key: "create-constraint",
-    label: t("node.createConstraint"),
+    key: "create-decision",
+    label: t("node.createDecision"),
     icon: AddOutline,
-    run: () => store.startCreate("constraint"),
+    run: () => store.startCreate("decision"),
   },
   {
     key: "create-premise",

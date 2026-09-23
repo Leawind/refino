@@ -2,8 +2,8 @@ import { join } from "node:path";
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { RefinoStore } from "../src/store.js";
-import { createConstraint, deleteNode, updateConstraint } from "../src/writer.js";
-import { constraint, createRefino, premise, removeRefino } from "@refino/testkit";
+import { createDecision, deleteNode, updateDecision } from "../src/writer.js";
+import { decision, createRefino, premise, removeRefino } from "@refino/testkit";
 import { IssueCode } from "refino";
 import { StorageIssueCode } from "../src/codes.js";
 
@@ -22,7 +22,7 @@ const C1 = "A1B2C3D4";
 beforeAll(async () => {
   root = await createRefino({
     "nodes/1A/2B3C4D-premise.md": premise(P1, "前提一。"),
-    "nodes/A1/B2C3D4-constraint.md": constraint(C1, [P1], "C1。"),
+    "nodes/A1/B2C3D4-decision.md": decision(C1, [P1], "C1。"),
   });
   refinoDir = join(root, ".refino");
 });
@@ -43,7 +43,7 @@ describe("RefinoStore incremental updates", () => {
       expect(store.revision).toBe(start);
 
       // A real content change bumps the revision and reports the id.
-      await updateConstraint(refinoDir, C1, { body: "增量更新的内容。", grounds: [P1] });
+      await updateDecision(refinoDir, C1, { body: "增量更新的内容。", grounds: [P1] });
       const changed = await store.applyChange({ changed: [C1] });
       expect(changed).toEqual({
         revision: start + 1,
@@ -71,7 +71,7 @@ describe("RefinoStore incremental updates", () => {
   it("tracks exploring flips as resident changes", async () => {
     const local = await createRefino({
       "nodes/1A/2B3C4D-premise.md": premise(P1, "前提一。"),
-      "nodes/A1/B2C3D4-constraint.md": constraint(C1, [P1], "C1。"),
+      "nodes/A1/B2C3D4-decision.md": decision(C1, [P1], "C1。"),
     });
     const dir = join(local, ".refino");
     const store = RefinoStore.open(dir);
@@ -80,7 +80,7 @@ describe("RefinoStore incremental updates", () => {
       const start = store.revision;
 
       // API write carrying the mark lands in the resident projection.
-      const outcome = await store.createConstraint({
+      const outcome = await store.createDecision({
         body: "试行决策。",
         grounds: [P1],
         exploring: true,
@@ -88,7 +88,7 @@ describe("RefinoStore incremental updates", () => {
       expect(store.entry(outcome.id)?.node).toMatchObject({ exploring: true });
 
       // An external settle (field removed) is a resident change, not a no-op.
-      await updateConstraint(dir, outcome.id, { body: "试行决策。", grounds: [P1] });
+      await updateDecision(dir, outcome.id, { body: "试行决策。", grounds: [P1] });
       const changed = await store.applyChange({ changed: [outcome.id] });
       expect(changed?.changed).toEqual([outcome.id]);
       expect(store.revision).toBeGreaterThan(start);
@@ -103,20 +103,20 @@ describe("RefinoStore incremental updates", () => {
     const store = RefinoStore.open(refinoDir);
     try {
       await store.ready();
-      const newId = await createConstraint(refinoDir, { body: "悬空依据。", grounds: [P1] });
+      const newId = await createDecision(refinoDir, { body: "悬空依据。", grounds: [P1] });
       await store.applyChange({ changed: [newId] });
       expect(store.issues().some((i) => i.code === IssueCode.UnknownGround)).toBe(false);
 
       // Break the ground externally: the dependent's issue must appear through
       // the same incremental entry, scoped to the affected nodes.
-      await updateConstraint(refinoDir, newId, { body: "悬空依据。", grounds: ["ZZZZZZZZ"] });
+      await updateDecision(refinoDir, newId, { body: "悬空依据。", grounds: ["ZZZZZZZZ"] });
       await store.applyChange({ changed: [newId] });
       expect(
         store.issues().some((i) => i.code === IssueCode.UnknownGround && i.nodeId === newId),
       ).toBe(true);
 
       // Repairing the file clears the issue again.
-      await updateConstraint(refinoDir, newId, { body: "悬空依据。", grounds: [P1] });
+      await updateDecision(refinoDir, newId, { body: "悬空依据。", grounds: [P1] });
       await store.applyChange({ changed: [newId] });
       expect(store.issues()).toEqual([]);
       await deleteNode(refinoDir, newId);
@@ -169,7 +169,7 @@ describe("RefinoStore incremental updates", () => {
         '---\nsummary: ""\n---\n\n带空摘要的前提。\n',
         "utf8",
       );
-      const dependent = await createConstraint(refinoDir, {
+      const dependent = await createDecision(refinoDir, {
         body: "下游。",
         grounds: ["9BABCDEF2"],
       });
@@ -177,7 +177,7 @@ describe("RefinoStore incremental updates", () => {
       expect(store.issues().some((i) => i.code === StorageIssueCode.InvalidFrontmatter)).toBe(true);
 
       // A change to the dependent rechecks the premise too; its parse issue survives.
-      await updateConstraint(refinoDir, dependent, { body: "下游改。", grounds: ["9BABCDEF2"] });
+      await updateDecision(refinoDir, dependent, { body: "下游改。", grounds: ["9BABCDEF2"] });
       await store.applyChange({ changed: [dependent] });
       expect(store.issues().some((i) => i.code === StorageIssueCode.InvalidFrontmatter)).toBe(true);
 
@@ -224,7 +224,7 @@ describe("RefinoStore incremental updates", () => {
       const shardDir = join(refinoDir, "nodes", "AA");
       const badFile = join(shardDir, "zz-premise.md");
       await mkdir(shardDir, { recursive: true });
-      await writeFile(badFile, "---\ntype: constraint\nsummary: 形状非法\n---\n正文。\n", "utf8");
+      await writeFile(badFile, "---\ntype: decision\nsummary: 形状非法\n---\n正文。\n", "utf8");
       await store.reload();
       const invalidIssue = () => store.issues().find((i) => i.code === IssueCode.InvalidId);
       expect(invalidIssue()?.file).toBe("nodes/AA/zz-premise.md");
@@ -252,21 +252,21 @@ describe("RefinoStore incremental updates", () => {
 
       // Creation: an unknown ground is rejected with issues attached.
       await expect(
-        store.createConstraint({ body: "新约束。", grounds: ["ZZZZZZZZ"] }),
+        store.createDecision({ body: "新决策。", grounds: ["ZZZZZZZZ"] }),
       ).rejects.toMatchObject({
         name: "WriteRejected",
         issues: [{ code: IssueCode.UnknownGround, groundId: "ZZZZZZZZ" }],
       });
 
       // Update: a cycle-closing grounds change is rejected. (Earlier tests
-      // in this file delete C1, so a fresh constraint carries the check.)
-      const id = await createConstraint(refinoDir, { body: "环测试。", grounds: [P1] });
+      // in this file delete C1, so a fresh decision carries the check.)
+      const id = await createDecision(refinoDir, { body: "环测试。", grounds: [P1] });
       await store.applyChange({ changed: [id] });
       await expect(
-        store.updateConstraint(id, { body: "环测试。", grounds: [id] }),
+        store.updateDecision(id, { body: "环测试。", grounds: [id] }),
       ).rejects.toMatchObject({ name: "WriteRejected", issues: [{ code: IssueCode.Cycle }] });
 
-      // Only the applyChange of the created constraint bumped the revision;
+      // Only the applyChange of the created decision bumped the revision;
       // the two rejected writes never touch it, so the grounds stay as
       // created.
       expect(store.revision).toBe(start + 1);

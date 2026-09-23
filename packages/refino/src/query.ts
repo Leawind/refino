@@ -20,7 +20,7 @@ export function requireNode(graph: Graph, id: string): GraphNode {
 export function getGrounds(graph: Graph, id: string): GraphNode[] {
   const node = requireNode(graph, id);
   const result: GraphNode[] = [];
-  for (const ground of node.type === "constraint" ? node.grounds : []) {
+  for (const ground of node.type === "decision" ? node.grounds : []) {
     const target = graph.nodes.get(ground);
     if (target) result.push(target);
   }
@@ -39,7 +39,7 @@ export interface TraversalOptions {
 
 /**
  * All nodes reachable from a node by recursively following `grounds`
- * (premises and upstream constraints), excluding the node itself.
+ * (premises and upstream decisions), excluding the node itself.
  */
 export function getAncestors(
   graph: Graph,
@@ -51,7 +51,7 @@ export function getAncestors(
     graph,
     id,
     (node) =>
-      (node.type === "constraint" ? node.grounds : []).flatMap((g) => {
+      (node.type === "decision" ? node.grounds : []).flatMap((g) => {
         const target = graph.nodes.get(g);
         return target ? [g] : [];
       }),
@@ -60,7 +60,7 @@ export function getAncestors(
 }
 
 /**
- * All constraint nodes that directly or indirectly depend on a node, i.e.
+ * All decision nodes that directly or indirectly depend on a node, i.e.
  * whose `grounds` transitively contain it, excluding the node itself.
  */
 export function getDependents(
@@ -73,18 +73,18 @@ export function getDependents(
 }
 
 /**
- * Effective exploring status of a node (docs/dlg.md 1.1): a constraint is
+ * Effective exploring status of a node (docs/dlg.md 1.1): a decision is
  * effectively exploring when it carries the trial mark itself or any
- * (transitive) ground constraint does; premises are never exploring.
+ * (transitive) ground decision does; premises are never exploring.
  * Derived at read time along the grounds closure, never stored per node.
  * Throws when the id does not resolve.
  */
 export function effectiveExploring(graph: Graph, id: string): boolean {
   const node = requireNode(graph, id);
-  if (node.type !== "constraint") return false;
+  if (node.type !== "decision") return false;
   if (node.exploring === true) return true;
   return getAncestors(graph, id).some(
-    ({ node: ancestor }) => ancestor.type === "constraint" && ancestor.exploring === true,
+    ({ node: ancestor }) => ancestor.type === "decision" && ancestor.exploring === true,
   );
 }
 
@@ -95,16 +95,16 @@ export interface NodeWithOverlap {
 }
 
 /**
- * Strong siblings of a node: constraints sharing at least one direct ground
+ * Strong siblings of a node: decisions sharing at least one direct ground
  * with it — never the node itself, never premises (dependents are always
- * constraints). Overlap-descending, id-ascending; unbounded, so callers
+ * decisions). Overlap-descending, id-ascending; unbounded, so callers
  * truncate to their own budget. Premises have no grounds and thus no
  * siblings.
  */
 export function getSiblings(graph: Graph, id: string): NodeWithOverlap[] {
   const node = requireNode(graph, id);
   const overlap = new Map<string, number>();
-  const grounds = node.type === "constraint" ? node.grounds : [];
+  const grounds = node.type === "decision" ? node.grounds : [];
   for (const ground of grounds) {
     for (const dependent of graph.nodes.get(ground)?.children ?? []) {
       if (dependent === id) continue;

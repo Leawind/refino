@@ -36,11 +36,11 @@ export {
   runSiblings,
 } from "./query-core.js";
 export {
-  runCreateConstraint,
+  runCreateDecision,
   runCreatePremise,
   runDeleteNode,
   runUpdateNode,
-  type CreateConstraintArgs,
+  type CreateDecisionArgs,
   type CreatePremiseArgs,
   type UpdateNodeArgs,
 } from "./write-core.js";

@@ -31,10 +31,9 @@ export function nodeJson(
     type: node.type,
     summary: node.summary,
     body: node.body,
-    ...(node.type === "constraint" && { grounds: node.grounds ?? [] }),
-    ...(node.type === "constraint" &&
-      node.rationale !== undefined && { rationale: node.rationale }),
-    ...(node.type === "constraint" && node.exploring === true && { exploring: true }),
+    ...(node.type === "decision" && { grounds: node.grounds ?? [] }),
+    ...(node.type === "decision" && node.rationale !== undefined && { rationale: node.rationale }),
+    ...(node.type === "decision" && node.exploring === true && { exploring: true }),
     ...(node.type === "premise" && node.confirmed !== undefined && { confirmed: node.confirmed }),
   };
 }
@@ -103,22 +102,18 @@ export async function postPremise(c: Context, web: WebState): Promise<Response> 
   return create(c, web, "premise");
 }
 
-/** POST /api/nodes/constraint — create a constraint from a JSON payload. */
-export async function postConstraint(c: Context, web: WebState): Promise<Response> {
-  return create(c, web, "constraint");
+/** POST /api/nodes/decision — create a decision from a JSON payload. */
+export async function postDecision(c: Context, web: WebState): Promise<Response> {
+  return create(c, web, "decision");
 }
 
-async function create(
-  c: Context,
-  web: WebState,
-  type: "premise" | "constraint",
-): Promise<Response> {
+async function create(c: Context, web: WebState, type: "premise" | "decision"): Promise<Response> {
   try {
     const payload = await readPayload(c);
     const body = readRequiredString(payload, "body");
     const summary = readString(payload, "summary");
     // Grounds sent for a premise are a misplaced attribute and silently
-    // ignored; constraint grounds are validated inside the store.
+    // ignored; decision grounds are validated inside the store.
     const grounds = resolveGrounds(payload);
     const outcome =
       type === "premise"
@@ -127,7 +122,7 @@ async function create(
             summary,
             confirmed: readConfirmed(payload),
           })
-        : await web.store.createConstraint({
+        : await web.store.createDecision({
             body,
             summary,
             rationale: readString(payload, "rationale"),
@@ -192,7 +187,7 @@ export async function putNode(c: Context, web: WebState): Promise<Response> {
         confirmed: readConfirmed(payload),
       });
     } else {
-      await web.store.updateConstraint(id, {
+      await web.store.updateDecision(id, {
         body,
         summary,
         rationale: readString(payload, "rationale"),
@@ -217,7 +212,7 @@ export async function removeNode(c: Context, web: WebState): Promise<Response> {
     if (affected.length > 0) {
       return c.json(
         {
-          error: `Node "${id}" is still referenced by ${affected.length} downstream constraint(s).`,
+          error: `Node "${id}" is still referenced by ${affected.length} downstream decision(s).`,
           dependents: affected.map((entry) => ({ id: entry.node.id, depth: entry.depth })),
         },
         409,
@@ -252,10 +247,10 @@ async function createWithId(c: Context, web: WebState, id: string): Promise<Resp
   const body = readRequiredString(payload, "body");
   const summary = readString(payload, "summary");
   const type = readString(payload, "type");
-  if (type !== "premise" && type !== "constraint") {
+  if (type !== "premise" && type !== "decision") {
     throw new RefinoError(
       INVALID_REQUEST,
-      `"type" must be "premise" or "constraint" to create node "${id}".`,
+      `"type" must be "premise" or "decision" to create node "${id}".`,
     );
   }
   const grounds = resolveGrounds(payload);
@@ -267,7 +262,7 @@ async function createWithId(c: Context, web: WebState, id: string): Promise<Resp
       confirmed: readConfirmed(payload),
     });
   } else {
-    await web.store.createConstraint({
+    await web.store.createDecision({
       id,
       body,
       summary,
@@ -293,7 +288,7 @@ function resolveGrounds(payload: Payload): string[] {
 
 /**
  * The payload's `exploring` boolean, shape-checked at this boundary like
- * `confirmed` (constraints only; a misplaced field on a premise payload is
+ * `confirmed` (decisions only; a misplaced field on a premise payload is
  * simply never read). Absent means settled under the wholesale-replacement
  * PUT semantics.
  */

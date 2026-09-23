@@ -18,7 +18,7 @@ Commands:
   show <ids...>              print the full record of one or more nodes
   grounds <ids...>           direct grounds of one or more nodes
   ancestors <ids...>         all nodes reachable by recursively following grounds
-  dependents <ids...>        constraints potentially affected if these nodes change
+  dependents <ids...>        decisions potentially affected if these nodes change
   new                        create a new node file in .refino/
   update [options] <id>      update fields of an existing node; unspecified fields keep their current value
   delete [options] <ids...>  delete one or more nodes; refuses while other nodes ground on the target

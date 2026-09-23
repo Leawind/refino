@@ -2,7 +2,7 @@ import { parse as parseYaml } from "yaml";
 import {
   IssueCode,
   RefinoError,
-  type ConstraintNode,
+  type DecisionNode,
   type NodeType,
   type PremiseNode,
   type RefinoNode,
@@ -40,7 +40,7 @@ export function confirmedToRfc3339(ms: number): string {
 export interface NodeContent {
   /** Full body text (trimmed). */
   body: string;
-  /** Why the decision was made; independent and optional, constraints only. */
+  /** Why the decision was made; independent and optional, decisions only. */
   rationale?: string;
 }
 
@@ -117,7 +117,7 @@ export function parseNodeSource(
   const node: RefinoNode =
     expectedType === "premise"
       ? parsePremise(base, fields, canonicalFile, issues)
-      : parseConstraint(base, fields, content, canonicalFile, issues);
+      : parseDecision(base, fields, content, canonicalFile, issues);
 
   return { node, content, issues, summaryExplicit };
 }
@@ -125,7 +125,7 @@ export function parseNodeSource(
 /**
  * Premise fields: `confirmed` as epoch milliseconds, converted from the
  * file's RFC 3339 form. A declared `grounds` or `exploring` is a misplaced
- * attribute (edges and trial marks belong to constraints only) and is
+ * attribute (edges and trial marks belong to decisions only) and is
  * silently ignored, like any unknown frontmatter field — no issue is
  * reported.
  */
@@ -152,15 +152,15 @@ function parsePremise(
   return node;
 }
 
-/** Constraint fields: `grounds` (absent -> []), `exploring` (only true marks); `rationale` lands in the paged content. */
-function parseConstraint(
+/** Decision fields: `grounds` (absent -> []), `exploring` (only true marks); `rationale` lands in the paged content. */
+function parseDecision(
   base: { id: string; summary: string },
   fields: Record<string, unknown>,
   content: NodeContent,
   file: string,
   issues: StorageIssue[],
-): ConstraintNode {
-  const node: ConstraintNode = { ...base, type: "constraint", grounds: [] };
+): DecisionNode {
+  const node: DecisionNode = { ...base, type: "decision", grounds: [] };
   const grounds = parseGrounds(file, base.id, fields["grounds"], issues);
   if (grounds) node.grounds = grounds;
   const exploring = fields["exploring"];

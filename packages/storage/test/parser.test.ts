@@ -7,15 +7,15 @@ describe("parseNodeSource", () => {
   it("normalizes backslash paths to the canonical forward-slash form on issues", () => {
     const { issues } = parseNodeSource(
       "E5F6G7H8",
-      "nodes\\E5\\F6G7H8-constraint.md",
-      "constraint",
+      "nodes\\E5\\F6G7H8-decision.md",
+      "decision",
       "---\nsummary: 42\n---\n\nBody.\n",
     );
     expect(issues).toHaveLength(1);
-    expect(issues[0]?.file).toBe("nodes/E5/F6G7H8-constraint.md");
+    expect(issues[0]?.file).toBe("nodes/E5/F6G7H8-decision.md");
   });
 
-  it("parses a constraint with grounds, summary and body", () => {
+  it("parses a decision with grounds, summary and body", () => {
     const source = [
       "---",
       "grounds: [1A2B3C4D, D4E5F6G7]",
@@ -29,14 +29,14 @@ describe("parseNodeSource", () => {
 
     const { node, content, issues } = parseNodeSource(
       "E5F6G7H8",
-      "nodes/E5/F6G7H8-constraint.md",
-      "constraint",
+      "nodes/E5/F6G7H8-decision.md",
+      "decision",
       source,
     );
     expect(issues).toEqual([]);
     expect(node).toEqual({
       id: "E5F6G7H8",
-      type: "constraint",
+      type: "decision",
       summary: "实现必须通过 Repository 层。",
       grounds: ["1A2B3C4D", "D4E5F6G7"],
     });
@@ -61,11 +61,11 @@ describe("parseNodeSource", () => {
   it("derives type from the caller, not from frontmatter", () => {
     const { node } = parseNodeSource(
       "1A2B3C4D",
-      "nodes/1A/2B3C4D-constraint.md",
-      "constraint",
+      "nodes/1A/2B3C4D-decision.md",
+      "decision",
       "Body.\n",
     );
-    expect(node?.type).toBe("constraint");
+    expect(node?.type).toBe("decision");
   });
 
   it("silently ignores unknown frontmatter fields", () => {
@@ -79,11 +79,11 @@ describe("parseNodeSource", () => {
     expect(content?.body).toBe("Body.");
   });
 
-  it("omits grounds for a root constraint declared without the field", () => {
+  it("omits grounds for a root decision declared without the field", () => {
     const { node } = parseNodeSource(
       "A1B2C3D4",
-      "nodes/A1/B2C3D4-constraint.md",
-      "constraint",
+      "nodes/A1/B2C3D4-decision.md",
+      "decision",
       "Root decision.\n",
     );
     expect(node?.grounds).toEqual([]);
@@ -92,8 +92,8 @@ describe("parseNodeSource", () => {
   it("deduplicates grounds while preserving order", () => {
     const { node, issues } = parseNodeSource(
       "A1B2C3D4",
-      "nodes/A1/B2C3D4-constraint.md",
-      "constraint",
+      "nodes/A1/B2C3D4-decision.md",
+      "decision",
       "---\ngrounds: [B2C3D4E5, C3D4E5F6, B2C3D4E5]\n---\n\nBody.\n",
     );
     expect(issues).toEqual([]);
@@ -103,8 +103,8 @@ describe("parseNodeSource", () => {
   it("accepts an explicit empty grounds list", () => {
     const { node, issues } = parseNodeSource(
       "A1B2C3D4",
-      "nodes/A1/B2C3D4-constraint.md",
-      "constraint",
+      "nodes/A1/B2C3D4-decision.md",
+      "decision",
       "---\ngrounds: []\n---\n\nBody.\n",
     );
     expect(issues).toEqual([]);
@@ -115,8 +115,8 @@ describe("parseNodeSource", () => {
     const source = `\uFEFF---\r\ngrounds: []\r\n---\r\n\r\nFirst\r\nparagraph continues.\r\n\r\nRationale.\r\n`;
     const { node, content, issues } = parseNodeSource(
       "A1B2C3D4",
-      "nodes/A1/B2C3D4-constraint.md",
-      "constraint",
+      "nodes/A1/B2C3D4-decision.md",
+      "decision",
       source,
     );
     expect(issues).toEqual([]);
@@ -127,8 +127,8 @@ describe("parseNodeSource", () => {
   it("uses the first paragraph as summary, collapsing internal whitespace", () => {
     const { node } = parseNodeSource(
       "A1B2C3D4",
-      "nodes/A1/B2C3D4-constraint.md",
-      "constraint",
+      "nodes/A1/B2C3D4-decision.md",
+      "decision",
       "Line one.\nLine two continues.\n\nRationale.\n",
     );
     expect(node?.summary).toBe("Line one. Line two continues.");
@@ -137,8 +137,8 @@ describe("parseNodeSource", () => {
   it("prefers an explicit summary frontmatter field over the first paragraph", () => {
     const { node, content, issues } = parseNodeSource(
       "A1B2C3D4",
-      "nodes/A1/B2C3D4-constraint.md",
-      "constraint",
+      "nodes/A1/B2C3D4-decision.md",
+      "decision",
       '---\nsummary: "Short relevance summary."\n---\n\nFirst paragraph that is not the summary.\n',
     );
     expect(issues).toEqual([]);
@@ -160,8 +160,8 @@ describe("parseNodeSource", () => {
   it("reports an issue and falls back for a non-string summary field", () => {
     const { node, issues } = parseNodeSource(
       "A1B2C3D4",
-      "nodes/A1/B2C3D4-constraint.md",
-      "constraint",
+      "nodes/A1/B2C3D4-decision.md",
+      "decision",
       "---\nsummary: 42\n---\n\nFallback paragraph.\n",
     );
     expect(issues).toHaveLength(1);
@@ -173,8 +173,8 @@ describe("parseNodeSource", () => {
     const longParagraph = "x".repeat(SUMMARY_MAX_LENGTH + 10);
     const { node } = parseNodeSource(
       "A1B2C3D4",
-      "nodes/A1/B2C3D4-constraint.md",
-      "constraint",
+      "nodes/A1/B2C3D4-decision.md",
+      "decision",
       `${longParagraph}\n`,
     );
     expect(node?.summary).toBe(`${"x".repeat(SUMMARY_MAX_LENGTH)}...`);
@@ -184,8 +184,8 @@ describe("parseNodeSource", () => {
   it("reports INVALID_FRONTMATTER for broken YAML", () => {
     const { node, issues } = parseNodeSource(
       "A1B2C3D4",
-      "nodes/A1/B2C3D4-constraint.md",
-      "constraint",
+      "nodes/A1/B2C3D4-decision.md",
+      "decision",
       "---\ngrounds: [unclosed\n---\n\nBody.\n",
     );
     expect(node).toBeNull();
@@ -195,8 +195,8 @@ describe("parseNodeSource", () => {
   it("reports INVALID_FRONTMATTER when the frontmatter is not a mapping", () => {
     const { issues } = parseNodeSource(
       "A1B2C3D4",
-      "nodes/A1/B2C3D4-constraint.md",
-      "constraint",
+      "nodes/A1/B2C3D4-decision.md",
+      "decision",
       "---\n- a\n- b\n---\n\nBody.\n",
     );
     expect(issues.map((i) => i.code)).toEqual([StorageIssueCode.InvalidFrontmatter]);
@@ -213,17 +213,17 @@ describe("parseNodeSource", () => {
     expect(node).toEqual({ id: "2B3C4D5E", type: "premise", summary: "Body." });
   });
 
-  it("marks a constraint exploring when the field is true", () => {
+  it("marks a decision exploring when the field is true", () => {
     const { node, issues } = parseNodeSource(
       "B2C3D4E5",
-      "nodes/B2/C3D4E5-constraint.md",
-      "constraint",
+      "nodes/B2/C3D4E5-decision.md",
+      "decision",
       "---\nexploring: true\n---\n\nBody.\n",
     );
     expect(issues).toEqual([]);
     expect(node).toEqual({
       id: "B2C3D4E5",
-      type: "constraint",
+      type: "decision",
       summary: "Body.",
       grounds: [],
       exploring: true,
@@ -233,12 +233,12 @@ describe("parseNodeSource", () => {
   it("treats an explicit false exploring like absence", () => {
     const { node, issues } = parseNodeSource(
       "B2C3D4E5",
-      "nodes/B2/C3D4E5-constraint.md",
-      "constraint",
+      "nodes/B2/C3D4E5-decision.md",
+      "decision",
       "---\nexploring: false\n---\n\nBody.\n",
     );
     expect(issues).toEqual([]);
-    expect(node).toEqual({ id: "B2C3D4E5", type: "constraint", summary: "Body.", grounds: [] });
+    expect(node).toEqual({ id: "B2C3D4E5", type: "decision", summary: "Body.", grounds: [] });
     expect("exploring" in node!).toBe(false);
   });
 
@@ -249,12 +249,12 @@ describe("parseNodeSource", () => {
   ])("reports INVALID_EXPLORING for exploring %s", (_label, value) => {
     const { node, issues } = parseNodeSource(
       "B2C3D4E5",
-      "nodes/B2/C3D4E5-constraint.md",
-      "constraint",
+      "nodes/B2/C3D4E5-decision.md",
+      "decision",
       `---\nexploring: ${value}\n---\n\nBody.\n`,
     );
     expect(issues.map((i) => i.code)).toEqual([StorageIssueCode.InvalidExploring]);
-    expect(node?.type).toBe("constraint");
+    expect(node?.type).toBe("decision");
     expect((node as { exploring?: boolean }).exploring).toBeUndefined();
   });
 
@@ -300,15 +300,15 @@ describe("parseNodeSource", () => {
   it.each([
     [
       "grounds not a list",
-      "nodes/A1/B2C3D4-constraint.md",
-      "constraint",
+      "nodes/A1/B2C3D4-decision.md",
+      "decision",
       "---\ngrounds: B2C3D4E5\n---\n\nBody.\n",
       IssueCode.InvalidGrounds,
     ],
     [
       "grounds entry not a string",
-      "nodes/A1/B2C3D4-constraint.md",
-      "constraint",
+      "nodes/A1/B2C3D4-decision.md",
+      "decision",
       "---\ngrounds: [3]\n---\n\nBody.\n",
       IssueCode.InvalidGrounds,
     ],

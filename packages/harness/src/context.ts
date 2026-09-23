@@ -121,10 +121,10 @@ export function diffContext(
 
 function line(graph: Graph, id: string, frozen: Set<string>): string {
   const node = graph.nodes.get(id)!;
-  const type = node.type === "premise" ? "premise" : "constraint";
+  const type = node.type === "premise" ? "premise" : "decision";
   const mark = frozen.has(id) ? " [冻结]" : "";
   // Derived effective status: unmarked downstream of an exploring
-  // constraint annotates too; the mark follows the frozen mark.
-  const exploring = node.type === "constraint" && effectiveExploring(graph, id) ? " [探索]" : "";
+  // decision annotates too; the mark follows the frozen mark.
+  const exploring = node.type === "decision" && effectiveExploring(graph, id) ? " [探索]" : "";
   return `- ${node.id} [${type}]${mark}${exploring} ${node.summary}`;
 }

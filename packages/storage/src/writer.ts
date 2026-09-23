@@ -7,13 +7,13 @@ import { serializeNode } from "./serialize.js";
 
 const NODES_DIR = "nodes";
 
-export const NODE_TYPES: ReadonlyArray<NodeType> = ["premise", "constraint"];
+export const NODE_TYPES: ReadonlyArray<NodeType> = ["premise", "decision"];
 
 /**
  * Node creation. This is the storage adapter's write path; everything else
  * stays read-only. Node ids are globally unique and map to exactly two
  * candidate file paths (path is identity): `nodes/<first 2 id
- * chars>/<rest>-premise.md` and `...-constraint.md`. Uniqueness is therefore
+ * chars>/<rest>-premise.md` and `...-decision.md`. Uniqueness is therefore
  * checked against those two paths only, never by scanning.
  */
 
@@ -36,8 +36,8 @@ export interface CreatePremiseOptions extends CreateOptions {
   confirmed?: number;
 }
 
-export interface CreateConstraintOptions extends CreateOptions {
-  /** Ids of upstream premise/constraint nodes. */
+export interface CreateDecisionOptions extends CreateOptions {
+  /** Ids of upstream premise/decision nodes. */
   grounds?: string[];
   /** Why the decision was made. */
   rationale?: string;
@@ -57,10 +57,10 @@ export async function createPremise(
   return createNode(refinoDir, "premise", fields, opts.body, opts.id);
 }
 
-/** Create a constraint node file under `<refinoDir>/nodes/`; returns the new id. */
-export async function createConstraint(
+/** Create a decision node file under `<refinoDir>/nodes/`; returns the new id. */
+export async function createDecision(
   refinoDir: string,
-  opts: CreateConstraintOptions,
+  opts: CreateDecisionOptions,
 ): Promise<string> {
   const fields: Record<string, unknown> = {
     grounds: opts.grounds,
@@ -68,7 +68,7 @@ export async function createConstraint(
     summary: opts.summary,
     exploring: opts.exploring === true ? true : undefined,
   };
-  return createNode(refinoDir, "constraint", fields, opts.body, opts.id);
+  return createNode(refinoDir, "decision", fields, opts.body, opts.id);
 }
 
 async function createNode(
@@ -122,7 +122,7 @@ export function nodeRelativeFile(type: NodeType, id: string): string {
  * mapping git-changed files back to ids) never hard-code the storage layout.
  */
 export function nodeIdFromRelativeFile(file: string): string | undefined {
-  const match = /^nodes\/(.{2})\/(.*)-(premise|constraint)\.md$/.exec(file);
+  const match = /^nodes\/(.{2})\/(.*)-(premise|decision)\.md$/.exec(file);
   if (match === null) return undefined;
   return `${match[1]}${match[2]}`;
 }
@@ -154,8 +154,8 @@ export interface UpdatePremiseOptions extends UpdateOptions {
   confirmed?: number;
 }
 
-export interface UpdateConstraintOptions extends UpdateOptions {
-  /** Ids of upstream premise/constraint nodes. */
+export interface UpdateDecisionOptions extends UpdateOptions {
+  /** Ids of upstream premise/decision nodes. */
   grounds?: string[];
   /** Why the decision was made. */
   rationale?: string;
@@ -176,11 +176,11 @@ export async function updatePremise(
   await updateNode(refinoDir, "premise", id, fields, opts.body);
 }
 
-/** Overwrite an existing constraint node file; throws NODE_NOT_FOUND if absent. */
-export async function updateConstraint(
+/** Overwrite an existing decision node file; throws NODE_NOT_FOUND if absent. */
+export async function updateDecision(
   refinoDir: string,
   id: string,
-  opts: UpdateConstraintOptions,
+  opts: UpdateDecisionOptions,
 ): Promise<void> {
   const fields: Record<string, unknown> = {
     grounds: opts.grounds,
@@ -188,7 +188,7 @@ export async function updateConstraint(
     summary: opts.summary,
     exploring: opts.exploring === true ? true : undefined,
   };
-  await updateNode(refinoDir, "constraint", id, fields, opts.body);
+  await updateNode(refinoDir, "decision", id, fields, opts.body);
 }
 
 async function updateNode(

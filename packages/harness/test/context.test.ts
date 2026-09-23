@@ -24,9 +24,9 @@ const P1 = "1A2B3C4D";
 function graphOf(exploringId?: string): Graph {
   return buildGraph([
     node(P1, "premise"),
-    node(A1, "constraint", [], exploringId === A1),
-    node(D4, "constraint", [A1], exploringId === D4),
-    node(E5, "constraint", [D4], exploringId === E5),
+    node(A1, "decision", [], exploringId === A1),
+    node(D4, "decision", [A1], exploringId === D4),
+    node(E5, "decision", [D4], exploringId === E5),
   ]);
 }
 
@@ -50,7 +50,7 @@ describe("contextBlocks", () => {
     // A1 carries the stored mark; D4 anchors with no mark of its own but an
     // exploring ground, so the annotation must come from the closure.
     const blocks = contextBlocks(graphOf(A1), { anchors: [A1, D4], frozen: [A1] });
-    expect(blocks[0]!.text).toBe(`- ${A1} [constraint] [冻结] [探索] ${A1} summary.`);
+    expect(blocks[0]!.text).toBe(`- ${A1} [decision] [冻结] [探索] ${A1} summary.`);
     expect(blocks[1]!.text).toContain("[探索]");
     const plain = contextBlocks(graphOf(), { anchors: [A1], frozen: [] });
     expect(plain[0]!.text).not.toContain("[探索]");

@@ -86,15 +86,15 @@ const SEARCH_MAX_LIMIT = 500;
  * GET /api/search — keyset pagination over the ascending id view; `cursor`
  * is the id after which to continue. `q` matches id prefixes (case
  *-insensitive; ids are Crockford base32) and summary substrings. `roots`
- * restricts to root constraints (grounds-less), the cold-start overview's
+ * restricts to root decisions (grounds-less), the cold-start overview's
  * entry points.
  */
 export async function getSearch(c: Context, web: WebState): Promise<Response> {
   try {
     const q = (c.req.query("q") ?? "").trim();
     const type = c.req.query("type");
-    if (type !== undefined && type !== "premise" && type !== "constraint") {
-      throw new RefinoError(INVALID_REQUEST, `"type" must be "premise" or "constraint".`);
+    if (type !== undefined && type !== "premise" && type !== "decision") {
+      throw new RefinoError(INVALID_REQUEST, `"type" must be "premise" or "decision".`);
     }
     const roots = c.req.query("roots");
     const rootsOnly = roots === "1" || roots === "true";
@@ -114,10 +114,10 @@ export async function getSearch(c: Context, web: WebState): Promise<Response> {
       const id = all[i]!;
       const entry = web.store.entry(id)!;
       if (type !== undefined && entry.node.type !== type) continue;
-      if (rootsOnly && (entry.node.type !== "constraint" || entry.node.grounds.length > 0)) {
+      if (rootsOnly && (entry.node.type !== "decision" || entry.node.grounds.length > 0)) {
         continue;
       }
-      // Premises no constraint grounds on (the CLI's list --unreferenced):
+      // Premises no decision grounds on (the CLI's list --unreferenced):
       // candidates for review or removal in maintenance work.
       if (unreferencedOnly && (entry.node.type !== "premise" || entry.node.children.length > 0)) {
         continue;

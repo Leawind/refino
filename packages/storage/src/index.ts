@@ -19,9 +19,9 @@ export {
 export type { NodeContent, ParseResult } from "./parser.js";
 export {
   createPremise,
-  createConstraint,
+  createDecision,
   updatePremise,
-  updateConstraint,
+  updateDecision,
   deleteNode,
   nodeRelativeFile,
   nodeIdFromRelativeFile,
@@ -29,10 +29,10 @@ export {
 export type {
   CreateOptions,
   CreatePremiseOptions,
-  CreateConstraintOptions,
+  CreateDecisionOptions,
   UpdateOptions,
   UpdatePremiseOptions,
-  UpdateConstraintOptions,
+  UpdateDecisionOptions,
 } from "./writer.js";
 export { findRefinoDir } from "./locate.js";
 export { startNodeWatcher } from "./watcher.js";

@@ -1,8 +1,8 @@
 import { join } from "node:path";
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
 import { createWebApp } from "../src/web/server.js";
-import { createConstraint, updateConstraint } from "@refino/storage";
-import { constraint, createRefino, premise, removeRefino } from "@refino/testkit";
+import { createDecision, updateDecision } from "@refino/storage";
+import { decision, createRefino, premise, removeRefino } from "@refino/testkit";
 import { IssueCode } from "refino";
 
 /**
@@ -21,7 +21,7 @@ const C1 = "A1B2C3D4";
 beforeAll(async () => {
   root = await createRefino({
     "nodes/1A/2B3C4D-premise.md": premise(P1, "前提一。"),
-    "nodes/A1/B2C3D4-constraint.md": constraint(C1, [P1], "C1。"),
+    "nodes/A1/B2C3D4-decision.md": decision(C1, [P1], "C1。"),
   });
   refinoDir = join(root, ".refino");
 });
@@ -67,13 +67,13 @@ describe("optimistic concurrency on PUT", () => {
 
   it("detects body-only external edits via mtime and guards PUT", async () => {
     // An explicit summary pins the light fields: only the body and mtime differ.
-    const created = await app.request("/api/nodes/constraint", {
+    const created = await app.request("/api/nodes/decision", {
       method: "POST",
       body: JSON.stringify({ body: "首段。\n\n第二段。", summary: "固定摘要。", grounds: [P1] }),
     });
     const { id, revision } = (await created.json()) as { id: string; revision: number };
 
-    await updateConstraint(refinoDir, id, {
+    await updateDecision(refinoDir, id, {
       body: "首段。\n\n第二段已改写。",
       summary: "固定摘要。",
       grounds: [P1],
@@ -95,7 +95,7 @@ describe("optimistic concurrency on PUT", () => {
 
   it("reports issues instead of blocking reads when the graph is invalid", async () => {
     // External write that makes the graph invalid (tool plugins bypass the API).
-    await updateConstraint(refinoDir, C1, { body: "C1。", grounds: ["ZZZZZZZZ"] });
+    await updateDecision(refinoDir, C1, { body: "C1。", grounds: ["ZZZZZZZZ"] });
     await app.request("/api/reload", { method: "POST" });
 
     const validated = await app.request("/api/validate");
@@ -119,7 +119,7 @@ describe("external writes", () => {
     const beforeBody = (await before.json()) as { revision: number; nodes: Array<{ id: string }> };
     expect(beforeBody.nodes.some((n) => n.id === C1)).toBe(true);
 
-    const newId = await createConstraint(refinoDir, { body: "外部写入。", grounds: [P1] });
+    const newId = await createDecision(refinoDir, { body: "外部写入。", grounds: [P1] });
 
     const stale = await app.request("/api/graph");
     expect(

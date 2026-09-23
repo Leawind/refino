@@ -12,8 +12,8 @@ export interface AuthorizationContext {
    */
   anchors: string[];
   /**
-   * Frozen constraint ids naming the frozen zone: the zone is these
-   * constraints plus all their ancestor nodes, constraints and premises
+   * Frozen decision ids naming the frozen zone: the zone is these
+   * decisions plus all their ancestor nodes, decisions and premises
    * alike (docs/dlg.md 2.4). Everything outside the zone is the modification
    * space; new nodes created in the task belong to it. Premises are never
    * named directly — they join the zone as ancestors — and duplicates are
@@ -46,7 +46,7 @@ export interface ModificationCheck {
 export interface EscalationReport {
   /** The blocked node. */
   id: string;
-  /** Downstream constraints a change to the blocked node would affect. */
+  /** Downstream decisions a change to the blocked node would affect. */
   affected: NodeWithDepth[];
 }
 

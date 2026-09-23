@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
 import { createWebApp } from "../src/web/server.js";
-import { constraint, createRefino, premise, removeRefino } from "@refino/testkit";
+import { decision, createRefino, premise, removeRefino } from "@refino/testkit";
 
 /**
  * Canvas on-demand query contract (docs/design.md, "画布按需查询") over the
@@ -36,12 +36,12 @@ beforeAll(async () => {
     "nodes/1A/2B3C4D-premise.md": premise(P1, "前提一。"),
     "nodes/1A/2B3C4E-premise.md": premise(P2, "前提二。"),
     "nodes/1A/2B3C4F-premise.md": premise(P3, "前提三。"),
-    "nodes/A1/B2C3D4-constraint.md": constraint(C1, [P1], "C1。"),
-    "nodes/D4/E5F6G7-constraint.md": constraint(C2, [C1, P2], "C2。"),
-    "nodes/E5/F6G7H8-constraint.md": constraint(C3, [C2], "C3。"),
-    "nodes/H7/J8K9M0-constraint.md": constraint(C4, [C1, P2], "C4。"),
-    "nodes/N0/P1Q2R3-constraint.md": constraint(C5, [P3], "C5。"),
-    "nodes/S4/T5V6W7-constraint.md": constraint(C6, [P1, P2], "C6。"),
+    "nodes/A1/B2C3D4-decision.md": decision(C1, [P1], "C1。"),
+    "nodes/D4/E5F6G7-decision.md": decision(C2, [C1, P2], "C2。"),
+    "nodes/E5/F6G7H8-decision.md": decision(C3, [C2], "C3。"),
+    "nodes/H7/J8K9M0-decision.md": decision(C4, [C1, P2], "C4。"),
+    "nodes/N0/P1Q2R3-decision.md": decision(C5, [P3], "C5。"),
+    "nodes/S4/T5V6W7-decision.md": decision(C6, [P1, P2], "C6。"),
   });
   refinoDir = join(root, ".refino");
 });
@@ -60,7 +60,7 @@ async function post(
 }
 
 describe("POST /api/query/neighbors", () => {
-  it("returns bounded ancestors including premises and constraint descendants", async () => {
+  it("returns bounded ancestors including premises and decision descendants", async () => {
     const res = await post("/api/query/neighbors", {
       ids: [C3],
       ancestorDepth: 1,
@@ -141,7 +141,7 @@ describe("POST /api/query/grounds", () => {
 });
 
 describe("POST /api/query/range", () => {
-  it("selects the constraints between an ancestor-descendant pair", async () => {
+  it("selects the decisions between an ancestor-descendant pair", async () => {
     const res = await post("/api/query/range", { focusId: C3, clickedId: C1 });
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
@@ -338,12 +338,12 @@ describe("POST /api/query/range branches with a sibling branch", () => {
 
   beforeAll(async () => {
     branchRoot = await createRefino({
-      "nodes/AA/000001-constraint.md": constraint(F, [A, B], "F。"),
-      "nodes/AA/000002-constraint.md": constraint(A, [L], "A。"),
-      "nodes/AA/000003-constraint.md": constraint(B, [M], "B。"),
-      "nodes/AA/000004-constraint.md": constraint(L, undefined, "L。"),
-      "nodes/AA/000005-constraint.md": constraint(M, undefined, "M。"),
-      "nodes/AA/000006-constraint.md": constraint(K, [L], "K。"),
+      "nodes/AA/000001-decision.md": decision(F, [A, B], "F。"),
+      "nodes/AA/000002-decision.md": decision(A, [L], "A。"),
+      "nodes/AA/000003-decision.md": decision(B, [M], "B。"),
+      "nodes/AA/000004-decision.md": decision(L, undefined, "L。"),
+      "nodes/AA/000005-decision.md": decision(M, undefined, "M。"),
+      "nodes/AA/000006-decision.md": decision(K, [L], "K。"),
     });
     branchRefinoDir = join(branchRoot, ".refino");
   });
@@ -352,7 +352,7 @@ describe("POST /api/query/range branches with a sibling branch", () => {
     await removeRefino(branchRoot);
   });
 
-  it("selects only the constraints on the two paths to the common ancestor", async () => {
+  it("selects only the decisions on the two paths to the common ancestor", async () => {
     const res = await branchApp().request("/api/query/range", {
       method: "POST",
       body: JSON.stringify({ focusId: F, clickedId: K }),
@@ -389,12 +389,12 @@ describe("POST /api/query/range branches takes one shortest path", () => {
 
   beforeAll(async () => {
     diamondRoot = await createRefino({
-      "nodes/BB/000001-constraint.md": constraint(X, [Y, Z], "X。"),
-      "nodes/BB/000002-constraint.md": constraint(Y, [W], "Y。"),
-      "nodes/BB/000003-constraint.md": constraint(Z, [W], "Z。"),
-      "nodes/BB/000004-constraint.md": constraint(W, undefined, "W。"),
-      "nodes/BB/000005-constraint.md": constraint(W2, [W], "W2。"),
-      "nodes/BB/000006-constraint.md": constraint(S, [W2], "S。"),
+      "nodes/BB/000001-decision.md": decision(X, [Y, Z], "X。"),
+      "nodes/BB/000002-decision.md": decision(Y, [W], "Y。"),
+      "nodes/BB/000003-decision.md": decision(Z, [W], "Z。"),
+      "nodes/BB/000004-decision.md": decision(W, undefined, "W。"),
+      "nodes/BB/000005-decision.md": decision(W2, [W], "W2。"),
+      "nodes/BB/000006-decision.md": decision(S, [W2], "S。"),
     });
     diamondRefinoDir = join(diamondRoot, ".refino");
   });

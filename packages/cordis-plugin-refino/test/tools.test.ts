@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { ToolDefinition } from "@deepseek-ai/dsh-tools";
 import { readNode } from "@refino/storage";
-import { constraint, createRefino, premise, removeRefino } from "@refino/testkit";
+import { decision, createRefino, premise, removeRefino } from "@refino/testkit";
 import { createTools } from "../src/tools.js";
 import { RefinoWorkspace } from "@refino/harness/host";
 
@@ -18,14 +18,14 @@ afterEach(async () => {
 async function fixtureWorkspace(): Promise<RefinoWorkspace> {
   const root = await createRefino({
     "nodes/P1/PREMISE-premise.md": premise("P1PREMISE", "事实一"),
-    "nodes/R1/ROOT-constraint.md": constraint("R1ROOT", undefined, "根约束"),
-    "nodes/C1/CHILD-constraint.md": constraint(
+    "nodes/R1/ROOT-decision.md": decision("R1ROOT", undefined, "根决策"),
+    "nodes/C1/CHILD-decision.md": decision(
       "C1CHILD",
       ["R1ROOT", "P1PREMISE"],
-      "子约束",
-      "因为根约束如此要求",
+      "子决策",
+      "因为根决策如此要求",
     ),
-    "nodes/C2/GRAND-constraint.md": constraint("C2GRAND", ["C1CHILD"], "孙约束"),
+    "nodes/C2/GRAND-decision.md": decision("C2GRAND", ["C1CHILD"], "孙决策"),
   });
   cleanup.push(root);
   const ws = await RefinoWorkspace.open(root + "/.refino");
@@ -63,7 +63,7 @@ describe("query tools", () => {
       results: { id: string; node?: { grounds?: string[]; rationale?: string }; error?: string }[];
     }>(tools.refino_show, { ids: ["C1CHILD", "NOSUCH1"] });
     expect(result.results[0]!.node!.grounds).toEqual(["R1ROOT", "P1PREMISE"]);
-    expect(result.results[0]!.node!.rationale).toBe("因为根约束如此要求");
+    expect(result.results[0]!.node!.rationale).toBe("因为根决策如此要求");
     expect(result.results[1]!.error).toContain("NOSUCH1");
   });
 
@@ -123,17 +123,17 @@ describe("query tools", () => {
     const tools = toolset(ws);
     const bySummary = await run<{ nodes: { id: string }[]; next_cursor?: string }>(
       tools.refino_search,
-      { q: "约束" },
+      { q: "决策" },
     );
     expect(bySummary.nodes.map((node) => node.id).sort()).toEqual(["C1CHILD", "C2GRAND", "R1ROOT"]);
     const paged = await run<{ nodes: { id: string }[]; next_cursor?: string }>(
       tools.refino_search,
-      { q: "约束", limit: 2 },
+      { q: "决策", limit: 2 },
     );
     expect(paged.nodes).toHaveLength(2);
     expect(paged.next_cursor).toBeDefined();
     const rest = await run<{ nodes: { id: string }[] }>(tools.refino_search, {
-      q: "约束",
+      q: "决策",
       limit: 2,
       cursor: paged.next_cursor,
     });
@@ -152,10 +152,10 @@ describe("query tools", () => {
     const ws = await fixtureWorkspace();
     const tools = toolset(ws);
     // The fixture has no sibling pairs (C2GRAND is C1CHILD's child); add a
-    // constraint sharing both of C1CHILD's grounds.
-    const created = await run<{ ok: boolean }>(tools.refino_create_constraint, {
+    // decision sharing both of C1CHILD's grounds.
+    const created = await run<{ ok: boolean }>(tools.refino_create_decision, {
       id: "S1SIBLING",
-      body: "兄弟约束",
+      body: "兄弟决策",
       grounds: ["R1ROOT", "P1PREMISE"],
     });
     expect(created.ok).toBe(true);
@@ -197,32 +197,32 @@ describe("write tools", () => {
     expect(reloaded.content?.body).toBe("");
   });
 
-  it("refino_create_constraint validates grounds against a prospective graph", async () => {
+  it("refino_create_decision validates grounds against a prospective graph", async () => {
     const ws = await fixtureWorkspace();
     const tools = toolset(ws);
     const invalid = await run<{ ok: boolean; issues: { code: string }[] }>(
-      tools.refino_create_constraint,
-      { body: "新约束", grounds: ["NOSUCH1"] },
+      tools.refino_create_decision,
+      { body: "新决策", grounds: ["NOSUCH1"] },
     );
     expect(invalid.ok).toBe(false);
     expect(invalid.issues!.length).toBeGreaterThan(0);
-    const duplicate = await run<{ ok: boolean }>(tools.refino_create_constraint, {
+    const duplicate = await run<{ ok: boolean }>(tools.refino_create_decision, {
       body: "重复",
       id: "C1CHILD",
     });
     expect(duplicate.ok).toBe(false);
-    const ok = await run<{ ok: boolean; id: string }>(tools.refino_create_constraint, {
-      body: "挂在新前提下的约束",
+    const ok = await run<{ ok: boolean; id: string }>(tools.refino_create_decision, {
+      body: "挂在新前提下的决策",
       grounds: ["P1PREMISE"],
     });
     expect(ok.ok).toBe(true);
-    expect(ws.graph.nodes.get(ok.id)!.type).toBe("constraint");
+    expect(ws.graph.nodes.get(ok.id)!.type).toBe("decision");
   });
 
-  it("refino_create_constraint and refino_update_node carry the exploring mark", async () => {
+  it("refino_create_decision and refino_update_node carry the exploring mark", async () => {
     const ws = await fixtureWorkspace();
     const tools = toolset(ws);
-    const created = await run<{ ok: boolean; id: string }>(tools.refino_create_constraint, {
+    const created = await run<{ ok: boolean; id: string }>(tools.refino_create_decision, {
       body: "试行决策。",
       grounds: ["R1ROOT"],
       exploring: true,
@@ -257,7 +257,7 @@ describe("write tools", () => {
     const frozen = await run<{
       ok: boolean;
       escalation?: { reason: string; affected: { id: string }[] };
-    }>(tools.refino_update_node, { id: "R1ROOT", summary: "改根约束", body: "改根约束" });
+    }>(tools.refino_update_node, { id: "R1ROOT", summary: "改根决策", body: "改根决策" });
     expect(frozen.ok).toBe(false);
     expect(frozen.escalation!.reason).toBe("node_frozen");
     expect(frozen.escalation!.affected.map((a) => a.id).sort()).toEqual(["C1CHILD", "C2GRAND"]);
@@ -269,33 +269,33 @@ describe("write tools", () => {
     expect(bodyOnly.ok).toBe(true);
     expect(bodyOnly.pending.map((node) => node.id)).toEqual(["C2GRAND"]);
     const node = ws.graph.nodes.get("C1CHILD")!;
-    expect(node.type === "constraint" && node.summary).toBe("新摘要");
-    expect(node.type === "constraint" && node.grounds).toEqual(["R1ROOT", "P1PREMISE"]);
+    expect(node.type === "decision" && node.summary).toBe("新摘要");
+    expect(node.type === "decision" && node.grounds).toEqual(["R1ROOT", "P1PREMISE"]);
   });
 
   it("refino_update_node keeps a derived summary derived and clears via empty strings", async () => {
     const ws = await fixtureWorkspace();
     const tools = toolset(ws);
-    // C2GRAND has no explicit summary (testkit premise/constraint leave it
+    // C2GRAND has no explicit summary (testkit premise/decision leave it
     // derived): a body-only update must not pin one.
     const bodyOnly = await run<{ ok: boolean }>(tools.refino_update_node, {
       id: "C2GRAND",
-      body: "孙约束新正文",
+      body: "孙决策新正文",
     });
     expect(bodyOnly.ok).toBe(true);
     const reloaded = await readNode(ws.refinoDir, "C2GRAND");
     expect(reloaded.summaryExplicit).toBe(false);
-    expect(reloaded.node?.summary).toBe("孙约束新正文");
+    expect(reloaded.node?.summary).toBe("孙决策新正文");
     // An explicit summary survives a body-only update…
     const explicit = await run<{ ok: boolean }>(tools.refino_update_node, {
       id: "C1CHILD",
       summary: "显式摘要",
-      body: "子约束",
+      body: "子决策",
     });
     expect(explicit.ok).toBe(true);
     const kept = await run<{ ok: boolean }>(tools.refino_update_node, {
       id: "C1CHILD",
-      body: "子约束二",
+      body: "子决策二",
     });
     expect(kept.ok).toBe(true);
     const keptRead = await readNode(ws.refinoDir, "C1CHILD");
@@ -316,7 +316,7 @@ describe("write tools", () => {
     });
     expect(rationale.ok).toBe(true);
     const noRationale = await readNode(ws.refinoDir, "C1CHILD");
-    expect(noRationale.node?.type === "constraint" && noRationale.node.rationale).toBeUndefined();
+    expect(noRationale.node?.type === "decision" && noRationale.node.rationale).toBeUndefined();
     const badGrounds = await run<{ ok: boolean; issues: unknown[] }>(tools.refino_update_node, {
       id: "C1CHILD",
       grounds: ["NOSUCH1"],

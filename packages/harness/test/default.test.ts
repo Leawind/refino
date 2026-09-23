@@ -20,13 +20,13 @@ const D4 = "D4E5F6G7";
 function graphOf(): Graph {
   return buildGraph([
     node("1A2B3C4D", "premise"),
-    node(A1, "constraint"),
-    node(D4, "constraint", [A1]),
+    node(A1, "decision"),
+    node(D4, "decision", [A1]),
   ]);
 }
 
 describe("defaultAuthorizationContext", () => {
-  it("freezes root constraints and anchors every node on a small graph", () => {
+  it("freezes root decisions and anchors every node on a small graph", () => {
     const { context, complete } = defaultAuthorizationContext(graphOf());
     expect(complete).toBe(true);
     expect(context.frozen).toEqual([A1]);

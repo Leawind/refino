@@ -9,15 +9,15 @@ import { orchestratorCredential, readAuthorizationDocument } from "../src/state.
 
 function node(id: string, type: NodeType, grounds?: string[]): RefinoNode {
   if (type === "premise") return { id, type: "premise", summary: "Body." };
-  return { id, type: "constraint", summary: "Body.", grounds: grounds ?? [] };
+  return { id, type: "decision", summary: "Body.", grounds: grounds ?? [] };
 }
 
 function graphOf(): Graph {
   return buildGraph([
     node("1A2B3C4D", "premise"),
-    node("A1B2C3D4", "constraint"),
-    node("D4E5F6G7", "constraint", ["1A2B3C4D", "A1B2C3D4"]),
-    node("Z9Y8X7W6", "constraint"),
+    node("A1B2C3D4", "decision"),
+    node("D4E5F6G7", "decision", ["1A2B3C4D", "A1B2C3D4"]),
+    node("Z9Y8X7W6", "decision"),
   ]);
 }
 

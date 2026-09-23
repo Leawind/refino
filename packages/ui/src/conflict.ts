@@ -29,7 +29,7 @@ export interface EditorFields {
   rationale: string;
   grounds: string[];
   confirmed: string;
-  /** Constraint trial mark; false = settled (the form always states it). */
+  /** Decision trial mark; false = settled (the form always states it). */
   exploring: boolean;
 }
 

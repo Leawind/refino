@@ -3,12 +3,12 @@
  *
  * A graph holds two kinds of nodes:
  * - premise nodes: objective project facts, never have `grounds`;
- * - constraint nodes: project decisions, optionally grounded on premises
- *   and/or upstream constraints.
+ * - decision nodes: project decisions, optionally grounded on premises
+ *   and/or upstream decisions.
  *
  * A `grounds` field on a premise is an ordinary misplaced attribute, exactly
  * like any unknown frontmatter field: producers silently ignore it. Edges
- * only ever come from constraint `grounds`.
+ * only ever come from decision `grounds`.
  *
  * These types are the engine's resident memory model (docs/design.md,
  * "渐进披露与常驻集"): id, type, summary and the graph relations always
@@ -17,7 +17,7 @@
  * operation needs them.
  */
 
-export type NodeType = "premise" | "constraint";
+export type NodeType = "premise" | "decision";
 
 /** An objective project fact: never grounds on other nodes. */
 export interface PremiseNode {
@@ -30,45 +30,45 @@ export interface PremiseNode {
 }
 
 /** A project decision that limits downstream choice space. */
-export interface ConstraintNode {
+export interface DecisionNode {
   id: string;
-  type: "constraint";
+  type: "decision";
   /** Independent summary attribute for quick relevance checks; the storage layer may derive it from the body's first paragraph when none is declared. */
   summary: string;
-  /** Ground ids, deduplicated, in declared order; empty when the constraint has no grounds (a root constraint). */
+  /** Ground ids, deduplicated, in declared order; empty when the decision has no grounds (a root decision). */
   grounds: string[];
   /**
-   * Trial-commitment mark: absent means the constraint is settled. This is
-   * the stored mark only — the effective status (a constraint is exploring
-   * when marked so itself or any ground constraint is) is derived at read
+   * Trial-commitment mark: absent means the decision is settled. This is
+   * the stored mark only — the effective status (a decision is exploring
+   * when marked so itself or any ground decision is) is derived at read
    * time by `effectiveExploring`, never stored per node.
    */
   exploring?: boolean;
 }
 
-export type RefinoNode = PremiseNode | ConstraintNode;
+export type RefinoNode = PremiseNode | DecisionNode;
 
 /**
  * Light node shape carried by batch query results (docs/design.md, "画布按
  * 需查询"): id, type, summary and grounds — the resident fields without
- * premise `confirmed`. Premises and not-yet-loaded constraints omit
+ * premise `confirmed`. Premises and not-yet-loaded decisions omit
  * `grounds`.
  */
 export interface NodeLite {
   id: string;
   type: NodeType;
   summary: string;
-  /** Constraint nodes only. */
+  /** Decision nodes only. */
   grounds?: readonly string[];
-  /** Constraint nodes only: the stored trial-commitment mark (absent = settled), not the derived effective status. */
+  /** Decision nodes only: the stored trial-commitment mark (absent = settled), not the derived effective status. */
   exploring?: boolean;
 }
 
 /**
  * Graph-attached node: the resident record plus the derived child
- * back-references (ids of constraints whose `grounds` directly contain this
+ * back-references (ids of decisions whose `grounds` directly contain this
  * id; sorted, deduplicated; maintained by `buildGraph` and the mutation
- * primitives). Premises have children but no grounds; root constraints have
+ * primitives). Premises have children but no grounds; root decisions have
  * neither.
  */
 export type GraphNode = RefinoNode & { children: readonly string[] };
@@ -105,7 +105,7 @@ export enum IssueCode {
   DuplicateId = "DUPLICATE_ID",
   /** A `grounds` reference does not resolve to an existing node; carries `groundId`. */
   UnknownGround = "UNKNOWN_GROUND",
-  /** A constraint -> constraint `grounds` path closes; carries `cycle`. */
+  /** A decision -> decision `grounds` path closes; carries `cycle`. */
   Cycle = "CYCLE",
   /** An id does not resolve to a node (thrown as a `RefinoError`). */
   NodeNotFound = "NODE_NOT_FOUND",

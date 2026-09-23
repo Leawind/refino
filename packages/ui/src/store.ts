@@ -25,7 +25,7 @@ export interface DetailFormState {
   rationale: string;
   grounds: string[];
   confirmed: string;
-  /** Constraint trial mark; the form always states it (false = settled). */
+  /** Decision trial mark; the form always states it (false = settled). */
   exploring: boolean;
 }
 
@@ -47,7 +47,7 @@ interface DetailState {
   /** Revision at fetch time; the basis for If-Match-style saves. */
   revision: number | null;
   issues: IssueRecord[];
-  /** Direct dependents (constraints grounding this node). */
+  /** Direct dependents (decisions grounding this node). */
   dependents: NodeLite[];
   /** Editor snapshot: the field values the form was last based on. */
   base: EditorFields | null;
@@ -66,7 +66,7 @@ interface DetailState {
 interface State {
   detailOpen: boolean;
   /** null while creating a new node of the given type. */
-  creatingType: "premise" | "constraint" | null;
+  creatingType: "premise" | "decision" | null;
   theme: Theme;
   locale: Locale;
   /**
@@ -164,7 +164,7 @@ export function createStore(client: RefinoClient, workspace: Workspace) {
     const generation = ++detailGeneration;
     state.detail = { ...emptyDetail(), id, loading: true };
     try {
-      // Direct dependents = constraints whose grounds contain the node, i.e.
+      // Direct dependents = decisions whose grounds contain the node, i.e.
       // the first descendant hop of the neighborhood query (minus the node
       // itself, which comes back as its own depth-0 anchor).
       const [detail, dependentGroups] = await Promise.all([
@@ -345,7 +345,7 @@ export function createStore(client: RefinoClient, workspace: Workspace) {
     collapseInline(): void {
       state.inlineId = null;
     },
-    startCreate(type: "premise" | "constraint"): void {
+    startCreate(type: "premise" | "decision"): void {
       state.creatingType = type;
       state.detailOpen = true;
       state.inlineId = null;
@@ -363,7 +363,7 @@ export function createStore(client: RefinoClient, workspace: Workspace) {
       setFormFrom(state.detail.node);
     },
 
-    async create(type: "premise" | "constraint", payload: NodePayload): Promise<string> {
+    async create(type: "premise" | "decision", payload: NodePayload): Promise<string> {
       const { id } = await client.createNode(type, payload);
       state.creatingType = null;
       // Selecting the new node loads its detail via the focus watcher.
@@ -453,7 +453,7 @@ export function createStore(client: RefinoClient, workspace: Workspace) {
      * Recreate a node that was deleted externally, using the editor's content
      * under the same id (PUT to a free id creates it).
      */
-    async recreateDetail(type: "premise" | "constraint", payload: NodePayload): Promise<void> {
+    async recreateDetail(type: "premise" | "decision", payload: NodePayload): Promise<void> {
       const id = state.detail.id;
       if (id === null) return;
       await client.updateNode(id, { ...payload, type }, undefined);

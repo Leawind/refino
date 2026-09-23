@@ -7,7 +7,7 @@ import {
   type WriteResult,
 } from "@refino/harness";
 import {
-  runCreateConstraint,
+  runCreateDecision,
   runCreatePremise,
   runDeleteNode,
   runUpdateNode,
@@ -29,7 +29,7 @@ const kit = createRenderKit(toolRefs(TOOL_PREFIX));
 export function createWriteTools(get: () => RefinoWorkspace | undefined): ToolDefinition[] {
   return [
     createPremiseTool(get),
-    createConstraintTool(get),
+    createDecisionTool(get),
     updateNodeTool(get),
     deleteNodeTool(get),
   ];
@@ -58,12 +58,12 @@ function createPremiseTool(get: () => RefinoWorkspace | undefined): ToolDefiniti
   });
 }
 
-function createConstraintTool(get: () => RefinoWorkspace | undefined): ToolDefinition {
+function createDecisionTool(get: () => RefinoWorkspace | undefined): ToolDefinition {
   return defineTool({
-    name: `${TOOL_PREFIX}create_constraint`,
-    description: TEXT.createConstraint,
+    name: `${TOOL_PREFIX}create_decision`,
+    description: TEXT.createDecision,
     parameters: {
-      body: { type: "string", required: true, description: PARAM_TEXT.bodyConstraint },
+      body: { type: "string", required: true, description: PARAM_TEXT.bodyDecision },
       summary: { type: "string", description: PARAM_TEXT.summary },
       rationale: { type: "string", description: PARAM_TEXT.rationaleCreate },
       grounds: {
@@ -82,7 +82,7 @@ function createConstraintTool(get: () => RefinoWorkspace | undefined): ToolDefin
     },
     output: { schema: writeResultSchema(), render: renderWriteValue },
     async execute(args) {
-      return runCreateConstraint(requireWorkspace(get), args);
+      return runCreateDecision(requireWorkspace(get), args);
     },
   });
 }

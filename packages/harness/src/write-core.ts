@@ -57,7 +57,7 @@ export async function runCreatePremise(
   }
 }
 
-export interface CreateConstraintArgs {
+export interface CreateDecisionArgs {
   body: string;
   summary?: string;
   rationale?: string;
@@ -67,9 +67,9 @@ export interface CreateConstraintArgs {
   id?: string;
 }
 
-export async function runCreateConstraint(
+export async function runCreateDecision(
   ws: RefinoWorkspace,
-  args: CreateConstraintArgs,
+  args: CreateDecisionArgs,
 ): Promise<WriteResult> {
   if (args.id !== undefined && !ID_RE.test(args.id)) {
     return { ok: false, error: `节点 ID 必须是 3-16 位 A-Z、0-9 或 _，收到 "${args.id}"` };
@@ -80,7 +80,7 @@ export async function runCreateConstraint(
   try {
     // Grounds validation runs inside the store's write method; a
     // rejected change never touches the disk.
-    const outcome = await ws.store.createConstraint(args);
+    const outcome = await ws.store.createDecision(args);
     return harvested(ws, outcome.id, undefined, outcome.change);
   } catch (error) {
     return writeFailure(error);
@@ -94,7 +94,7 @@ export interface UpdateNodeArgs {
   grounds?: string[];
   rationale?: string;
   confirmed?: string;
-  /** Constraint trial mark; omitted keeps the current value (booleans have no clear-to-empty form). */
+  /** Decision trial mark; omitted keeps the current value (booleans have no clear-to-empty form). */
   exploring?: boolean;
 }
 
@@ -123,7 +123,7 @@ export async function runUpdateNode(
   if (node.type === "premise") {
     return updatePremiseNode(ws, node, args);
   }
-  return updateConstraintNode(ws, node, args);
+  return updateDecisionNode(ws, node, args);
 }
 
 /**
@@ -152,7 +152,7 @@ function neighborhoodOf(
 ): { grounds: string[]; children: string[] } {
   const node = ws.graph.nodes.get(id);
   return {
-    grounds: node === undefined || node.type !== "constraint" ? [] : [...node.grounds],
+    grounds: node === undefined || node.type !== "decision" ? [] : [...node.grounds],
     children: node === undefined ? [] : [...node.children],
   };
 }
@@ -170,7 +170,7 @@ export async function runDeleteNode(ws: RefinoWorkspace, id: string): Promise<Wr
   if (dependents.length > 0) {
     return {
       ok: false,
-      error: `节点 ${node.id} 仍有下游约束，不能删除`,
+      error: `节点 ${node.id} 仍有下游决策，不能删除`,
       dependents: dependents.map((dependent) =>
         lite(dependent.node, effectiveOf(ws, dependent.node)),
       ),
@@ -242,19 +242,19 @@ async function updatePremiseNode(
   }
 }
 
-async function updateConstraintNode(
+async function updateDecisionNode(
   ws: RefinoWorkspace,
-  node: RefinoNode & { type: "constraint" },
+  node: RefinoNode & { type: "decision" },
   args: UpdateNodeArgs,
 ): Promise<WriteResult> {
-  // `confirmed` does not apply to constraints; per the misplaced-field policy
+  // `confirmed` does not apply to decisions; per the misplaced-field policy
   // it is silently ignored instead of rejected. Grounds validation runs
   // inside the store's write method; a rejected change never touches the disk.
   const read = await readForUpdate(ws, node.id, args);
   if ("ok" in read) return read;
   const prev = neighborhoodOf(ws, node.id);
   try {
-    const outcome = await ws.store.updateConstraint(node.id, {
+    const outcome = await ws.store.updateDecision(node.id, {
       body: args.body ?? read.content.body,
       summary: read.summary,
       rationale:
@@ -280,9 +280,9 @@ function escalationResult(id: string, affected: NodeWithDepth[]): WriteResult {
   };
 }
 
-/** Derived effective exploring status for a delivered constraint (same rule as query-core). */
+/** Derived effective exploring status for a delivered decision (same rule as query-core). */
 function effectiveOf(ws: RefinoWorkspace, node: RefinoNode): boolean {
-  return node.type === "constraint" && effectiveExploring(ws.graph, node.id);
+  return node.type === "decision" && effectiveExploring(ws.graph, node.id);
 }
 
 function invalidConfirmed(value: string): WriteResult {

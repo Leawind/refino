@@ -1,6 +1,6 @@
 import {
   IssueCode,
-  type ConstraintNode,
+  type DecisionNode,
   type Graph,
   type RefinoIssue,
   type RefinoNode,
@@ -9,7 +9,7 @@ import {
 /**
  * Structural validation of a loaded graph:
  * 1. every `grounds` reference resolves to an existing node;
- * 2. constraint -> constraint paths are acyclic.
+ * 2. decision -> decision paths are acyclic.
  *
  * Purely topological: resident fields only, so it runs regardless of which
  * paged content is loaded. Parse-level rules — unique ids, id validity, the
@@ -24,7 +24,7 @@ export function validateGraph(graph: Graph): RefinoIssue[] {
   const issues: RefinoIssue[] = [];
 
   for (const node of sortedValues(graph.nodes)) {
-    if (node.type !== "constraint") continue; // edges only come from constraint grounds
+    if (node.type !== "decision") continue; // edges only come from decision grounds
     for (const ground of node.grounds) {
       if (!graph.nodes.has(ground)) {
         issues.push({
@@ -42,7 +42,7 @@ export function validateGraph(graph: Graph): RefinoIssue[] {
 }
 
 /**
- * Validate a prospective change of a constraint's grounds against the current
+ * Validate a prospective change of a decision's grounds against the current
  * graph without mutating it. All write paths call this before persisting, so
  * graph-level grounds validation has a single source. Reports:
  *
@@ -52,7 +52,7 @@ export function validateGraph(graph: Graph): RefinoIssue[] {
  * - cycles the change would close (CYCLE) — a ground that is the target
  *   itself or reaches it along existing grounds edges.
  *
- * The target is a constraint node whose `id` locates the change within
+ * The target is a decision node whose `id` locates the change within
  * `graph` (a missing id is the caller's error, not an issue here); a premise
  * target is unrepresentable — premises take no grounds, and misplaced
  * grounds are silently ignored everywhere. Pre-existing issues elsewhere in
@@ -62,7 +62,7 @@ export function validateGraph(graph: Graph): RefinoIssue[] {
  */
 export function checkGroundsChange(
   graph: Graph,
-  node: ConstraintNode,
+  node: DecisionNode,
   newGrounds: readonly string[],
 ): RefinoIssue[] {
   const id = node.id;
@@ -107,11 +107,11 @@ function findCycles(graph: Graph): RefinoIssue[] {
     color.set(id, GRAY);
     stack.push(id);
     const node = graph.nodes.get(id);
-    // Premises declare no grounds, so only constraints can continue a cycle.
-    const grounds = node?.type === "constraint" ? node.grounds : [];
+    // Premises declare no grounds, so only decisions can continue a cycle.
+    const grounds = node?.type === "decision" ? node.grounds : [];
     for (const ground of grounds) {
       const target = graph.nodes.get(ground);
-      if (!target || target.type !== "constraint") continue; // premises cannot take part in cycles
+      if (!target || target.type !== "decision") continue; // premises cannot take part in cycles
       const state = color.get(ground) ?? WHITE;
       if (state === WHITE) {
         visit(ground);
@@ -122,7 +122,7 @@ function findCycles(graph: Graph): RefinoIssue[] {
           seen.add(key);
           issues.push({
             code: IssueCode.Cycle,
-            message: `Constraint cycle detected: ${cycle.join(" -> ")}.`,
+            message: `Decision cycle detected: ${cycle.join(" -> ")}.`,
             nodeId: id,
             cycle,
           });
@@ -134,7 +134,7 @@ function findCycles(graph: Graph): RefinoIssue[] {
   };
 
   for (const node of sortedValues(graph.nodes)) {
-    if (node.type !== "constraint") continue;
+    if (node.type !== "decision") continue;
     if ((color.get(node.id) ?? WHITE) === WHITE) visit(node.id);
   }
   return issues;
@@ -176,7 +176,7 @@ function closingCycles(graph: Graph, id: string, grounds: readonly string[]): Re
     const cycle = [id, ...path];
     issues.push({
       code: IssueCode.Cycle,
-      message: `Constraint cycle detected: ${cycle.join(" -> ")}.`,
+      message: `Decision cycle detected: ${cycle.join(" -> ")}.`,
       nodeId: id,
       cycle,
     });
@@ -199,7 +199,7 @@ function groundsPath(graph: Graph, start: string, target: string): string[] | un
     if (visited.has(current)) return false;
     visited.add(current);
     const node = graph.nodes.get(current);
-    const grounds = node?.type === "constraint" ? node.grounds : [];
+    const grounds = node?.type === "decision" ? node.grounds : [];
     for (const ground of grounds) {
       path.push(ground);
       if (visit(ground)) return true;

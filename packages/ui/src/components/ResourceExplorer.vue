@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// The single resource explorer (README, "布局"): one list for constraints
+// The single resource explorer (README, "布局"): one list for decisions
 // and premises with a type filter and the unreferenced-premises quick view.
 // Listings come from the paginated /api/search endpoint — the full graph is
 // never loaded. Rows expand into the inline editor (single accordion);
@@ -48,7 +48,7 @@ const typeFilter = ref<"all" | NodeType>("all");
 const unreferencedOnly = ref(false);
 const filterOptions = computed(() => [
   { label: t("explorer.all"), value: "all" },
-  { label: t("node.constraints"), value: "constraint" },
+  { label: t("node.decisions"), value: "decision" },
   { label: t("node.premises"), value: "premise" },
 ]);
 const typeLabel = computed(
@@ -88,7 +88,7 @@ const loading = ref(false);
 let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 let searchToken = 0;
 
-const effectiveType = computed<"premise" | "constraint" | undefined>(() =>
+const effectiveType = computed<"premise" | "decision" | undefined>(() =>
   unreferencedOnly.value ? "premise" : typeFilter.value === "all" ? undefined : typeFilter.value,
 );
 
@@ -282,11 +282,11 @@ function isDirty(node: SearchNode): boolean {
               dashed
               size="small"
               class="create"
-              :title="t('node.createConstraint')"
-              @click="store.startCreate('constraint')"
+              :title="t('node.createDecision')"
+              @click="store.startCreate('decision')"
             >
               <NIcon :component="AddOutline" />
-              {{ t("node.constraint") }}
+              {{ t("node.decision") }}
             </NButton>
             <NButton
               dashed

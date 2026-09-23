@@ -57,7 +57,7 @@ export function initialContextText(
 ): string {
   return frame(
     [
-      "以下是与当前任务相关的 DLG（决策谱系图）上下文。约束是项目已作出的、会限制后续实现选择空间的决策；前提是项目运作依赖的客观事实。",
+      "以下是与当前任务相关的 DLG（决策谱系图）上下文。决策是项目已作出的、会限制后续实现选择空间的决定；前提是项目运作依赖的客观事实。",
       renderContext(graph, context),
       ownershipLine(origin),
       `以上为摘要级内容，正文与理由未包含。完整内容与上下游经 ${tools.show} 等查询工具按需获取；调整冻结区经 ${tools.requestAuthorization}（须经用户批准）。`,
@@ -92,13 +92,13 @@ export function authorizationStatusText(origin: AuthorizationOrigin, tools: Tool
 const ORIENTATION_ROOTS = 8;
 
 /**
- * Root constraints shown in the over-budget orientation (docs/design.md, dsh
+ * Root decisions shown in the over-budget orientation (docs/design.md, dsh
  * 插件落地形态: 超预算时不静默). Shared with the known-set seeding so the
  * session's tracked baseline matches what the orientation actually injected.
  */
 export function orientationRoots(graph: Graph): RefinoNode[] {
   return [...graph.nodes.values()]
-    .filter((node) => node.type === "constraint" && node.grounds.length === 0)
+    .filter((node) => node.type === "decision" && node.grounds.length === 0)
     .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
     .slice(0, ORIENTATION_ROOTS);
 }
@@ -116,8 +116,8 @@ export function orientationText(graph: Graph, tools: ToolRefs): string {
   if (roots.length > 0) {
     lines.push(
       roots.length === ORIENTATION_ROOTS
-        ? `根约束（决策空间顶层）摘要，前 ${ORIENTATION_ROOTS} 个：`
-        : "根约束（决策空间顶层）摘要：",
+        ? `根决策（决策空间顶层）摘要，前 ${ORIENTATION_ROOTS} 个：`
+        : "根决策（决策空间顶层）摘要：",
     );
     lines.push(...roots.map((node) => `- ${node.id} ${node.summary}`));
   }
@@ -209,6 +209,6 @@ function listChange(added: string[], removed: string[]): string {
 const DELTA_LABELS: Record<DeltaEvent["type"], string> = {
   anchor_added: "新增作用域锚点",
   anchor_removed: "移除作用域锚点",
-  frozen_added: "新增冻结约束（只读）",
-  frozen_removed: "解除冻结约束（进入修改空间）",
+  frozen_added: "新增冻结决策（只读）",
+  frozen_removed: "解除冻结决策（进入修改空间）",
 } as const;

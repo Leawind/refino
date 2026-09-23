@@ -5,10 +5,10 @@ import { ID_RE, IssueCode, validateGraph } from "refino";
 import { loadGraph, readNode } from "../src/loader.js";
 import {
   atomicWriteFile,
-  createConstraint,
+  createDecision,
   createPremise,
   deleteNode,
-  updateConstraint,
+  updateDecision,
   updatePremise,
 } from "../src/writer.js";
 import { createRefino, removeRefino } from "@refino/testkit";
@@ -51,11 +51,11 @@ describe("writer", () => {
     }
   });
 
-  it("createConstraint writes grounds and rationale, and can be loaded back", async () => {
+  it("createDecision writes grounds and rationale, and can be loaded back", async () => {
     const root = await createRefino({});
     try {
       const premiseId = await createPremise(`${root}/.refino`, { body: "Fact." });
-      const id = await createConstraint(`${root}/.refino`, {
+      const id = await createDecision(`${root}/.refino`, {
         body: "Use Repository layer.",
         grounds: [premiseId],
         rationale: "Keeps DB access testable.",
@@ -64,7 +64,7 @@ describe("writer", () => {
       expect(issues).toEqual([]);
       const node = graph.nodes.get(id);
       expect(node).toMatchObject({
-        type: "constraint",
+        type: "decision",
         grounds: [premiseId],
       });
       const read = await readNode(`${root}/.refino`, id);
@@ -74,12 +74,12 @@ describe("writer", () => {
     }
   });
 
-  it("createConstraint omits the frontmatter block without fields", async () => {
+  it("createDecision omits the frontmatter block without fields", async () => {
     const root = await createRefino({});
     try {
-      const id = await createConstraint(`${root}/.refino`, { body: "Root decision." });
+      const id = await createDecision(`${root}/.refino`, { body: "Root decision." });
       const source = await readFile(
-        `${root}/.refino/nodes/${id.slice(0, 2)}/${id.slice(2)}-constraint.md`,
+        `${root}/.refino/nodes/${id.slice(0, 2)}/${id.slice(2)}-decision.md`,
         "utf8",
       );
       expect(source).not.toContain("---");
@@ -92,15 +92,15 @@ describe("writer", () => {
   it("writes exploring only when true; settling removes the field entirely", async () => {
     const root = await createRefino({});
     try {
-      const id = await createConstraint(`${root}/.refino`, { body: "Trial.", exploring: true });
-      const file = `${root}/.refino/nodes/${id.slice(0, 2)}/${id.slice(2)}-constraint.md`;
+      const id = await createDecision(`${root}/.refino`, { body: "Trial.", exploring: true });
+      const file = `${root}/.refino/nodes/${id.slice(0, 2)}/${id.slice(2)}-decision.md`;
       expect(await readFile(file, "utf8")).toContain("exploring: true");
       const marked = await loadGraph(`${root}/.refino`);
       expect(marked.graph.nodes.get(id)).toMatchObject({ exploring: true });
 
-      // PUT-like update without the mark settles the constraint: the field
+      // PUT-like update without the mark settles the decision: the field
       // disappears from the file instead of degrading to `exploring: false`.
-      await updateConstraint(`${root}/.refino`, id, { body: "Settled." });
+      await updateDecision(`${root}/.refino`, id, { body: "Settled." });
       expect(await readFile(file, "utf8")).not.toContain("exploring");
       const settled = await loadGraph(`${root}/.refino`);
       expect("exploring" in settled.graph.nodes.get(id)!).toBe(false);
@@ -112,9 +112,9 @@ describe("writer", () => {
   it("never writes an explicit false exploring", async () => {
     const root = await createRefino({});
     try {
-      const id = await createConstraint(`${root}/.refino`, { body: "Root.", exploring: false });
+      const id = await createDecision(`${root}/.refino`, { body: "Root.", exploring: false });
       const source = await readFile(
-        `${root}/.refino/nodes/${id.slice(0, 2)}/${id.slice(2)}-constraint.md`,
+        `${root}/.refino/nodes/${id.slice(0, 2)}/${id.slice(2)}-decision.md`,
         "utf8",
       );
       expect(source).not.toContain("exploring");
@@ -126,8 +126,8 @@ describe("writer", () => {
   it("never collides with existing ids", async () => {
     const root = await createRefino({});
     try {
-      const id = await createConstraint(`${root}/.refino`, { body: "First." });
-      const second = await createConstraint(`${root}/.refino`, { body: "Second." });
+      const id = await createDecision(`${root}/.refino`, { body: "First." });
+      const second = await createDecision(`${root}/.refino`, { body: "Second." });
       expect(second).not.toBe(id);
       const { graph, issues } = await loadGraph(`${root}/.refino`);
       expect(issues).toEqual([]);
@@ -140,12 +140,12 @@ describe("writer", () => {
   it("creates a node file under an explicitly given id", async () => {
     const root = await createRefino({});
     try {
-      const id = await createConstraint(`${root}/.refino`, {
+      const id = await createDecision(`${root}/.refino`, {
         id: "A1B2C3D4",
         body: "Explicit id.",
       });
       expect(id).toBe("A1B2C3D4");
-      const source = await readFile(`${root}/.refino/nodes/A1/B2C3D4-constraint.md`, "utf8");
+      const source = await readFile(`${root}/.refino/nodes/A1/B2C3D4-decision.md`, "utf8");
       expect(source).toBe("Explicit id.\n");
       const { graph, issues } = await loadGraph(`${root}/.refino`);
       expect(issues).toEqual([]);
@@ -204,7 +204,7 @@ describe("writer", () => {
     try {
       await createPremise(`${root}/.refino`, { id: "A1B2C3D4", body: "Premise." });
       await expect(
-        createConstraint(`${root}/.refino`, { id: "A1B2C3D4", body: "Constraint." }),
+        createDecision(`${root}/.refino`, { id: "A1B2C3D4", body: "Decision." }),
       ).rejects.toMatchObject({ name: "RefinoError", code: IssueCode.DuplicateId });
       const { graph, issues } = await loadGraph(`${root}/.refino`);
       expect(issues).toEqual([]);
@@ -234,7 +234,7 @@ describe("writer", () => {
         },
       });
       try {
-        const id = await createConstraint(`${root}/.refino`, { body: "Decision." });
+        const id = await createDecision(`${root}/.refino`, { body: "Decision." });
         expect(id).not.toBe("A1B2C3D4");
         expect(id).toMatch(ID_RE);
       } finally {
@@ -251,8 +251,8 @@ describe("writer", () => {
   it("explicit ids do not disturb the generated-id collision check", async () => {
     const root = await createRefino({});
     try {
-      await createConstraint(`${root}/.refino`, { id: "A1B2C3D4", body: "Explicit." });
-      const generated = await createConstraint(`${root}/.refino`, { body: "Generated." });
+      await createDecision(`${root}/.refino`, { id: "A1B2C3D4", body: "Explicit." });
+      const generated = await createDecision(`${root}/.refino`, { body: "Generated." });
       expect(generated).not.toBe("A1B2C3D4");
       const { graph, issues } = await loadGraph(`${root}/.refino`);
       expect(issues).toEqual([]);
@@ -262,15 +262,15 @@ describe("writer", () => {
     }
   });
 
-  it("createConstraint serializes an explicit summary into frontmatter", async () => {
+  it("createDecision serializes an explicit summary into frontmatter", async () => {
     const root = await createRefino({});
     try {
-      const id = await createConstraint(`${root}/.refino`, {
+      const id = await createDecision(`${root}/.refino`, {
         body: "Full decision body.".repeat(20),
         summary: "Short relevance summary.",
       });
       const source = await readFile(
-        `${root}/.refino/nodes/${id.slice(0, 2)}/${id.slice(2)}-constraint.md`,
+        `${root}/.refino/nodes/${id.slice(0, 2)}/${id.slice(2)}-decision.md`,
         "utf8",
       );
       expect(source).toContain("summary: Short relevance summary.");
@@ -327,23 +327,23 @@ describe("writer: update and delete", () => {
     }
   });
 
-  it("updateConstraint replaces grounds and rationale", async () => {
+  it("updateDecision replaces grounds and rationale", async () => {
     const root = await createRefino({});
     try {
       const ground = await createPremise(`${root}/.refino`, { body: "Fact." });
-      const id = await createConstraint(`${root}/.refino`, {
+      const id = await createDecision(`${root}/.refino`, {
         body: "Decision.",
         grounds: [ground],
         rationale: "Old rationale.",
       });
-      await updateConstraint(`${root}/.refino`, id, {
+      await updateDecision(`${root}/.refino`, id, {
         body: "Decision v2.",
         grounds: [],
       });
       const { graph, issues } = await loadGraph(`${root}/.refino`);
       expect(issues).toEqual([]);
       const node = graph.nodes.get(id);
-      expect(node).toMatchObject({ type: "constraint", summary: "Decision v2." });
+      expect(node).toMatchObject({ type: "decision", summary: "Decision v2." });
       // An explicit empty array is serialized as `grounds: []`.
       expect(node?.grounds).toEqual([]);
       const read = await readNode(`${root}/.refino`, id);
@@ -356,7 +356,7 @@ describe("writer: update and delete", () => {
 
   it.each([
     ["updatePremise", (dir: string, id: string) => updatePremise(dir, id, { body: "B." })],
-    ["updateConstraint", (dir: string, id: string) => updateConstraint(dir, id, { body: "B." })],
+    ["updateDecision", (dir: string, id: string) => updateDecision(dir, id, { body: "B." })],
     ["deleteNode", (dir: string, id: string) => deleteNode(dir, id)],
   ])("%s rejects a missing node as NODE_NOT_FOUND", async (_name, fn) => {
     const root = await createRefino({});
@@ -386,7 +386,7 @@ describe("writer: update and delete", () => {
     const root = await createRefino({});
     try {
       const groundId = await createPremise(`${root}/.refino`, { id: "A1B2C3D4", body: "Fact." });
-      const id = await createConstraint(`${root}/.refino`, {
+      const id = await createDecision(`${root}/.refino`, {
         body: "Decision.",
         grounds: [groundId],
       });

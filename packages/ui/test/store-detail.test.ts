@@ -20,7 +20,7 @@ const ID = "A1B2C3D4";
 const P1 = "1A2B3C4D";
 
 interface NodeFile {
-  type: "premise" | "constraint";
+  type: "premise" | "decision";
   summary: string;
   body: string;
   grounds?: string[];
@@ -38,9 +38,8 @@ function nodeJson(id: string): Record<string, unknown> {
     type: node.type,
     summary: node.summary,
     body: node.body,
-    ...(node.type === "constraint" && { grounds: node.grounds ?? [] }),
-    ...(node.type === "constraint" &&
-      node.rationale !== undefined && { rationale: node.rationale }),
+    ...(node.type === "decision" && { grounds: node.grounds ?? [] }),
+    ...(node.type === "decision" && node.rationale !== undefined && { rationale: node.rationale }),
   };
 }
 
@@ -87,7 +86,7 @@ function respond(
       type,
       summary: (body?.summary as string) ?? "",
       body: body?.body as string,
-      ...(type === "constraint" && { grounds: (body?.grounds as string[]) ?? [] }),
+      ...(type === "decision" && { grounds: (body?.grounds as string[]) ?? [] }),
     });
     return { status: 200, json: { id, revision: serverRevision } };
   }
@@ -122,7 +121,7 @@ function respond(
 function fixture(): void {
   disk = new Map<string, NodeFile>();
   disk.set(P1, { type: "premise", summary: "前提一", body: "前提一正文。" });
-  disk.set(ID, { type: "constraint", summary: "约束一", body: "约束一正文。", grounds: [P1] });
+  disk.set(ID, { type: "decision", summary: "决策一", body: "决策一正文。", grounds: [P1] });
   serverRevision = 3;
 }
 
@@ -289,10 +288,10 @@ describe("external deletion", () => {
 
     expect(store.state.detail.deletedWithEdits).toBe(true);
 
-    await store.recreateDetail("constraint", {
+    await store.recreateDetail("decision", {
       body: "未保存的编辑",
-      summary: "约束一",
-      type: "constraint",
+      summary: "决策一",
+      type: "decision",
       grounds: [P1],
     });
     expect(disk.has(ID)).toBe(true);
@@ -314,9 +313,9 @@ describe("external deletion", () => {
 describe("recreate via PUT", () => {
   it("sends the payload type so the server can create the id", async () => {
     await openDetail();
-    await store.recreateDetail("constraint", { body: "重建。", type: "constraint", grounds: [P1] });
+    await store.recreateDetail("decision", { body: "重建。", type: "decision", grounds: [P1] });
     expect(putCalls).toHaveLength(1);
-    expect(putCalls[0]!.body.type).toBe("constraint");
+    expect(putCalls[0]!.body.type).toBe("decision");
   });
 });
 

@@ -28,9 +28,9 @@ function graphOf(...nodes: RefinoNode[]): Graph {
  */
 const graph = graphOf(
   node("1A2B3C4D", "premise"),
-  node("A1B2C3D4", "constraint"),
-  node("D4E5F6G7", "constraint", ["A1B2C3D4"]),
-  node("E5F6G7H8", "constraint", ["1A2B3C4D", "D4E5F6G7"]),
+  node("A1B2C3D4", "decision"),
+  node("D4E5F6G7", "decision", ["A1B2C3D4"]),
+  node("E5F6G7H8", "decision", ["1A2B3C4D", "D4E5F6G7"]),
 );
 
 function ids(results: ReadonlyArray<{ id: string; node?: { id: string } }>): string[] {
@@ -44,7 +44,7 @@ describe("queries", () => {
     expect(getGrounds(graph, "1A2B3C4D")).toEqual([]);
   });
 
-  it("ancestors cover premises and upstream constraints with minimal depth", () => {
+  it("ancestors cover premises and upstream decisions with minimal depth", () => {
     const ancestors = getAncestors(graph, "E5F6G7H8");
     expect(ancestors.map((a) => [a.node.id, a.depth])).toEqual([
       ["1A2B3C4D", 1],
@@ -77,7 +77,7 @@ describe("queries", () => {
     );
   });
 
-  it("dependents are the transitive closure of downstream constraints", () => {
+  it("dependents are the transitive closure of downstream decisions", () => {
     expect(getDependents(graph, "A1B2C3D4").map((d) => [d.node.id, d.depth])).toEqual([
       ["D4E5F6G7", 1],
       ["E5F6G7H8", 2],
@@ -86,7 +86,7 @@ describe("queries", () => {
     expect(getDependents(graph, "E5F6G7H8")).toEqual([]);
   });
 
-  it("buildGraph derives the children back-references of premises and constraints", () => {
+  it("buildGraph derives the children back-references of premises and decisions", () => {
     expect(graph.nodes.get("1A2B3C4D")?.children).toEqual(["E5F6G7H8"]);
     expect(graph.nodes.get("A1B2C3D4")?.children).toEqual(["D4E5F6G7"]);
     expect(graph.nodes.get("D4E5F6G7")?.children).toEqual(["E5F6G7H8"]);
@@ -94,7 +94,7 @@ describe("queries", () => {
   });
 
   it("buildGraph leaves unknown grounds out of the children index", () => {
-    const dangling = graphOf(node("A1B2C3D4", "constraint", ["Z9Y8X7W6"]));
+    const dangling = graphOf(node("A1B2C3D4", "decision", ["Z9Y8X7W6"]));
     expect(dangling.nodes.get("Z9Y8X7W6")).toBeUndefined();
     expect(dangling.nodes.get("A1B2C3D4")?.children).toEqual([]);
   });
@@ -126,9 +126,9 @@ describe("effectiveExploring", () => {
    */
   const graph = graphOf(
     node("1A2B3C4D", "premise"),
-    { ...node("A1B2C3D4", "constraint"), exploring: true },
-    node("D4E5F6G7", "constraint", ["A1B2C3D4"]),
-    node("E5F6G7H8", "constraint", ["1A2B3C4D", "D4E5F6G7"]),
+    { ...node("A1B2C3D4", "decision"), exploring: true },
+    node("D4E5F6G7", "decision", ["A1B2C3D4"]),
+    node("E5F6G7H8", "decision", ["1A2B3C4D", "D4E5F6G7"]),
   );
 
   it("is true for the marked node itself", () => {
@@ -142,8 +142,8 @@ describe("effectiveExploring", () => {
 
   it("settles automatically once the upstream mark is removed", () => {
     const settled = graphOf(
-      node("A1B2C3D4", "constraint"),
-      node("D4E5F6G7", "constraint", ["A1B2C3D4"]),
+      node("A1B2C3D4", "decision"),
+      node("D4E5F6G7", "decision", ["A1B2C3D4"]),
     );
     expect(effectiveExploring(settled, "D4E5F6G7")).toBe(false);
     expect(effectiveExploring(settled, "A1B2C3D4")).toBe(false);
@@ -151,19 +151,16 @@ describe("effectiveExploring", () => {
 
   it("is false for premises and unmarked branches", () => {
     expect(effectiveExploring(graph, "1A2B3C4D")).toBe(false);
-    const other = graphOf(
-      node("B2C3D4E5", "constraint"),
-      node("C3D4E5F6", "constraint", ["B2C3D4E5"]),
-    );
+    const other = graphOf(node("B2C3D4E5", "decision"), node("C3D4E5F6", "decision", ["B2C3D4E5"]));
     expect(effectiveExploring(other, "C3D4E5F6")).toBe(false);
   });
 
   it("follows any of multiple grounds", () => {
     const branched = graphOf(
       node("1A2B3C4D", "premise"),
-      node("A1B2C3D4", "constraint"),
-      { ...node("B2C3D4E5", "constraint"), exploring: true },
-      node("E5F6G7H8", "constraint", ["1A2B3C4D", "B2C3D4E5"]),
+      node("A1B2C3D4", "decision"),
+      { ...node("B2C3D4E5", "decision"), exploring: true },
+      node("E5F6G7H8", "decision", ["1A2B3C4D", "B2C3D4E5"]),
     );
     expect(effectiveExploring(branched, "E5F6G7H8")).toBe(true);
   });

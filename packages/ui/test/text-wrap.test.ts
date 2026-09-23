@@ -27,9 +27,9 @@ describe("label wrapping", () => {
   });
 
   it("wraps CJK text after each character", () => {
-    const lines = wrap(atlas, "约束细化约束", 60);
-    expect(lines).toEqual(["约束细", "化约束"]);
-    expect(lines.join("")).toBe("约束细化约束");
+    const lines = wrap(atlas, "决策细化决策", 60);
+    expect(lines).toEqual(["决策细", "化决策"]);
+    expect(lines.join("")).toBe("决策细化决策");
   });
 
   it("hard-breaks a run without break opportunities", () => {
@@ -41,7 +41,7 @@ describe("label wrapping", () => {
   it("gives an oversized single character its own line", () => {
     const lines = wrap(atlas, "ab", 5);
     expect(lines).toEqual(["a", "b"]);
-    expect(wrap(atlas, "约束", 10)).toEqual(["约", "束"]);
+    expect(wrap(atlas, "决策", 10)).toEqual(["决", "策"]);
   });
 
   it("mixes word, CJK and hard breaks without losing text", () => {

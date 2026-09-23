@@ -49,7 +49,7 @@ const zone = computed(() => {
     return []; // an invalid draft (e.g. mid-edit) renders as empty, not broken
   }
 });
-const zoneConstraints = computed(() => zone.value.filter((node) => node.type === "constraint"));
+const zoneDecisions = computed(() => zone.value.filter((node) => node.type === "decision"));
 const zonePremises = computed(() => zone.value.filter((node) => node.type === "premise"));
 const frontier = computed(() => {
   if (graph.value === null) return [];
@@ -71,7 +71,7 @@ const effectiveZone = computed(() => {
 });
 const newlyFrozen = computed(() => {
   const effectiveIds = new Set(effectiveZone.value);
-  return zoneConstraints.value.filter((node) => !effectiveIds.has(node.id));
+  return zoneDecisions.value.filter((node) => !effectiveIds.has(node.id));
 });
 
 const estimate = computed(() =>
@@ -96,10 +96,10 @@ const nodeOptions = computed(() =>
 
 const frozenOptions = computed(() => {
   // Premises are never frozen directly — they join the zone as ancestors
-  // (docs/dlg.md 2.4) — so only constraints are offered.
+  // (docs/dlg.md 2.4) — so only decisions are offered.
   const options = new Map(
     nodeOptions.value
-      .filter((option) => graph.value?.nodes.get(option.value)?.type === "constraint")
+      .filter((option) => graph.value?.nodes.get(option.value)?.type === "decision")
       .map((option) => [option.value, option]),
   );
   for (const id of frozen.value) {
@@ -120,7 +120,7 @@ function toRefinoNode(node: ConsoleNode): RefinoNode {
   const base = { id: node.id, summary: node.summary, body: "" };
   return node.type === "premise"
     ? { ...base, type: "premise" }
-    : { ...base, type: "constraint", grounds: node.grounds ?? [] };
+    : { ...base, type: "decision", grounds: node.grounds ?? [] };
 }
 
 onMounted(async () => {
@@ -199,7 +199,7 @@ function optionLabel(id: string): string {
       <p class="propagation">
         {{
           t("console.propagation", {
-            constraints: zoneConstraints.length,
+            decisions: zoneDecisions.length,
             premises: zonePremises.length,
           })
         }}

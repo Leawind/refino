@@ -12,7 +12,7 @@ import { defaultAuthorizationContext, toolRefs } from "../src/index.js";
 /** dsh-style prefixed names: the texts must cite whatever the host passes. */
 const TOOLS = toolRefs("refino_");
 
-function node(id: string, type: "premise" | "constraint", grounds?: string[]): RefinoNode {
+function node(id: string, type: "premise" | "decision", grounds?: string[]): RefinoNode {
   const base = {
     id,
     file: `nodes/${id.slice(0, 2)}/${id.slice(2)}-${type}.md`,
@@ -26,8 +26,8 @@ function node(id: string, type: "premise" | "constraint", grounds?: string[]): R
 function fixtureGraph(): Graph {
   return buildGraph([
     node("P1PREMISE", "premise"),
-    node("R1ROOT", "constraint"),
-    node("C1CHILD", "constraint", ["R1ROOT", "P1PREMISE"]),
+    node("R1ROOT", "decision"),
+    node("C1CHILD", "decision", ["R1ROOT", "P1PREMISE"]),
   ]);
 }
 
@@ -121,16 +121,16 @@ describe("orientationText", () => {
   it("orients the model when the graph exceeds the auto-anchor budget", () => {
     const text = orientationText(fixtureGraph(), TOOLS);
     expect(text).toContain("共 3 个节点");
-    expect(text).toContain("根约束");
+    expect(text).toContain("根决策");
     expect(text).toContain("- R1ROOT summary of R1ROOT");
     expect(text).toContain("refino_search");
-    // Premises and derived constraints are not listed as roots.
+    // Premises and derived decisions are not listed as roots.
     expect(text).not.toContain("P1PREMISE");
     expect(text).not.toContain("C1CHILD");
   });
 
   it("caps the root list at eight entries", () => {
-    const roots = Array.from({ length: 10 }, (_, i) => node(`R${i}ROOT${i}`, "constraint"));
+    const roots = Array.from({ length: 10 }, (_, i) => node(`R${i}ROOT${i}`, "decision"));
     const graph = buildGraph(roots);
     const text = orientationText(graph, TOOLS);
     expect(text).toContain("前 8 个");
@@ -153,7 +153,7 @@ describe("updateText", () => {
         { id: "C2GRAND", kind: "children", added: ["C3NEW1"], removed: [] },
         { id: "R1ROOT", kind: "content" },
         { id: "A1IDONLY", kind: "touched" },
-        { id: "B1REBUIL", kind: "rebuilt", fromType: "constraint", toType: "premise" },
+        { id: "B1REBUIL", kind: "rebuilt", fromType: "decision", toType: "premise" },
         { id: "R1ROOT", kind: "exploring", to: true },
         { id: "C1CHILD", kind: "exploring", to: false },
       ],
@@ -166,10 +166,10 @@ describe("updateText", () => {
     expect(text).toContain("- C2GRAND 直接下游变更：新增 C3NEW1");
     expect(text).toContain("- R1ROOT 正文已更新（如仍需引用请重新获取）");
     expect(text).toContain("- A1IDONLY 已变更");
-    expect(text).toContain("- B1REBUIL 以另一类型重建（constraint → premise），此前信息已失效");
+    expect(text).toContain("- B1REBUIL 以另一类型重建（decision → premise），此前信息已失效");
     expect(text).toContain("- R1ROOT 已标记为探索中（试行承诺，其下游细化随之探索中）");
     expect(text).toContain("- C1CHILD 已定案（探索中标记移除，子树随之定案）");
-    expect(text).toContain("- 新增冻结约束（只读）: R1ROOT");
+    expect(text).toContain("- 新增冻结决策（只读）: R1ROOT");
     expect(text).toContain("- 移除作用域锚点: P1PREMISE");
     expect(text).toContain("- 待审查（其直接上游已变化，修改前先复核）: C1CHILD");
     // Known changes carry their own old→new values; the pending line stays id-only.

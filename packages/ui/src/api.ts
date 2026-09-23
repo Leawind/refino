@@ -45,11 +45,11 @@ export interface RefinoClient {
   queryGrounds(ids: readonly string[]): Promise<QueryGroup<NodeLite>[]>;
 
   /** GET /api/search — keyset-paginated id/summary search. `unreferenced`
-   * restricts premises no constraint grounds on; `roots` to root
-   * constraints. */
+   * restricts premises no decision grounds on; `roots` to root
+   * decisions. */
   search(params: {
     q?: string;
-    type?: "premise" | "constraint";
+    type?: "premise" | "decision";
     limit?: number;
     cursor?: string;
     roots?: boolean;
@@ -66,7 +66,7 @@ export interface RefinoClient {
   reloadGraph(): Promise<ChangeEvent>;
 
   /** POST /api/nodes/:type — create a node. */
-  createNode(type: "premise" | "constraint", payload: NodePayload): Promise<{ id: string }>;
+  createNode(type: "premise" | "decision", payload: NodePayload): Promise<{ id: string }>;
 
   /** PUT /api/nodes/:id — `revision` turns the save into an optimistic
    * concurrency check (409 on mismatch); see docs/design.md, "编辑冲突处理". */

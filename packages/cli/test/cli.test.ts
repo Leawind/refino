@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { main } from "../src/main.js";
 import type { CliIo } from "../src/format.js";
-import { constraint, createRefino, premise, removeRefino } from "@refino/testkit";
+import { decision, createRefino, premise, removeRefino } from "@refino/testkit";
 
 let validRoot: string;
 let invalidRoot: string;
@@ -11,25 +11,25 @@ let invalidRoot: string;
 beforeAll(async () => {
   validRoot = await createRefino({
     "nodes/1A/2B3C4D-premise.md": premise("1A2B3C4D", "当前 PostgreSQL 版本不支持 extension X。"),
-    "nodes/A1/B2C3D4-constraint.md": constraint(
+    "nodes/A1/B2C3D4-decision.md": decision(
       "A1B2C3D4",
       undefined,
       "所有业务数据存储在 PostgreSQL。",
     ),
-    "nodes/D4/E5F6G7-constraint.md": constraint(
+    "nodes/D4/E5F6G7-decision.md": decision(
       "D4E5F6G7",
       ["A1B2C3D4"],
       "数据访问必须通过 Repository 层。",
     ),
-    "nodes/E5/F6G7H8-constraint.md": constraint(
+    "nodes/E5/F6G7H8-decision.md": decision(
       "E5F6G7H8",
       ["1A2B3C4D", "D4E5F6G7"],
       "不使用 extension X，改用手写 SQL。",
     ),
   });
   invalidRoot = await createRefino({
-    "nodes/A1/B2C3D4-constraint.md": constraint("A1B2C3D4", ["B2C3D4E5"]),
-    "nodes/B2/C3D4E5-constraint.md": constraint("B2C3D4E5", ["A1B2C3D4"]),
+    "nodes/A1/B2C3D4-decision.md": decision("A1B2C3D4", ["B2C3D4E5"]),
+    "nodes/B2/C3D4E5-decision.md": decision("B2C3D4E5", ["A1B2C3D4"]),
   });
 });
 
@@ -69,7 +69,7 @@ describe("refino cli", () => {
   it("validate succeeds on a valid graph", async () => {
     const { code, out } = await run(["--root", validRoot, "validate"]);
     expect(code).toBe(0);
-    expect(out).toContain("valid: 3 constraints, 1 premises");
+    expect(out).toContain("valid: 3 decisions, 1 premises");
   });
 
   it("validate reports cycles with exit code 1", async () => {
@@ -127,8 +127,8 @@ describe("refino cli", () => {
   it("list orders nodes upstream before downstream (layer, then id)", async () => {
     // Id order alone would put the downstream node first; the layer must win.
     const root = await createRefino({
-      "nodes/AA/A1111BB-constraint.md": constraint("AAA1111BB", ["ZZZ9999YX"], "下游约束。"),
-      "nodes/ZZ/Z9999YX-constraint.md": constraint("ZZZ9999YX", undefined, "上游约束。"),
+      "nodes/AA/A1111BB-decision.md": decision("AAA1111BB", ["ZZZ9999YX"], "下游决策。"),
+      "nodes/ZZ/Z9999YX-decision.md": decision("ZZZ9999YX", undefined, "上游决策。"),
     });
     try {
       const { code, out } = await run(["--root", root, "list"]);
@@ -147,7 +147,7 @@ describe("refino cli", () => {
   it("show prints the full record", async () => {
     const { code, out } = await run(["--root", validRoot, "show", "E5F6G7H8"]);
     expect(code).toBe(0);
-    expect(out).toContain("constraints(id=E5F6G7H8, grounds=[1A2B3C4D, D4E5F6G7])");
+    expect(out).toContain("decisions(id=E5F6G7H8, grounds=[1A2B3C4D, D4E5F6G7])");
     expect(out).toContain("不使用 extension X，改用手写 SQL。");
 
     const premiseView = await run(["--root", validRoot, "show", "1A2B3C4D"]);
@@ -175,7 +175,7 @@ describe("refino cli", () => {
         "--root",
         emptyRoot,
         "new",
-        "constraint",
+        "decision",
         "--id",
         "D4E5F6G7",
         "--body",
@@ -185,13 +185,13 @@ describe("refino cli", () => {
         "--rationale",
         "Because of the fact.",
         "--summary",
-        "A constraint summary.",
+        "A decision summary.",
       ]);
 
-      const constraintView = await run(["--root", emptyRoot, "show", "D4E5F6G7"]);
-      expect(constraintView.out).toContain("summary: A constraint summary.");
-      expect(constraintView.out).toContain("rationale: Because of the fact.");
-      expect(constraintView.out).not.toContain("confirmed:");
+      const decisionView = await run(["--root", emptyRoot, "show", "D4E5F6G7"]);
+      expect(decisionView.out).toContain("summary: A decision summary.");
+      expect(decisionView.out).toContain("rationale: Because of the fact.");
+      expect(decisionView.out).not.toContain("confirmed:");
 
       const premiseView = await run(["--root", emptyRoot, "show", "1A2B3C4D"]);
       expect(premiseView.out).toContain("summary: A premise summary.");
@@ -202,11 +202,11 @@ describe("refino cli", () => {
     }
   });
 
-  it("list --unreferenced lists only premises no constraint grounds on", async () => {
+  it("list --unreferenced lists only premises no decision grounds on", async () => {
     const root = await createRefino({
       "nodes/1A/2B3C4D-premise.md": premise("1A2B3C4D", "Unreferenced fact."),
       "nodes/2B/3C4D5E-premise.md": premise("2B3C4D5E", "Referenced fact."),
-      "nodes/C1/234567-constraint.md": constraint("C1234567", ["2B3C4D5E"], "Decision."),
+      "nodes/C1/234567-decision.md": decision("C1234567", ["2B3C4D5E"], "Decision."),
     });
     try {
       const all = await run(["--root", root, "list", "--unreferenced"]);
@@ -219,16 +219,16 @@ describe("refino cli", () => {
       expect(withType.code).toBe(0);
       expect(withType.out).toContain("1A2B3C4D");
 
-      const constraintType = await run([
+      const decisionType = await run([
         "--root",
         root,
         "list",
         "--type",
-        "constraint",
+        "decision",
         "--unreferenced",
       ]);
-      expect(constraintType.code).toBe(1);
-      expect(constraintType.err).toContain("--unreferenced only applies to premises");
+      expect(decisionType.code).toBe(1);
+      expect(decisionType.err).toContain("--unreferenced only applies to premises");
     } finally {
       await removeRefino(root);
     }
@@ -253,7 +253,7 @@ describe("refino cli", () => {
           "--root",
           emptyRoot,
           "new",
-          "constraint",
+          "decision",
           "--id",
           "D4E5F6G7",
           "--body",
@@ -360,18 +360,18 @@ describe("refino cli", () => {
           "--root",
           emptyRoot,
           "new",
-          "constraint",
+          "decision",
           "--id",
           "D4E5F6G7",
           "--body",
           "Decision.",
-          // Grounds keep it a non-root constraint, so nothing else grounds on it.
+          // Grounds keep it a non-root decision, so nothing else grounds on it.
           // which write-path boundary checks enforce.
           "--grounds",
           "1A2B3C4D",
         ]);
-        const constraintConfirmed = await run(["--root", emptyRoot, "update", "D4E5F6G7", "--now"]);
-        expect(constraintConfirmed.code).toBe(0);
+        const decisionConfirmed = await run(["--root", emptyRoot, "update", "D4E5F6G7", "--now"]);
+        expect(decisionConfirmed.code).toBe(0);
 
         const unknownGround = await run([
           "--root",
@@ -390,14 +390,14 @@ describe("refino cli", () => {
   });
 
   describe("exploring", () => {
-    it("new constraint --exploring persists the mark and show labels it", async () => {
+    it("new decision --exploring persists the mark and show labels it", async () => {
       const root = await adoptedRoot();
       try {
         const { code } = await run([
           "--root",
           root,
           "new",
-          "constraint",
+          "decision",
           "--id",
           "A1B2C3D4",
           "--body",
@@ -406,7 +406,7 @@ describe("refino cli", () => {
         ]);
         expect(code).toBe(0);
         const source = await readFile(
-          join(root, ".refino", "nodes", "A1", "B2C3D4-constraint.md"),
+          join(root, ".refino", "nodes", "A1", "B2C3D4-decision.md"),
           "utf8",
         );
         expect(source).toContain("exploring: true");
@@ -421,21 +421,12 @@ describe("refino cli", () => {
     it("update tri-states the mark; list and show annotate effective exploration", async () => {
       const root = await adoptedRoot();
       try {
+        await run(["--root", root, "new", "decision", "--id", "A1B2C3D4", "--body", "上游决策。"]);
         await run([
           "--root",
           root,
           "new",
-          "constraint",
-          "--id",
-          "A1B2C3D4",
-          "--body",
-          "上游决策。",
-        ]);
-        await run([
-          "--root",
-          root,
-          "new",
-          "constraint",
+          "decision",
           "--id",
           "D4E5F6G7",
           "--body",
@@ -443,16 +434,7 @@ describe("refino cli", () => {
           "--grounds",
           "A1B2C3D4",
         ]);
-        await run([
-          "--root",
-          root,
-          "new",
-          "constraint",
-          "--id",
-          "E5F6G7H8",
-          "--body",
-          "无关决策。",
-        ]);
+        await run(["--root", root, "new", "decision", "--id", "E5F6G7H8", "--body", "无关决策。"]);
 
         // Marking the upstream explores the downstream too (derived, no stored mark).
         const mark = await run(["--root", root, "update", "A1B2C3D4", "--exploring"]);
@@ -476,7 +458,7 @@ describe("refino cli", () => {
         const settle = await run(["--root", root, "update", "A1B2C3D4", "--no-exploring"]);
         expect(settle.code).toBe(0);
         const source = await readFile(
-          join(root, ".refino", "nodes", "A1", "B2C3D4-constraint.md"),
+          join(root, ".refino", "nodes", "A1", "B2C3D4-decision.md"),
           "utf8",
         );
         expect(source).not.toContain("exploring");
@@ -494,7 +476,7 @@ describe("refino cli", () => {
           "--root",
           root,
           "new",
-          "constraint",
+          "decision",
           "--id",
           "A1B2C3D4",
           "--body",
@@ -519,7 +501,7 @@ describe("refino cli", () => {
           "--root",
           emptyRoot,
           "new",
-          "constraint",
+          "decision",
           "--id",
           "D4E5F6G7",
           "--body",
@@ -531,7 +513,7 @@ describe("refino cli", () => {
           "--root",
           emptyRoot,
           "new",
-          "constraint",
+          "decision",
           "--id",
           "E5F6G7H8",
           "--body",
@@ -578,7 +560,7 @@ describe("refino cli", () => {
           "--root",
           emptyRoot,
           "new",
-          "constraint",
+          "decision",
           "--id",
           "D4E5F6G7",
           "--body",
@@ -623,8 +605,8 @@ describe("refino cli", () => {
       .filter((line) => /^(1A2B3C4D|D4E5F6G7|A1B2C3D4)\s/.test(line));
     expect(rows).toHaveLength(3);
     expect(rows[0]).toMatch(/^1A2B3C4D\s+premise\s+1\s+/);
-    expect(rows[1]).toMatch(/^D4E5F6G7\s+constraint\s+1\s+/);
-    expect(rows[2]).toMatch(/^A1B2C3D4\s+constraint\s+2\s+/);
+    expect(rows[1]).toMatch(/^D4E5F6G7\s+decision\s+1\s+/);
+    expect(rows[2]).toMatch(/^A1B2C3D4\s+decision\s+2\s+/);
 
     const dependents = await run(["--root", validRoot, "dependents", "A1B2C3D4"]);
     expect(dependents.code).toBe(0);
@@ -638,8 +620,8 @@ describe("refino cli", () => {
     expect(out).toContain("A1B2C3D4:");
     expect(out).toContain("D4E5F6G7:");
     // The same node appears under both sections with its per-query depth.
-    expect(out).toMatch(/^E5F6G7H8\s+constraint\s+2\s+/m);
-    expect(out).toMatch(/^E5F6G7H8\s+constraint\s+1\s+/m);
+    expect(out).toMatch(/^E5F6G7H8\s+decision\s+2\s+/m);
+    expect(out).toMatch(/^E5F6G7H8\s+decision\s+1\s+/m);
   });
 
   it("batch human-readable output prints one section per queried id", async () => {
@@ -653,9 +635,7 @@ describe("refino cli", () => {
   it("show prints several full records when given multiple ids", async () => {
     const { code, out } = await run(["--root", validRoot, "show", "E5F6G7H8", "1A2B3C4D"]);
     expect(code).toBe(0);
-    expect(out.indexOf("constraints(id=E5F6G7H8")).toBeLessThan(
-      out.indexOf("premises(id=1A2B3C4D"),
-    );
+    expect(out.indexOf("decisions(id=E5F6G7H8")).toBeLessThan(out.indexOf("premises(id=1A2B3C4D"));
     expect(out).toContain("不使用 extension X，改用手写 SQL。");
     expect(out).toContain("当前 PostgreSQL 版本不支持 extension X。");
   });
@@ -729,7 +709,7 @@ describe("refino cli", () => {
     }
   });
 
-  it("new constraint creates a constraint node with grounds and rationale", async () => {
+  it("new decision creates a decision node with grounds and rationale", async () => {
     const emptyRoot = await adoptedRoot();
     try {
       await run(["--root", emptyRoot, "new", "premise", "--id", "1A2B3C4D", "--body", "Fact."]);
@@ -737,7 +717,7 @@ describe("refino cli", () => {
         "--root",
         emptyRoot,
         "new",
-        "constraint",
+        "decision",
         "--body",
         "Use Repository layer.",
         "--grounds",
@@ -756,7 +736,7 @@ describe("refino cli", () => {
     }
   });
 
-  it("new constraint rejects unknown grounds before creating anything", async () => {
+  it("new decision rejects unknown grounds before creating anything", async () => {
     const emptyRoot = await adoptedRoot();
     try {
       await run(["--root", emptyRoot, "new", "premise", "--id", "1A2B3C4D", "--body", "Fact."]);
@@ -764,7 +744,7 @@ describe("refino cli", () => {
         "--root",
         emptyRoot,
         "new",
-        "constraint",
+        "decision",
         "--body",
         "Decision.",
         "--grounds",
@@ -782,7 +762,7 @@ describe("refino cli", () => {
     }
   });
 
-  it("new constraint rejects repeated ground ids", async () => {
+  it("new decision rejects repeated ground ids", async () => {
     const emptyRoot = await adoptedRoot();
     try {
       await run(["--root", emptyRoot, "new", "premise", "--id", "1A2B3C4D", "--body", "Fact."]);
@@ -790,7 +770,7 @@ describe("refino cli", () => {
         "--root",
         emptyRoot,
         "new",
-        "constraint",
+        "decision",
         "--body",
         "Decision.",
         "--grounds",
@@ -852,14 +832,14 @@ describe("refino cli", () => {
     }
   });
 
-  it("new constraint rejects malformed --grounds ids before creating", async () => {
+  it("new decision rejects malformed --grounds ids before creating", async () => {
     const root = await createRefino({ "nodes/1A/2B3C4D-premise.md": premise("1A2B3C4D") });
     try {
       const { code, err } = await run([
         "--root",
         root,
         "new",
-        "constraint",
+        "decision",
         "--body",
         "Decision.",
         "--grounds",
@@ -881,8 +861,8 @@ describe("refino cli", () => {
     const lines = ancestors.out.trimEnd().split("\n");
     expect(lines).toHaveLength(3);
     expect(lines[0]).toMatch(/^1A2B3C4D\s+premise\s+1\s+/);
-    expect(lines[1]).toMatch(/^D4E5F6G7\s+constraint\s+1\s+/);
-    expect(lines[2]).toMatch(/^A1B2C3D4\s+constraint\s+2\s+/);
+    expect(lines[1]).toMatch(/^D4E5F6G7\s+decision\s+1\s+/);
+    expect(lines[2]).toMatch(/^A1B2C3D4\s+decision\s+2\s+/);
 
     const list = await run(["--root", validRoot, "list"]);
     expect(list.out).toMatch(/1A2B3C4D\s+premise\s+/); // no depth column without depths
@@ -925,7 +905,7 @@ describe("refino cli", () => {
         "--root",
         emptyRoot,
         "new",
-        "constraint",
+        "decision",
         "--id",
         "a1b2c3d4",
         "--body",
@@ -945,7 +925,7 @@ describe("refino cli", () => {
         "--root",
         emptyRoot,
         "new",
-        "constraint",
+        "decision",
         "--body",
         "Very long decision body.",
         "--summary",

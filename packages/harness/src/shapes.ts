@@ -14,9 +14,9 @@ export interface NodeLite {
   type: string;
   summary: string;
   /**
-   * Constraints only: the derived effective exploring status (docs/dlg.md
+   * Decisions only: the derived effective exploring status (docs/dlg.md
    * 1.1) — set to true when the node carries the trial mark or any ground
-   * constraint does. Absent for premises and settled constraints.
+   * decision does. Absent for premises and settled decisions.
    */
   exploring?: boolean;
 }
@@ -33,7 +33,7 @@ export interface FullNodeLite {
   body: string;
   rationale?: string;
   grounds?: string[];
-  /** Derived effective exploring status (constraints only; see NodeLite). */
+  /** Derived effective exploring status (decisions only; see NodeLite). */
   exploring?: boolean;
   /** Confirmation time as epoch milliseconds (premises only). */
   confirmed?: number;
@@ -62,7 +62,7 @@ export interface WriteResult {
   ok: boolean;
   /** The created/updated/deleted node id on success. */
   id?: string;
-  /** Constraints now pending review as a consequence of the change. */
+  /** Decisions now pending review as a consequence of the change. */
   pending?: NodeLite[];
   /** Failure reason (validation, storage error, or refusal). */
   error?: string;
@@ -70,7 +70,7 @@ export interface WriteResult {
   issues?: IssueLite[];
   /** Boundary escalation for writes reaching the frozen zone. */
   escalation?: EscalationLite;
-  /** Existing downstream constraints (delete refusal). */
+  /** Existing downstream decisions (delete refusal). */
   dependents?: NodeLite[];
 }
 
@@ -134,11 +134,11 @@ export interface SignResult {
   ok: boolean;
   /** The signed frontier on success. */
   frontier?: string[];
-  frozen_constraints?: number;
+  frozen_decisions?: number;
   frozen_premises?: number;
-  /** Frontier ids covered by other frontier constraints (redundant in the draft). */
+  /** Frontier ids covered by other frontier decisions (redundant in the draft). */
   redundant_frontier?: string[];
-  /** Root constraints the draft unfreezes (highest-authorization warning). */
+  /** Root decisions the draft unfreezes (highest-authorization warning). */
   unfrozen_roots?: string[];
   /** The approval outcome when `ok` is false. */
   outcome?: ApprovalOutcome;
@@ -150,7 +150,7 @@ export interface ContextStatusResult {
   source: string;
   signed_at: string;
   frontier: string[];
-  frozen_constraints: number;
+  frozen_decisions: number;
   frozen_premises: number;
   anchors_complete: boolean;
   orchestrator_credential: boolean;

@@ -11,14 +11,14 @@ import {
 
 function node(id: string, type: NodeType, grounds?: string[]): RefinoNode {
   if (type === "premise") return { id, type: "premise", summary: "Body." };
-  return { id, type: "constraint", summary: "Body.", grounds: grounds ?? [] };
+  return { id, type: "decision", summary: "Body.", grounds: grounds ?? [] };
 }
 
 /**
  * Fixture shape:
  *   1A2B3C4D (premise) ──┬→ D4E5F6G7 → E5F6G7H8 → B2C3D4E5
  *   A1B2C3D4 (root) ─────┘
- *   Z9Y8X7W6 (standalone root constraint)
+ *   Z9Y8X7W6 (standalone root decision)
  */
 const A1 = "A1B2C3D4";
 const D4 = "D4E5F6G7";
@@ -30,11 +30,11 @@ const P1 = "1A2B3C4D";
 function graphOf(): Graph {
   return buildGraph([
     node(P1, "premise"),
-    node(A1, "constraint"),
-    node(D4, "constraint", [A1]),
-    node(E5, "constraint", [P1, D4]),
-    node(B2, "constraint", [E5]),
-    node(Z9, "constraint"),
+    node(A1, "decision"),
+    node(D4, "decision", [A1]),
+    node(E5, "decision", [P1, D4]),
+    node(B2, "decision", [E5]),
+    node(Z9, "decision"),
   ]);
 }
 
@@ -106,7 +106,7 @@ describe("parseSignedAuthorization", () => {
 });
 
 describe("materializeDefaultAuthorization", () => {
-  it("names all root constraints as the frontier", () => {
+  it("names all root decisions as the frontier", () => {
     const doc = materializeDefaultAuthorization(graphOf(), NOW);
     expect(doc).toEqual({
       version: 1,
@@ -123,8 +123,8 @@ describe("convergeAuthorization", () => {
     // zone with them — nothing anchors it anymore.
     const graph = buildGraph([
       node(P1, "premise"),
-      node(A1, "constraint"),
-      node(D4, "constraint", [A1]),
+      node(A1, "decision"),
+      node(D4, "decision", [A1]),
     ]);
     const doc = parseSignedAuthorization({
       version: 1,
@@ -152,9 +152,9 @@ describe("convergeAuthorization", () => {
     });
     const graph = buildGraph([
       node(P1, "premise"),
-      node(A1, "constraint"),
-      node(D4, "constraint", [A1, Z9]),
-      node(Z9, "constraint"),
+      node(A1, "decision"),
+      node(D4, "decision", [A1, Z9]),
+      node(Z9, "decision"),
     ]);
     expect(convergeAuthorization(graph, doc).frozenFrontier).toEqual([D4]);
   });
@@ -205,7 +205,7 @@ describe("applyAuthorization", () => {
     );
     // Zone of E5: E5, D4, A1, P1 — Z9 stays outside and is a root.
     expect(preview).toEqual({
-      frozenConstraints: 3,
+      frozenDecisions: 3,
       frozenPremises: 1,
       unfrozenRoots: [Z9],
       redundantFrontier: [],

@@ -33,7 +33,7 @@ export interface SignedAuthorization {
   revision: number;
   /**
    * The frozen zone's minimal representation (its most downstream
-   * constraints). Stored instead of the full zone so the zone semantics keep
+   * decisions). Stored instead of the full zone so the zone semantics keep
    * following the graph.
    */
   frozenFrontier: string[];
@@ -91,7 +91,7 @@ function rfc3339(date: Date): string {
 
 /**
  * Materialize the unsigned default as a document (docs/design.md, dsh plugin
- * defaults): the frontier names all root constraints. Revision 0; the
+ * defaults): the frontier names all root decisions. Revision 0; the
  * default is derived live and never persisted.
  */
 export function materializeDefaultAuthorization(
@@ -118,7 +118,7 @@ export function materializeDefaultAuthorization(
 export function convergeAuthorization(graph: Graph, doc: SignedAuthorization): SignedAuthorization {
   const frontier = [...new Set(doc.frozenFrontier)].filter((id) => {
     const node = graph.nodes.get(id);
-    return node !== undefined && node.type === "constraint";
+    return node !== undefined && node.type === "decision";
   });
   // The zone's minimal representation may have drifted from the stored
   // frontier (the graph grew or shrank since signing); recompute it from the
@@ -135,10 +135,10 @@ export interface ApplyDraft {
 /** What `applyAuthorization` reports about the signing it is about to make. */
 export interface ApplyPreview {
   /** Frozen-zone size after applying, by node type. */
-  frozenConstraints: number;
+  frozenDecisions: number;
   frozenPremises: number;
   /**
-   * Current root constraints the draft leaves outside the frozen zone.
+   * Current root decisions the draft leaves outside the frozen zone.
    * Unfreezing roots lifts the project's highest-level decisions into the
    * modification space (docs/dlg.md 1.3) — callers must warn loudly.
    */
@@ -149,11 +149,11 @@ export interface ApplyPreview {
 
 /**
  * Validate a draft and turn it into the next signed document. The draft must
- * reference existing constraint nodes and list each id at most once
+ * reference existing decision nodes and list each id at most once
  * (`validateContext` semantics — signing is strict, unlike read-side
  * convergence); anchors are derived automatically and need no drafting. The
  * frontier is reduced to the zone's minimal representation: naming a
- * constraint together with one of its ancestors is accepted and the ancestor
+ * decision together with one of its ancestors is accepted and the ancestor
  * is dropped as redundant. The returned document carries the given revision;
  * callers own revision policy.
  */
@@ -179,7 +179,7 @@ export function applyAuthorization(
   const zoneIds = new Set(zone.map((n) => n.id));
   const unfrozenRoots = byId(
     [...graph.nodes.values()].filter(
-      (n) => n.type === "constraint" && n.grounds.length === 0 && !zoneIds.has(n.id),
+      (n) => n.type === "decision" && n.grounds.length === 0 && !zoneIds.has(n.id),
     ),
   ).map((n) => n.id);
   const doc: SignedAuthorization = {
@@ -191,7 +191,7 @@ export function applyAuthorization(
   return {
     doc,
     preview: {
-      frozenConstraints: zone.filter((n) => n.type === "constraint").length,
+      frozenDecisions: zone.filter((n) => n.type === "decision").length,
       frozenPremises: zone.filter((n) => n.type === "premise").length,
       unfrozenRoots,
       redundantFrontier: [...redundant].sort(),

@@ -15,22 +15,22 @@ import type { GlobalOptions, RunFn } from "./shared.js";
  */
 
 export interface GenerateDlgParams {
-  /** Total number of nodes (premises + constraints). */
+  /** Total number of nodes (premises + decisions). */
   nodes: number;
   /** Fraction of premises among all nodes, 0-1. */
   premiseRatio: number;
   /**
-   * Number of root constraints (empty grounds). Defaults to 1 when omitted.
+   * Number of root decisions (empty grounds). Defaults to 1 when omitted.
    */
   roots?: number;
   /**
-   * Maximum number of grounds per non-root constraint (>= 1). Defaults to
+   * Maximum number of grounds per non-root decision (>= 1). Defaults to
    * 8 when omitted.
    */
   maxGrounds: number;
   /**
-   * Maximum constraint-chain depth (>= 1): no constraint grounds on a
-   * constraint whose own chain already reaches this length. Unlimited when
+   * Maximum decision-chain depth (>= 1): no decision grounds on a
+   * decision whose own chain already reaches this length. Unlimited when
    * omitted.
    */
   maxDepth?: number;
@@ -45,7 +45,7 @@ export interface GenerateDlgParams {
 }
 
 export interface GeneratedNode {
-  type: "premise" | "constraint";
+  type: "premise" | "decision";
   id: string;
   summary: string;
   body: string;
@@ -56,22 +56,22 @@ export interface GeneratedNode {
 
 /**
  * Build a random but structurally valid DLG as a topologically ordered node
- * list: premises first, then root constraints, then constraints grounding on
+ * list: premises first, then root decisions, then decisions grounding on
  * earlier ones (acyclic by construction). Deterministic given `rand`.
  */
 export function generateDlg(params: GenerateDlgParams, rand: () => number): GeneratedNode[] {
   const premiseCount = Math.round(params.nodes * params.premiseRatio);
-  const constraintCount = params.nodes - premiseCount;
+  const decisionCount = params.nodes - premiseCount;
   const rootCount = params.roots ?? 1;
-  if (rootCount > constraintCount) {
+  if (rootCount > decisionCount) {
     throw new Error(
-      `--roots ${rootCount} exceeds the ${constraintCount} constraints implied by --nodes and --premise-ratio`,
+      `--roots ${rootCount} exceeds the ${decisionCount} decisions implied by --nodes and --premise-ratio`,
     );
   }
-  // Non-root constraints need at least one ground source: a premise or a
-  // root constraint. Premises cannot ground, so with neither, generation is
+  // Non-root decisions need at least one ground source: a premise or a
+  // root decision. Premises cannot ground, so with neither, generation is
   // impossible.
-  if (constraintCount > 0 && premiseCount === 0 && rootCount === 0) {
+  if (decisionCount > 0 && premiseCount === 0 && rootCount === 0) {
     throw new Error(
       "nothing to ground on: --roots 0 combined with a premise ratio of 0 leaves no ground source",
     );
@@ -95,11 +95,11 @@ export function generateDlg(params: GenerateDlgParams, rand: () => number): Gene
   }
 
   const premiseIds = nodes.map((n) => n.id);
-  /** Longest constraint-chain below each constraint (roots: 0, premises ignored). */
+  /** Longest decision-chain below each decision (roots: 0, premises ignored). */
   const depths = new Map<string, number>();
-  /** Constraint ids per depth, in creation order; the last one is the newest. */
+  /** Decision ids per depth, in creation order; the last one is the newest. */
   const layers = new Map<number, string[]>();
-  const addConstraint = (index: number, grounds: string[] | undefined): void => {
+  const addDecision = (index: number, grounds: string[] | undefined): void => {
     const id = nextId();
     const parentDepths = (grounds ?? []).map((g) => depths.get(g) ?? -1);
     const depth = grounds === undefined ? 0 : 1 + Math.max(-1, ...parentDepths);
@@ -108,27 +108,27 @@ export function generateDlg(params: GenerateDlgParams, rand: () => number): Gene
     if (layer === undefined) layers.set(depth, [id]);
     else layer.push(id);
     nodes.push({
-      type: "constraint",
+      type: "decision",
       id,
-      summary: `dev constraint #${index}`,
-      body: `Dev-generated constraint #${index}.\n\nThis constraint exists to populate a development graph; its content carries no meaning.\n`,
+      summary: `dev decision #${index}`,
+      body: `Dev-generated decision #${index}.\n\nThis decision exists to populate a development graph; its content carries no meaning.\n`,
       grounds,
       rationale: "dev-generated fixture data",
     });
   };
 
-  for (let i = 0; i < rootCount; i++) addConstraint(i, undefined);
-  for (let i = rootCount; i < constraintCount; i++) {
+  for (let i = 0; i < rootCount; i++) addDecision(i, undefined);
+  for (let i = rootCount; i < decisionCount; i++) {
     const eligibleLayers = [...layers.entries()]
       .filter(([depth]) => params.maxDepth === undefined || depth < params.maxDepth!)
       .sort(([a], [b]) => a - b);
     if (eligibleLayers.length === 0) {
-      // Only possible when no constraint layer qualifies yet (e.g. --roots 0
-      // before any constraint exists): ground on premises, which never
+      // Only possible when no decision layer qualifies yet (e.g. --roots 0
+      // before any decision exists): ground on premises, which never
       // extend a chain.
       const sources = [...premiseIds];
       const count = 1 + Math.floor(rand() * Math.min(params.maxGrounds, sources.length));
-      addConstraint(i, takeDistinct(sources, count, rand));
+      addDecision(i, takeDistinct(sources, count, rand));
       continue;
     }
     // Deeper layers attract more refinements: square-bias the layer pick
@@ -158,7 +158,7 @@ export function generateDlg(params: GenerateDlgParams, rand: () => number): Gene
     for (let k = 1; k < count && pool.length > 0; k++) {
       chosen.add(pool.splice(Math.floor(rand() * pool.length), 1)[0]!);
     }
-    addConstraint(i, [...chosen]);
+    addDecision(i, [...chosen]);
   }
   return nodes;
 }
@@ -197,17 +197,17 @@ export function createDevCommand(io: CliIo, run: RunFn): Command {
     )
     .option(
       "--roots <n>",
-      "number of root constraints with empty grounds (default 1)",
+      "number of root decisions with empty grounds (default 1)",
       intAtLeast(0),
       1,
     )
     .option(
       "--max-grounds <n>",
-      "maximum grounds per non-root constraint (default 8)",
+      "maximum grounds per non-root decision (default 8)",
       intAtLeast(1),
       8,
     )
-    .option("--max-depth <n>", "maximum constraint-chain depth (default unlimited)", intAtLeast(1))
+    .option("--max-depth <n>", "maximum decision-chain depth (default unlimited)", intAtLeast(1))
     .option(
       "--cross-layer-ratio <r>",
       "fraction of companion grounds reaching across layers (default 0.2)",
@@ -274,7 +274,7 @@ export function createDevCommand(io: CliIo, run: RunFn): Command {
                 confirmed: node.confirmed,
               });
             } else {
-              await store.createConstraint({
+              await store.createDecision({
                 id: node.id,
                 body: node.body,
                 summary: node.summary,
@@ -291,12 +291,12 @@ export function createDevCommand(io: CliIo, run: RunFn): Command {
             return 1;
           }
           const premises = generated.filter((n) => n.type === "premise").length;
-          const constraints = generated.length - premises;
+          const decisions = generated.length - premises;
           const roots = generated.filter(
-            (n) => n.type === "constraint" && (n.grounds?.length ?? 0) === 0,
+            (n) => n.type === "decision" && (n.grounds?.length ?? 0) === 0,
           ).length;
           io.stdout.write(
-            `generated ${premises} premises, ${constraints} constraints (${roots} roots) in ${refinoDir(opts)} (seed ${seed})\n`,
+            `generated ${premises} premises, ${decisions} decisions (${roots} roots) in ${refinoDir(opts)} (seed ${seed})\n`,
           );
           return 0;
         });

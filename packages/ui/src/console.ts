@@ -11,9 +11,9 @@ import type { AuthorizationContext } from "@refino/harness";
 /** Light node shape the console rebuilds its graph view from. */
 export interface ConsoleNode {
   id: string;
-  type: "premise" | "constraint";
+  type: "premise" | "decision";
   summary: string;
-  /** Constraints only; premises declare none. */
+  /** Decisions only; premises declare none. */
   grounds?: string[];
 }
 

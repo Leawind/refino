@@ -209,13 +209,13 @@ function typeOf(ws: RefinoWorkspace, id: string): RefinoNode["type"] {
 }
 
 /**
- * Derived effective exploring status for a delivered node (constraints only):
+ * Derived effective exploring status for a delivered node (decisions only):
  * read-side annotations never use the stored mark alone, so unmarked
- * downstream of an exploring constraint annotates too (docs/design.md,
+ * downstream of an exploring decision annotates too (docs/design.md,
  * 上下文注入协议).
  */
 function effectiveOf(ws: RefinoWorkspace, node: RefinoNode): boolean {
-  return node.type === "constraint" && effectiveExploring(ws.graph, node.id);
+  return node.type === "decision" && effectiveExploring(ws.graph, node.id);
 }
 
 function toNodesEntry(

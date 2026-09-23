@@ -57,10 +57,10 @@ export function renderIssues(issues: ReadonlyArray<RefinoIssue | StorageIssue>):
     .join("\n");
 }
 
-/** Compact single-line identity, e.g. `constraints(id=E5F6G7H8, grounds=[...])`. */
+/** Compact single-line identity, e.g. `decisions(id=E5F6G7H8, grounds=[...])`. */
 export function renderNodeHeading(node: { id: string; type: string; grounds?: string[] }): string {
   const parts = [`id=${node.id}`];
-  if (node.type === "constraint") parts.push(`grounds=[${(node.grounds ?? []).join(", ")}]`);
+  if (node.type === "decision") parts.push(`grounds=[${(node.grounds ?? []).join(", ")}]`);
   return `${node.type}s(${parts.join(", ")})`;
 }
 

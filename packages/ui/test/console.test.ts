@@ -25,9 +25,9 @@ const C2 = "E5F6G7H8";
 const graphNodes: ConsoleNode[] = [
   { id: P1, type: "premise", summary: "前提一" },
   { id: "1A2B3C4E", type: "premise", summary: "前提二" },
-  { id: R1, type: "constraint", summary: "根约束" },
-  { id: C1, type: "constraint", summary: "子约束", grounds: [R1, P1] },
-  { id: C2, type: "constraint", summary: "孙约束", grounds: [C1] },
+  { id: R1, type: "decision", summary: "根决策" },
+  { id: C1, type: "decision", summary: "子决策", grounds: [R1, P1] },
+  { id: C2, type: "decision", summary: "孙决策", grounds: [C1] },
 ];
 
 /** Mounts the console with a recording client and waits for the graph. */
@@ -52,16 +52,16 @@ async function mountConsole(effective: AuthorizationContext | null) {
 describe("AuthorizationConsole", () => {
   it("starts with an empty draft when nothing was signed yet", async () => {
     const { wrapper } = await mountConsole(null);
-    expect(wrapper.text()).toContain("冻结区将包含 0 个约束、0 个前提");
-    expect(wrapper.text()).toContain("未冻结任何约束");
+    expect(wrapper.text()).toContain("冻结区将包含 0 个决策、0 个前提");
+    expect(wrapper.text()).toContain("未冻结任何决策");
   });
 
   it("previews the propagation and signs the draft", async () => {
     const { wrapper, client } = await mountConsole(null);
     const vm = wrapper.vm as unknown as { anchors: string[]; frozen: string[] };
     vm.frozen = [C1];
-    // Freezing C1 pulls R1 and P1 into the zone: 2 constraints, 1 premise.
-    await vi.waitFor(() => expect(wrapper.text()).toContain("冻结区将包含 2 个约束、1 个前提"));
+    // Freezing C1 pulls R1 and P1 into the zone: 2 decisions, 1 premise.
+    await vi.waitFor(() => expect(wrapper.text()).toContain("冻结区将包含 2 个决策、1 个前提"));
     expect(wrapper.text()).toContain("本次新增冻结 2 个");
 
     await wrapper.find(".actions button").trigger("click");

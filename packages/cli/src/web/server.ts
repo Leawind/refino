@@ -11,7 +11,7 @@ import {
   getGraph,
   getNode,
   getValidate,
-  postConstraint,
+  postDecision,
   postPremise,
   postReload,
   putNode,
@@ -146,8 +146,8 @@ function createWeb(options: WebAppOptions): WebParts {
     api((c, web) => postPremise(c, web)),
   );
   app.post(
-    "/api/nodes/constraint",
-    api((c, web) => postConstraint(c, web)),
+    "/api/nodes/decision",
+    api((c, web) => postDecision(c, web)),
   );
   app.put(
     "/api/nodes/:id",

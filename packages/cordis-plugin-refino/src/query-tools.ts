@@ -58,7 +58,7 @@ function searchTool(get: () => RefinoWorkspace | undefined): ToolDefinition {
       q: { type: "string", description: PARAM_TEXT.searchQ },
       node_type: {
         type: "string",
-        enum: ["premise", "constraint"],
+        enum: ["premise", "decision"],
         description: PARAM_TEXT.searchNodeType,
       },
       limit: { type: "integer", description: PARAM_TEXT.searchLimit },
@@ -128,7 +128,7 @@ function listTool(get: () => RefinoWorkspace | undefined): ToolDefinition {
     parameters: {
       node_type: {
         type: "string",
-        enum: ["premise", "constraint"],
+        enum: ["premise", "decision"],
         description: PARAM_TEXT.listNodeType,
       },
     },

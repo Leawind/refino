@@ -3,7 +3,7 @@ export type { HarnessErrorCode } from "./errors.js";
 export {
   checkModification,
   checkModifications,
-  freezableConstraints,
+  freezableDecisions,
   frozenFrontier,
   frozenZone,
   validateContext,

@@ -89,7 +89,7 @@ export class RefinoWorkspace {
   #signed: boolean;
   /** Whether the default anchors cover every node (meaningful while unsigned). */
   #complete: boolean;
-  /** Constraint ids of the frozen zone under the current context — the delta basis. */
+  /** Decision ids of the frozen zone under the current context — the delta basis. */
   #zoneIds: Set<string>;
   /** What node information has reached the model (docs/design.md, 会话已知集). */
   #known: SessionKnownSet;
@@ -105,7 +105,7 @@ export class RefinoWorkspace {
       store.graph,
       defaultAuthorizationContext(store.graph).context,
     );
-    this.#zoneIds = constraintZoneIds(store.graph, this.#session.authorizationContext);
+    this.#zoneIds = decisionZoneIds(store.graph, this.#session.authorizationContext);
     // The known set snapshots the derived effective exploring status against
     // the live graph, so external mark flips (and their downstream effects)
     // surface as field-level diffs.
@@ -245,7 +245,7 @@ export class RefinoWorkspace {
   /**
    * Sign an explicit authorization context: the frozen-zone selection of the
    * authorization console, a user command or a model-initiated confirmation.
-   * Unknown ids or non-constraint frozen ids throw `HarnessError`. Returns
+   * Unknown ids or non-decision frozen ids throw `HarnessError`. Returns
    * the delta events the host injects to keep the prompt-cache prefix stable.
    * The first signing while the known set is still pristine (a host adopting
    * the resolved startup context before any tool ran) re-seeds it to the
@@ -258,7 +258,7 @@ export class RefinoWorkspace {
     const prevZone = this.#zoneIds;
     this.#signed = true;
     this.#session = new HarnessSession(this.#store.graph, context);
-    this.#zoneIds = constraintZoneIds(this.#store.graph, context);
+    this.#zoneIds = decisionZoneIds(this.#store.graph, context);
     const delta = contextDelta(prevAnchors, prevZone, context, this.#zoneIds);
     if (this.#signedOnce || this.#known.touched) {
       this.recordKnownIds(delta.map((event) => event.id));
@@ -303,20 +303,20 @@ export class RefinoWorkspace {
     } else {
       next = {
         anchors: this.#context.anchors.filter((id) => graph.nodes.has(id)),
-        frozen: this.#context.frozen.filter((id) => graph.nodes.get(id)?.type === "constraint"),
+        frozen: this.#context.frozen.filter((id) => graph.nodes.get(id)?.type === "decision"),
       };
     }
     // A graph property, not a context property: anchors are runtime-derived
     // even when a host signed an explicit zone.
     this.#complete = defaultAuthorizationContext(graph).complete;
     this.#session = new HarnessSession(graph, next);
-    this.#zoneIds = constraintZoneIds(graph, next);
+    this.#zoneIds = decisionZoneIds(graph, next);
   }
 
   /**
    * Seed the known set to match the baseline injection: under the auto-anchor
    * budget the anchor block covers every node; above it, the orientation's
-   * root-constraint set. Runs once at open, over the then-current graph — a
+   * root-decision set. Runs once at open, over the then-current graph — a
    * change between the host's baseline render and this point is fail-soft
    * miss territory (docs/design.md, cc 插件落地形态 boundaries).
    */
@@ -369,10 +369,10 @@ function contextDelta(
   return delta;
 }
 
-function constraintZoneIds(graph: Graph, context: AuthorizationContext): Set<string> {
+function decisionZoneIds(graph: Graph, context: AuthorizationContext): Set<string> {
   return new Set(
     frozenZone(graph, context)
-      .filter((node) => node.type === "constraint")
+      .filter((node) => node.type === "decision")
       .map((node) => node.id),
   );
 }

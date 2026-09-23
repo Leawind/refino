@@ -53,7 +53,7 @@ describe("refino guide", () => {
     const { code, out } = await run(["guide"]);
     expect(code).toBe(0);
     expect(out).toContain("# refino 使用指南");
-    expect(out).toContain("约束（constraint）");
+    expect(out).toContain("决策（decision）");
     expect(out).toContain("前提（premise）");
     expect(out).toContain("探索中（exploring）");
     expect(out).toContain("## 规则");

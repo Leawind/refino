@@ -2,8 +2,8 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { startWebServer } from "../src/web/server.js";
 import type { RunningWebServer } from "../src/web/server.js";
-import { createConstraint, updateConstraint } from "@refino/storage";
-import { constraint, createRefino, premise, removeRefino } from "@refino/testkit";
+import { createDecision, updateDecision } from "@refino/storage";
+import { decision, createRefino, premise, removeRefino } from "@refino/testkit";
 
 /**
  * External-change synchronization end to end (docs/design.md, "外部变更同步"):
@@ -29,7 +29,7 @@ let running: RunningWebServer;
 beforeAll(async () => {
   root = await createRefino({
     "nodes/1A/2B3C4D-premise.md": premise(P1, "前提一。"),
-    "nodes/A1/B2C3D4-constraint.md": constraint("A1B2C3D4", [P1], "C1。"),
+    "nodes/A1/B2C3D4-decision.md": decision("A1B2C3D4", [P1], "C1。"),
   });
   refinoDir = join(root, ".refino");
   running = await startWebServer({
@@ -95,7 +95,7 @@ describe("external change sync", () => {
     expect(snapshot).toEqual({ revision: 1, changed: [], deleted: [], reload: true });
 
     // API-originated write: broadcast through the unified update entry.
-    const created = await fetch(`${running.url}/api/nodes/constraint`, {
+    const created = await fetch(`${running.url}/api/nodes/decision`, {
       method: "POST",
       body: JSON.stringify({ body: "API 写入。", grounds: [P1] }),
     });
@@ -106,7 +106,7 @@ describe("external change sync", () => {
 
     // External write straight to `.refino/` (as tool plugins do): the
     // watcher detects it, the index applies it, SSE carries it.
-    const externalId = await createConstraint(refinoDir, { body: "外部写入。", grounds: [P1] });
+    const externalId = await createDecision(refinoDir, { body: "外部写入。", grounds: [P1] });
     const externalEvent = await readEvent(reader, buffer);
     expect(externalEvent).toEqual({
       revision: 3,
@@ -117,7 +117,7 @@ describe("external change sync", () => {
 
     // A body-only edit keeps every light field (summary derives from the
     // unchanged first paragraph) and is still detected, via the file mtime.
-    await updateConstraint(refinoDir, externalId, {
+    await updateDecision(refinoDir, externalId, {
       body: "外部写入。\n\n追加段落。",
       grounds: [P1],
     });

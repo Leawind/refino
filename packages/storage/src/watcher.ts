@@ -32,7 +32,7 @@ import { ID_CHARSET } from "refino";
 const SHARD_RE = new RegExp(`^[${ID_CHARSET}]{2}$`);
 
 /** A node file name inside a shard: `<id_2>-<type>.md`, id_2 = id minus its first 2 characters. */
-const FILE_RE = new RegExp(`^[${ID_CHARSET}]+-(premise|constraint)\\.md$`);
+const FILE_RE = new RegExp(`^[${ID_CHARSET}]+-(premise|decision)\\.md$`);
 
 export interface NodeWatcher {
   close(): void;

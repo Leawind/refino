@@ -23,7 +23,7 @@ const node = computed(() => store.state.detail.node);
 const active = computed(
   () => store.state.inlineId === props.nodeId && node.value?.id === props.nodeId,
 );
-const type = computed(() => node.value?.type ?? "constraint");
+const type = computed(() => node.value?.type ?? "decision");
 const conflict = computed(() => store.state.detail.conflict !== null);
 const deletedWithEdits = computed(() => store.state.detail.deletedWithEdits);
 
@@ -39,7 +39,7 @@ function payload(): NodePayload {
     grounds: form.grounds,
     // The inline form has no exploring control, but the payload must still
     // state it: a wholesale-replacement PUT that omits it settles the node.
-    exploring: node.value?.type === "constraint" ? form.exploring : undefined,
+    exploring: node.value?.type === "decision" ? form.exploring : undefined,
     confirmed: form.confirmed.trim() === "" ? undefined : form.confirmed.trim(),
   };
 }
@@ -106,7 +106,7 @@ const renderedBody = computed(() => renderMarkdown(form.body));
       />
     </div>
 
-    <label v-if="type === 'constraint'" class="field">
+    <label v-if="type === 'decision'" class="field">
       <span class="label">{{ t("node.rationale") }}</span>
       <NInput
         v-model:value="form.rationale"
@@ -118,7 +118,7 @@ const renderedBody = computed(() => renderMarkdown(form.body));
       />
     </label>
 
-    <div v-if="type === 'constraint'" class="field">
+    <div v-if="type === 'decision'" class="field">
       <span class="label">{{ t("node.grounds") }}</span>
       <GroundsField v-model:grounds="form.grounds" :owner-id="props.nodeId" />
     </div>

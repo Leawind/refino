@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { createPremise, createConstraint, deleteNode } from "@refino/storage";
-import { premise, constraint, createRefino, removeRefino } from "@refino/testkit";
+import { createPremise, createDecision, deleteNode } from "@refino/storage";
+import { premise, decision, createRefino, removeRefino } from "@refino/testkit";
 import { RefinoWorkspace, type SyncOutcome } from "../src/host.js";
 
 const cleanup: string[] = [];
@@ -47,9 +47,9 @@ async function openListening(testkitRoot: string): Promise<{
 async function fixture(): Promise<string> {
   const root = await createRefino({
     "nodes/P1/PREMISE-premise.md": premise("P1PREMISE", "事实一"),
-    "nodes/R1/ROOT-constraint.md": constraint("R1ROOT", undefined, "根约束"),
-    "nodes/C1/CHILD-constraint.md": constraint("C1CHILD", ["R1ROOT", "P1PREMISE"], "子约束"),
-    "nodes/C2/GRAND-constraint.md": constraint("C2GRAND", ["C1CHILD"], "孙约束"),
+    "nodes/R1/ROOT-decision.md": decision("R1ROOT", undefined, "根决策"),
+    "nodes/C1/CHILD-decision.md": decision("C1CHILD", ["R1ROOT", "P1PREMISE"], "子决策"),
+    "nodes/C2/GRAND-decision.md": decision("C2GRAND", ["C1CHILD"], "孙决策"),
   });
   cleanup.push(root);
   return root;
@@ -67,7 +67,7 @@ describe("RefinoWorkspace.open", () => {
 
   it("reports load issues without failing", async () => {
     const root = await createRefino({
-      "nodes/C1/BROKEN-constraint.md": constraint("C1BROKEN", ["MISSING"], "悬空依据"),
+      "nodes/C1/BROKEN-decision.md": decision("C1BROKEN", ["MISSING"], "悬空依据"),
     });
     cleanup.push(root);
     const ws = await open(root);
@@ -101,10 +101,10 @@ describe("external changes", () => {
     expect(outcomes[0]!.pending.map((node) => node.id)).toEqual(["C2GRAND"]);
   });
 
-  it("derive frozen-zone delta events when a new root constraint appears", async () => {
+  it("derive frozen-zone delta events when a new root decision appears", async () => {
     const root = await fixture();
     const { ws, outcomes } = await openListening(root);
-    const id = await createConstraint(root + "/.refino", { body: "新根约束" });
+    const id = await createDecision(root + "/.refino", { body: "新根决策" });
     await ws.store.applyChange({ changed: [id], origin: "file" });
     expect(outcomes).toHaveLength(1);
     expect(outcomes[0]!.delta).toContainEqual({ type: "anchor_added", id });
@@ -162,7 +162,7 @@ describe("RefinoWorkspace.signContext", () => {
     expect(outcomes[1]!.pending).toEqual([]);
     // C2GRAND's deletion earlier in the test is still unreported (the diff
     // drains per fire); the new node is unknown to the session and silent.
-    expect(await ws.knownDiff()).toEqual([{ id: "C2GRAND", kind: "deleted", summary: "孙约束" }]);
+    expect(await ws.knownDiff()).toEqual([{ id: "C2GRAND", kind: "deleted", summary: "孙决策" }]);
     // Convergence only drops dead ids: a newly created node never joins a
     // signed context on its own.
     expect(ws.authorizationContext.anchors).not.toContain(id);

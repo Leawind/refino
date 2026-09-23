@@ -53,7 +53,7 @@ function requestAuthorizationTool(core: ReturnType<typeof createSigningCore>): T
         items: { type: "string" },
         required: true,
         description:
-          "新冻结区的 frontier 约束 ID 列表（整体替换，冻结区即其全部祖先的闭包）；空列表表示解冻全部",
+          "新冻结区的 frontier 决策 ID 列表（整体替换，冻结区即其全部祖先的闭包）；空列表表示解冻全部",
       },
       rationale: { type: "string", description: "为什么需要这一划分，供用户审阅" },
     },
@@ -93,7 +93,7 @@ function signResultSchema() {
     properties: {
       ok: { type: "boolean", required: true },
       frontier: { type: "array", items: { type: "string" } },
-      frozen_constraints: { type: "integer" },
+      frozen_decisions: { type: "integer" },
       frozen_premises: { type: "integer" },
       redundant_frontier: { type: "array", items: { type: "string" } },
       unfrozen_roots: { type: "array", items: { type: "string" } },
@@ -111,7 +111,7 @@ function contextStatusSchema() {
       source: { type: "string", required: true },
       signed_at: { type: "string", required: true },
       frontier: { type: "array", items: { type: "string" }, required: true },
-      frozen_constraints: { type: "integer", required: true },
+      frozen_decisions: { type: "integer", required: true },
       frozen_premises: { type: "integer", required: true },
       anchors_complete: { type: "boolean", required: true },
       orchestrator_credential: { type: "boolean", required: true },

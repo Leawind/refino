@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
 import { createWebApp } from "../src/web/server.js";
 import { loadGraph, readNode } from "@refino/storage";
-import { constraint, createRefino, premise, removeRefino } from "@refino/testkit";
+import { decision, createRefino, premise, removeRefino } from "@refino/testkit";
 import { IssueCode } from "refino";
 
 let root: string;
@@ -14,12 +14,12 @@ const app = (): ReturnType<typeof createWebApp> => createWebApp({ refinoDir });
 beforeAll(async () => {
   root = await createRefino({
     "nodes/1A/2B3C4D-premise.md": premise("1A2B3C4D", "当前 PostgreSQL 版本不支持 extension X。"),
-    "nodes/A1/B2C3D4-constraint.md": constraint(
+    "nodes/A1/B2C3D4-decision.md": decision(
       "A1B2C3D4",
       undefined,
       "所有业务数据存储在 PostgreSQL。",
     ),
-    "nodes/D4/E5F6G7-constraint.md": constraint(
+    "nodes/D4/E5F6G7-decision.md": decision(
       "D4E5F6G7",
       ["A1B2C3D4", "1A2B3C4D"],
       "数据访问必须通过 Repository 层。",
@@ -53,10 +53,10 @@ describe("refino web api", ioSuite, () => {
     expect(dependents?.dependents).toEqual(["D4E5F6G7"]);
   });
 
-  it("creates a constraint with grounds", async () => {
-    const res = await app().request("/api/nodes/constraint", {
+  it("creates a decision with grounds", async () => {
+    const res = await app().request("/api/nodes/decision", {
       method: "POST",
-      body: JSON.stringify({ body: "新约束。", grounds: ["A1B2C3D4"] }),
+      body: JSON.stringify({ body: "新决策。", grounds: ["A1B2C3D4"] }),
     });
     expect(res.status).toBe(201);
     const { id } = (await res.json()) as { id: string };
@@ -65,7 +65,7 @@ describe("refino web api", ioSuite, () => {
   });
 
   it("creates, exposes and settles the exploring mark", async () => {
-    const created = await app().request("/api/nodes/constraint", {
+    const created = await app().request("/api/nodes/decision", {
       method: "POST",
       body: JSON.stringify({ body: "试行决策。", exploring: true }),
     });
@@ -77,7 +77,7 @@ describe("refino web api", ioSuite, () => {
     };
     expect(detail.node.exploring).toBe(true);
 
-    // Wholesale replacement without the mark settles the constraint.
+    // Wholesale replacement without the mark settles the decision.
     const settled = await app().request(`/api/nodes/${id}`, {
       method: "PUT",
       body: JSON.stringify({ body: "试行决策。" }),
@@ -89,7 +89,7 @@ describe("refino web api", ioSuite, () => {
     expect(after.node.exploring).toBeUndefined();
 
     // Non-boolean values are rejected at the request boundary.
-    const bad = await app().request("/api/nodes/constraint", {
+    const bad = await app().request("/api/nodes/decision", {
       method: "POST",
       body: JSON.stringify({ body: "试行。", exploring: "yes" }),
     });
@@ -117,9 +117,9 @@ describe("refino web api", ioSuite, () => {
   });
 
   it("rejects unknown grounds with 400", async () => {
-    const res = await app().request("/api/nodes/constraint", {
+    const res = await app().request("/api/nodes/decision", {
       method: "POST",
-      body: JSON.stringify({ body: "新约束。", grounds: ["ZZZZZZZZ"] }),
+      body: JSON.stringify({ body: "新决策。", grounds: ["ZZZZZZZZ"] }),
     });
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: string; issues: Array<{ code: string }> };
@@ -147,16 +147,16 @@ describe("refino web api", ioSuite, () => {
   });
 
   it("removes optional fields omitted from the payload (full replace)", async () => {
-    const constraint = await app().request("/api/nodes/constraint", {
+    const decision = await app().request("/api/nodes/decision", {
       method: "POST",
-      body: JSON.stringify({ body: "带理由的约束。", rationale: "原始理由。" }),
+      body: JSON.stringify({ body: "带理由的决策。", rationale: "原始理由。" }),
     });
-    const { id } = (await constraint.json()) as { id: string };
+    const { id } = (await decision.json()) as { id: string };
 
     // A save that carries the rationale keeps it.
     const kept = await app().request(`/api/nodes/${id}`, {
       method: "PUT",
-      body: JSON.stringify({ body: "带理由的约束。", rationale: "改后的理由。", grounds: [] }),
+      body: JSON.stringify({ body: "带理由的决策。", rationale: "改后的理由。", grounds: [] }),
     });
     expect(kept.status).toBe(200);
     const keptRead = await readNode(refinoDir, id);
@@ -165,7 +165,7 @@ describe("refino web api", ioSuite, () => {
     // A save that omits it clears it: absent means removed.
     const cleared = await app().request(`/api/nodes/${id}`, {
       method: "PUT",
-      body: JSON.stringify({ body: "带理由的约束。", grounds: [] }),
+      body: JSON.stringify({ body: "带理由的决策。", grounds: [] }),
     });
     expect(cleared.status).toBe(200);
     const clearedRead = await readNode(refinoDir, id);
@@ -210,7 +210,7 @@ describe("refino web api", ioSuite, () => {
     expect(res.status).toBe(400);
     // The node is untouched after the rejected request.
     const { graph } = await loadGraph(refinoDir);
-    expect(graph.nodes.get("A1B2C3D4")?.type).toBe("constraint");
+    expect(graph.nodes.get("A1B2C3D4")?.type).toBe("decision");
   });
 
   it("rejects an invalid type on create and on update", async () => {
@@ -237,7 +237,7 @@ describe("recreate a deleted id via PUT", ioSuite, () => {
 
     const invalid = await app().request("/api/nodes/zzzzzzzz", {
       method: "PUT",
-      body: JSON.stringify({ body: "重建。", type: "constraint", grounds: ["1A2B3C4D"] }),
+      body: JSON.stringify({ body: "重建。", type: "decision", grounds: ["1A2B3C4D"] }),
     });
     expect(invalid.status).toBe(400);
   });
@@ -246,8 +246,8 @@ describe("recreate a deleted id via PUT", ioSuite, () => {
     const created = await app().request("/api/nodes/BB000000", {
       method: "PUT",
       body: JSON.stringify({
-        body: "重建的约束。",
-        type: "constraint",
+        body: "重建的决策。",
+        type: "decision",
         summary: "重建",
         grounds: ["1A2B3C4D"],
       }),
@@ -261,7 +261,7 @@ describe("recreate a deleted id via PUT", ioSuite, () => {
     const fetched = await app().request("/api/nodes/BB000000");
     expect(fetched.status).toBe(200);
     const body = (await fetched.json()) as { node: { body: string; type: string } };
-    expect(body.node.body).toBe("重建的约束。");
-    expect(body.node.type).toBe("constraint");
+    expect(body.node.body).toBe("重建的决策。");
+    expect(body.node.type).toBe("decision");
   });
 });

@@ -3,7 +3,7 @@ import { structureSignature } from "../src/graph/layout/structure";
 import type { NodeLite } from "../src/types";
 
 const node = (id: string, grounds?: string[]): NodeLite =>
-  ({ id, type: "constraint", summary: id, ...(grounds && { grounds }) }) as NodeLite;
+  ({ id, type: "decision", summary: id, ...(grounds && { grounds }) }) as NodeLite;
 
 describe("structure signature", () => {
   it("is order-independent for the same node set and edges", () => {

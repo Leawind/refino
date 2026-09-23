@@ -25,7 +25,7 @@
 - 每 agent 一个 `RefinoWorkspace`（来自 `@refino/harness/host`），以 `WeakMap<Agent, …>` 持有；工具经惰性 `get()` 解析 workspace，注册顺序无关，agent 销毁后调用得到结构化错误（`internal.ts` 的 `requireWorkspace`）而非崩溃
 - 授权来源记录（`AuthorizationOrigin`：default / orchestrator / session，含 signedAt，类型来自 harness）：`refino_context` 工具与注入行共同消费；编排者凭据在会话启动时经 `resolveAuthorization` 解析一次（凭据 → 默认值），失败回落默认并告警
 - resume 不重放基线（已在会话日志中），只注入一行当前授权状态——会话内签发随旧进程消亡，模型不得凭会话日志中的记忆行事
-- 图超过自动锚点预算时不静默：注入极简引导（图已连接、节点数、前 8 个根约束摘要、以搜索定位）
+- 图超过自动锚点预算时不静默：注入极简引导（图已连接、节点数、前 8 个根决策摘要、以搜索定位）
 
 ## 注入
 
@@ -45,7 +45,7 @@
 
 - 查询工具全部批量、部分成功：未知 ID 以逐条错误返回，不阻断其余结果
 - 写入工具在落盘前走同一条链（harness 核心）：引擎 `checkGroundsChange`（对 prospective 图校验 grounds）+ harness `checkModification`（冻结区判定）；越界返回结构化升级报告作为正常工具结果，非报错
-- dsh 的输出 schema DSL 表达不了的约束（如非负整数的 `max_depth`）在执行核心里手工校验并抛错（宿主以工具错误呈现）；输出 schema 字面量内联在各工具定义中，DTO 形状与 lite 映射集中在 harness `shapes.ts`
+- dsh 的输出 schema DSL 表达不了的决策（如非负整数的 `max_depth`）在执行核心里手工校验并抛错（宿主以工具错误呈现）；输出 schema 字面量内联在各工具定义中，DTO 形状与 lite 映射集中在 harness `shapes.ts`
 
 ## 测试
 

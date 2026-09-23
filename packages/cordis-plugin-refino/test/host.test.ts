@@ -6,7 +6,7 @@ import { Context } from "@deepseek-ai/cordis";
 import type { Agent, SessionStartSource } from "@deepseek-ai/dsh-agent";
 import type { ToolDefinition } from "@deepseek-ai/dsh-tools";
 import type { ApprovalOutcome } from "@deepseek-ai/dsh-user-approval";
-import { constraint, createRefino, premise, removeRefino } from "@refino/testkit";
+import { decision, createRefino, premise, removeRefino } from "@refino/testkit";
 import { apply } from "../src/index.js";
 
 /**
@@ -92,8 +92,8 @@ function startSession(ctx: Context, cwd: string, source: SessionStartSource): Fa
 async function fixtureWorkspace(): Promise<string> {
   const root = await createRefino({
     "nodes/P1/PREMISE-premise.md": premise("P1PREMISE", "事实一"),
-    "nodes/R1/ROOT-constraint.md": constraint("R1ROOT", undefined, "根约束"),
-    "nodes/C1/CHILD-constraint.md": constraint("C1CHILD", ["R1ROOT", "P1PREMISE"], "子约束"),
+    "nodes/R1/ROOT-decision.md": decision("R1ROOT", undefined, "根决策"),
+    "nodes/C1/CHILD-decision.md": decision("C1CHILD", ["R1ROOT", "P1PREMISE"], "子决策"),
   });
   cleanup.push(root);
   return root;
@@ -124,7 +124,7 @@ describe("plugin mounting on a real Cordis context", () => {
         "refino_dependents",
         "refino_pending_review",
         "refino_create_premise",
-        "refino_create_constraint",
+        "refino_create_decision",
         "refino_update_node",
         "refino_delete_node",
         "refino_request_authorization",
@@ -134,7 +134,7 @@ describe("plugin mounting on a real Cordis context", () => {
     const initial = fake.injected.join("\n");
     expect(initial).toContain("<system-reminder>");
     // The default context injects the anchor summaries, not just a header.
-    expect(initial).toContain("根约束");
+    expect(initial).toContain("根决策");
     expect(initial).toContain("R1ROOT");
   });
 
@@ -149,7 +149,7 @@ describe("plugin mounting on a real Cordis context", () => {
     expect(text).toContain("会话已恢复");
     expect(text).toContain("默认上下文");
     // The baseline (anchor summaries) must not replay on resume.
-    expect(text).not.toContain("根约束");
+    expect(text).not.toContain("根决策");
   });
 
   it("stays silent when no .refino exists above the session cwd", async () => {
@@ -242,9 +242,9 @@ describe("plugin mounting on a real Cordis context", () => {
     const result = (await registeredTool(fake, "refino_request_authorization").execute(
       { frozen_frontier: ["C1CHILD"] },
       {} as never,
-    )) as { ok: boolean; frozen_constraints?: number };
+    )) as { ok: boolean; frozen_decisions?: number };
     expect(result.ok).toBe(true);
-    expect(result.frozen_constraints).toBe(2);
+    expect(result.frozen_decisions).toBe(2);
 
     // The delta injection rode along with the signing, not through a watcher.
     expect(fake.injected.join("\n")).toContain("C1CHILD");

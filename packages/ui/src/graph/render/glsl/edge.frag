@@ -29,14 +29,14 @@ void main() {
               * smoothstep(-v_half - aa, -v_half + aa, v_frame.x)
               * (1.0 - smoothstep(v_len - ARROW_LEN - aa, v_len - ARROW_LEN + aa, v_frame.x));
   // Head: a triangle from the base at half width to the tip on the border
-  // of the downstream node (direction ground -> constraint).
+  // of the downstream node (direction ground -> decision).
   float t = clamp((v_frame.x - (v_len - ARROW_LEN)) / ARROW_LEN, 0.0, 1.0);
   float headHalf = mix(ARROW_HALF_W, 0.0, t);
   float along = v_frame.x - (v_len - ARROW_LEN);
   float head = (1.0 - smoothstep(headHalf - aa, headHalf + aa, abs(v_frame.y)))
              * smoothstep(-aa, aa, along)
              * (1.0 - smoothstep(ARROW_LEN - aa, ARROW_LEN + aa, along));
-  // Edges cross each other all the time (multi-ground constraints); plain
+  // Edges cross each other all the time (multi-ground decisions); plain
   // blending keeps every crossing shaft and arrowhead whole, where a depth
   // test would bite notches out of whatever was drawn first.
   float alpha = max(shaft, head) * v_color.a;

@@ -35,12 +35,12 @@ const lite: Record<string, NodeLite> = {
   [P1]: { id: P1, type: "premise", summary: "前提一。" },
   [P2]: { id: P2, type: "premise", summary: "前提二。" },
   [P3]: { id: P3, type: "premise", summary: "前提三。" },
-  [C1]: { id: C1, type: "constraint", summary: "C1。", grounds: [P1] },
-  [C2]: { id: C2, type: "constraint", summary: "C2。", grounds: [C1, P2] },
-  [C3]: { id: C3, type: "constraint", summary: "C3。", grounds: [C2] },
-  [C4]: { id: C4, type: "constraint", summary: "C4。", grounds: [C1, P2] },
-  [C5]: { id: C5, type: "constraint", summary: "C5。", grounds: [P3] },
-  [C6]: { id: C6, type: "constraint", summary: "C6。", grounds: [P1, P2] },
+  [C1]: { id: C1, type: "decision", summary: "C1。", grounds: [P1] },
+  [C2]: { id: C2, type: "decision", summary: "C2。", grounds: [C1, P2] },
+  [C3]: { id: C3, type: "decision", summary: "C3。", grounds: [C2] },
+  [C4]: { id: C4, type: "decision", summary: "C4。", grounds: [C1, P2] },
+  [C5]: { id: C5, type: "decision", summary: "C5。", grounds: [P3] },
+  [C6]: { id: C6, type: "decision", summary: "C6。", grounds: [P1, P2] },
 };
 
 /** Expansion blocks at the default depths (descendants 2, siblings on), as
@@ -161,11 +161,11 @@ function respond(
     };
   }
   if (method === "GET" && path.startsWith("/api/search")) {
-    // The cold-start seed queries root constraints; C1 stands in as the
+    // The cold-start seed queries root decisions; C1 stands in as the
     // fixture's root regardless of its real grounds.
     return {
       status: 200,
-      json: { nodes: [{ id: C1, type: "constraint", summary: "C1。" }] },
+      json: { nodes: [{ id: C1, type: "decision", summary: "C1。" }] },
     };
   }
   if (method === "GET" && path === "/api/validate") {
@@ -201,7 +201,7 @@ function lastCall(path: string): RecordedCall {
   return found;
 }
 
-/** Displayed node ids, constraints first (the store's stable order). */
+/** Displayed node ids, decisions first (the store's stable order). */
 function displayedIds(): string[] {
   return workspace.displayed.value.map((node) => node.id);
 }
@@ -258,7 +258,7 @@ describe("select expands the working set", () => {
       siblingLimit: 24,
       limit: 2000,
     });
-    // Constraints of the expansion block; its premises join as the facts
+    // Decisions of the expansion block; its premises join as the facts
     // layer is on by default.
     expect(new Set(displayedIds())).toEqual(new Set([C3, C2, C1, P2, P1]));
     expect(workspace.state.focusId).toBe(C3);
@@ -407,7 +407,7 @@ describe("selection model", () => {
     workspace.dismissNotice();
   });
 
-  it("toggles constraint membership", async () => {
+  it("toggles decision membership", async () => {
     await select(C3);
     workspace.toggle(lite[C6]!);
     await vi.waitFor(() => expect(workspace.state.selection).toEqual([C3, C6]));

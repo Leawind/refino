@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { loadGraph } from "../src/loader.js";
-import { constraint, createRefino, premise, removeRefino } from "@refino/testkit";
+import { decision, createRefino, premise, removeRefino } from "@refino/testkit";
 import { IssueCode } from "refino";
 import { StorageIssueCode } from "../src/codes.js";
 
@@ -8,9 +8,9 @@ describe("loadGraph", () => {
   it("builds the resident graph with children back-references from a nodes/ directory", async () => {
     const root = await createRefino({
       "nodes/1A/2B3C4D-premise.md": premise("1A2B3C4D"),
-      "nodes/A1/B2C3D4-constraint.md": constraint("A1B2C3D4", undefined),
-      "nodes/D4/E5F6G7-constraint.md": constraint("D4E5F6G7", ["A1B2C3D4"]),
-      "nodes/E5/F6G7H8-constraint.md": constraint("E5F6G7H8", ["1A2B3C4D", "D4E5F6G7"]),
+      "nodes/A1/B2C3D4-decision.md": decision("A1B2C3D4", undefined),
+      "nodes/D4/E5F6G7-decision.md": decision("D4E5F6G7", ["A1B2C3D4"]),
+      "nodes/E5/F6G7H8-decision.md": decision("E5F6G7H8", ["1A2B3C4D", "D4E5F6G7"]),
     });
     try {
       const { graph, issues } = await loadGraph(`${root}/.refino`);
@@ -34,14 +34,14 @@ describe("loadGraph", () => {
 
   it("derives the id from shard directory and file base name", async () => {
     const root = await createRefino({
-      "nodes/01/9ABCDE-constraint.md": constraint("019ABCDE", undefined),
+      "nodes/01/9ABCDE-decision.md": decision("019ABCDE", undefined),
     });
     try {
       const { graph, issues } = await loadGraph(`${root}/.refino`);
       expect(issues).toEqual([]);
       expect(graph.nodes.get("019ABCDE")).toMatchObject({
         id: "019ABCDE",
-        type: "constraint",
+        type: "decision",
       });
     } finally {
       await removeRefino(root);
@@ -51,7 +51,7 @@ describe("loadGraph", () => {
   it("reports duplicate ids across types and keeps the first node", async () => {
     const root = await createRefino({
       "nodes/A1/B2C3D4-premise.md": premise("A1B2C3D4"),
-      "nodes/A1/B2C3D4-constraint.md": constraint("A1B2C3D4", undefined),
+      "nodes/A1/B2C3D4-decision.md": decision("A1B2C3D4", undefined),
     });
     try {
       const { graph, issues } = await loadGraph(`${root}/.refino`);
@@ -98,7 +98,7 @@ describe("loadGraph", () => {
 
   it("silently ignores non-shard directories and non-markdown files", async () => {
     const root = await createRefino({
-      "nodes/A1/B2C3D4-constraint.md": constraint("A1B2C3D4", undefined),
+      "nodes/A1/B2C3D4-decision.md": decision("A1B2C3D4", undefined),
       "nodes/notes/keep.md": "ignored",
       "nodes/TOOLONG1/ignored.md": "ignored",
       "nodes/A1/notes.txt": "ignored",

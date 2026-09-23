@@ -249,13 +249,13 @@ const scene = computed<SceneInput>(() => {
   }
   const edges: RenderEdgeInput[] = [];
   for (const lite of workspace.displayed.value) {
-    if (lite.type !== "constraint") continue;
+    if (lite.type !== "decision") continue;
     for (const ground of lite.grounds ?? []) {
       if (!displayedIds.has(ground)) continue;
       edges.push({
         fromId: ground,
         toId: lite.id,
-        // Hovered constraints highlight their direct grounds; edges between
+        // Hovered decisions highlight their direct grounds; edges between
         // two selected nodes share the emphasized style (DESIGN.md).
         emphasized:
           lite.id === hoveredId || (selectionSet.has(ground) && selectionSet.has(lite.id)),

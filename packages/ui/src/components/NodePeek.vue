@@ -229,7 +229,7 @@ const style = computed(() => {
       >
         <div class="head">
           <span class="type" :class="record?.type ?? ''">{{
-            record?.type === "premise" ? t("node.premise") : t("node.constraint")
+            record?.type === "premise" ? t("node.premise") : t("node.decision")
           }}</span>
           <span v-if="record?.exploring === true" class="exploring">{{ t("node.exploring") }}</span>
           <span class="id">{{ peekState.id }}</span>

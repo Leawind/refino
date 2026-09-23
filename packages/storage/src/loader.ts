@@ -71,7 +71,7 @@ async function readSource(
  * full rescan, so parse logic stays single-sourced in the storage layer.
  *
  * Candidate order mirrors loadGraph's within-shard lexicographic scan
- * ("constraint" sorts before "premise"), so single-node reads agree with
+ * ("decision" sorts before "premise"), so single-node reads agree with
  * full loads: parse issues from every existing candidate are reported, the
  * first candidate yielding a valid node wins, and a second valid candidate
  * is reported as DUPLICATE_ID.
@@ -124,7 +124,7 @@ export async function readNode(refinoDir: string, id: string): Promise<ReadNodeR
  * discarded — the resident graph never holds it.
  *
  * Layout: `nodes/<2-char shard>/<rest>-<type>.md`, where `<type>` is
- * `premise` or `constraint`. The node id is derived from the file path
+ * `premise` or `decision`. The node id is derived from the file path
  * (path is identity): shard directory name + the segment before the `-`
  * separator (ids never contain `-`, so the split is unambiguous), and the
  * type travels in the file name, never in the frontmatter.
@@ -246,7 +246,7 @@ function parseFileName(name: string): { id2: string; type: NodeType } | null {
   const dash = name.lastIndexOf("-");
   if (dash === -1) return null;
   const type = name.slice(dash + 1);
-  if (type !== "premise" && type !== "constraint") return null;
+  if (type !== "premise" && type !== "decision") return null;
   return { id2: name.slice(0, dash), type };
 }
 

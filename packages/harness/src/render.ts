@@ -73,9 +73,9 @@ export function createRenderKit(tools: ToolRefs): RenderKit {
 
   function renderFullNode(node: FullNodeLite): string {
     const lines = [`- ID：${node.id}`, `- 类型：${node.type}`, `- 摘要：${node.summary}`];
-    if (node.type === "constraint") {
+    if (node.type === "decision") {
       lines.push(
-        `- 依据：${node.grounds && node.grounds.length > 0 ? node.grounds.join(", ") : "（根约束，无依据）"}`,
+        `- 依据：${node.grounds && node.grounds.length > 0 ? node.grounds.join(", ") : "（根决策，无依据）"}`,
       );
       if (node.rationale !== undefined) lines.push(`- 理由：${node.rationale}`);
       if (node.exploring === true) {
@@ -93,9 +93,9 @@ export function createRenderKit(tools: ToolRefs): RenderKit {
       lines.push(`未知的节点 ID：${result.unknown_ids.join(", ")}`);
     }
     if (result.pending.length === 0) {
-      lines.push("当前没有待审查的约束。");
+      lines.push("当前没有待审查的决策。");
     } else {
-      lines.push("以下约束直接依赖最近变化的节点，进入待审查状态，修改前应先复核：");
+      lines.push("以下决策直接依赖最近变化的节点，进入待审查状态，修改前应先复核：");
       lines.push(...result.pending.map(nodeLine));
     }
     return lines.join("\n");
@@ -128,7 +128,7 @@ export function createRenderKit(tools: ToolRefs): RenderKit {
     if (result.ok) {
       const lines = [`已完成：${result.id}`];
       if (result.pending && result.pending.length > 0) {
-        lines.push("以下约束因此进入待审查状态：");
+        lines.push("以下决策因此进入待审查状态：");
         lines.push(...result.pending.map(nodeLine));
       }
       return lines.join("\n");
@@ -142,7 +142,7 @@ export function createRenderKit(tools: ToolRefs): RenderKit {
       lines.push(...renderEscalation(result.escalation));
     }
     if (result.dependents !== undefined && result.dependents.length > 0) {
-      lines.push("仍存在下游约束，先更新或删除它们：");
+      lines.push("仍存在下游决策，先更新或删除它们：");
       lines.push(...result.dependents.map(nodeLine));
     }
     return lines.join("\n");
@@ -157,11 +157,11 @@ export function createRenderKit(tools: ToolRefs): RenderKit {
       `节点 ${escalation.id} 位于冻结区，只读；本次授权范围以内不存在修改它的可行方案。`,
     ];
     if (escalation.affected.length > 0) {
-      lines.push("受影响的下游约束（ID、相对深度、摘要）：");
+      lines.push("受影响的下游决策（ID、相对深度、摘要）：");
       lines.push(...escalation.affected.map(depthLine));
     }
     lines.push(
-      "请停止修改，向用户报告越界升级：说明阻挡约束、冻结原因与上述受影响约束，并给出建议的约束调整方案。",
+      "请停止修改，向用户报告越界升级：说明阻挡决策、冻结原因与上述受影响决策，并给出建议的决策调整方案。",
       `用户裁决为调整冻结区时，用 ${tools.requestAuthorization} 提议新划分（须经用户批准）；否则改走修改空间以内的替代方案。不得绕过冻结区（包括直接改文件）。`,
     );
     return lines;
@@ -184,7 +184,7 @@ export function createRenderKit(tools: ToolRefs): RenderKit {
     }
     const lines = [
       "已签发，会话内即时生效（不落文件；resume 后回落，需要延续时重新签发）。",
-      `- 冻结区：${result.frozen_constraints} 个约束、${result.frozen_premises} 个前提`,
+      `- 冻结区：${result.frozen_decisions} 个决策、${result.frozen_premises} 个前提`,
       `- frontier：${result.frontier && result.frontier.length > 0 ? result.frontier.join(", ") : "（空，全部解冻）"}`,
     ];
     if (result.redundant_frontier !== undefined && result.redundant_frontier.length > 0) {
@@ -192,7 +192,7 @@ export function createRenderKit(tools: ToolRefs): RenderKit {
     }
     if (result.unfrozen_roots !== undefined && result.unfrozen_roots.length > 0) {
       lines.push(
-        `- warning: 以下根约束已解冻（项目最高级别授权已在批准时确认）：${result.unfrozen_roots.join(", ")}`,
+        `- warning: 以下根决策已解冻（项目最高级别授权已在批准时确认）：${result.unfrozen_roots.join(", ")}`,
       );
     }
     return lines.join("\n");
@@ -201,7 +201,7 @@ export function createRenderKit(tools: ToolRefs): RenderKit {
   const ORIGIN_LABEL: Record<string, string> = {
     orchestrator: "编排者凭据",
     session: "本会话内签发",
-    default: "默认（未签发；全部根约束及其祖先被冻结）",
+    default: "默认（未签发；全部根决策及其祖先被冻结）",
   } as const;
 
   function renderContextStatus(result: ContextStatusResult): string {
@@ -210,7 +210,7 @@ export function createRenderKit(tools: ToolRefs): RenderKit {
     const lines = [
       `授权来源：${origin}`,
       `冻结 frontier：${result.frontier.length > 0 ? result.frontier.join(", ") : "（空，全部解冻）"}`,
-      `生效冻结区：${result.frozen_constraints} 个约束、${result.frozen_premises} 个前提`,
+      `生效冻结区：${result.frozen_decisions} 个决策、${result.frozen_premises} 个前提`,
       `锚点注入策略：${result.anchors_complete ? "全图摘要" : "图超预算，概览加搜索按需定位"}`,
       result.orchestrator_credential
         ? "编排者凭据生效：签发被拒绝，调整冻结区须回到签发者。"

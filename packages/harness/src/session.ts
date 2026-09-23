@@ -61,7 +61,7 @@ export class HarnessSession {
     return contextBlocks(this.graph, this.context);
   }
 
-  /** Constraints pending review after the given nodes changed. */
+  /** Decisions pending review after the given nodes changed. */
   pendingReview(changedIds: readonly string[]): RefinoNode[] {
     return pendingReview(this.graph, changedIds);
   }

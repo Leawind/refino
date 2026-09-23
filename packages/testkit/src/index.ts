@@ -23,8 +23,8 @@ export function premise(_id: string, body = "body."): string {
   return `${body}\n`;
 }
 
-/** A constraint node file body; the id lives in the file name, not the frontmatter. */
-export function constraint(
+/** A decision node file body; the id lives in the file name, not the frontmatter. */
+export function decision(
   _id: string,
   grounds: readonly string[] | undefined,
   body = "body.",
