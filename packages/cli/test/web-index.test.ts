@@ -31,10 +31,14 @@ afterAll(async () => {
 });
 
 describe("optimistic concurrency on PUT", () => {
-  let app: ReturnType<typeof createWebApp>;
+  let app: ReturnType<typeof createWebApp>["app"];
+  let closeApp: () => void;
   beforeAll(() => {
     // One instance across all requests: the revision lives on the index.
-    app = createWebApp({ refinoDir, staticRoot: null });
+    ({ app, close: closeApp } = createWebApp({ refinoDir, staticRoot: null }));
+  });
+  afterAll(() => {
+    closeApp();
   });
 
   it("saves with the recorded revision, then answers 409 on a stale one", async () => {
@@ -114,27 +118,36 @@ describe("optimistic concurrency on PUT", () => {
 
 describe("external writes", () => {
   it("are invisible until applied, then absorbed by reload", async () => {
-    const app = createWebApp({ refinoDir, staticRoot: null });
-    const before = await app.request("/api/graph");
-    const beforeBody = (await before.json()) as { revision: number; nodes: Array<{ id: string }> };
-    expect(beforeBody.nodes.some((n) => n.id === C1)).toBe(true);
+    const { app, close } = createWebApp({ refinoDir, staticRoot: null });
+    try {
+      const before = await app.request("/api/graph");
+      const beforeBody = (await before.json()) as {
+        revision: number;
+        nodes: Array<{ id: string }>;
+      };
+      expect(beforeBody.nodes.some((n) => n.id === C1)).toBe(true);
 
-    const newId = await createDecision(refinoDir, { body: "外部写入。", grounds: [P1] });
+      const newId = await createDecision(refinoDir, { body: "外部写入。", grounds: [P1] });
 
-    const stale = await app.request("/api/graph");
-    expect(
-      ((await stale.json()) as { nodes: Array<{ id: string }> }).nodes.some((n) => n.id === newId),
-    ).toBe(false);
+      const stale = await app.request("/api/graph");
+      expect(
+        ((await stale.json()) as { nodes: Array<{ id: string }> }).nodes.some(
+          (n) => n.id === newId,
+        ),
+      ).toBe(false);
 
-    const reload = await app.request("/api/reload", { method: "POST" });
-    expect(reload.status).toBe(200);
-    const event = (await reload.json()) as { revision: number; reload?: boolean };
-    expect(event.reload).toBe(true);
-    expect(event.revision).toBeGreaterThan(beforeBody.revision);
+      const reload = await app.request("/api/reload", { method: "POST" });
+      expect(reload.status).toBe(200);
+      const event = (await reload.json()) as { revision: number; reload?: boolean };
+      expect(event.reload).toBe(true);
+      expect(event.revision).toBeGreaterThan(beforeBody.revision);
 
-    const after = await app.request("/api/graph");
-    const afterBody = (await after.json()) as { revision: number; nodes: Array<{ id: string }> };
-    expect(afterBody.nodes.some((n) => n.id === newId)).toBe(true);
-    expect(afterBody.revision).toBe(event.revision);
+      const after = await app.request("/api/graph");
+      const afterBody = (await after.json()) as { revision: number; nodes: Array<{ id: string }> };
+      expect(afterBody.nodes.some((n) => n.id === newId)).toBe(true);
+      expect(afterBody.revision).toBe(event.revision);
+    } finally {
+      close();
+    }
   });
 });

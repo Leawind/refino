@@ -14,7 +14,7 @@ import { createRefino, premise, removeRefino } from "@refino/testkit";
 
 describe("refino web", () => {
   describe("without static assets", () => {
-    const app = createWebApp({ staticRoot: null });
+    const { app } = createWebApp({ staticRoot: null });
 
     it("serves a placeholder page at /", async () => {
       const res = await app.request("/");
@@ -51,7 +51,7 @@ describe("refino web", () => {
       await rm(staticRoot, { recursive: true, force: true });
     });
 
-    const app = () => createWebApp({ staticRoot });
+    const app = () => createWebApp({ staticRoot }).app;
 
     it("serves the built index.html at /", async () => {
       const res = await app().request("/");

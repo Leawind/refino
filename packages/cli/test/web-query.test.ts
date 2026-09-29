@@ -18,8 +18,8 @@ import { decision, createRefino, premise, removeRefino } from "@refino/testkit";
 
 let root: string;
 let refinoDir: string;
-
-const app = (): ReturnType<typeof createWebApp> => createWebApp({ refinoDir });
+let closeApp: () => void;
+let app: ReturnType<typeof createWebApp>["app"];
 
 const P1 = "1A2B3C4D";
 const P2 = "1A2B3C4E";
@@ -44,9 +44,13 @@ beforeAll(async () => {
     "nodes/S4/T5V6W7-decision.md": decision(C6, [P1, P2], "C6。"),
   });
   refinoDir = join(root, ".refino");
+  // One instance across all requests: repeated createWebApp calls arm a
+  // watched store each time, and an unclosed watcher keeps the loop alive.
+  ({ app, close: closeApp } = createWebApp({ refinoDir }));
 });
 
 afterAll(async () => {
+  closeApp();
   await removeRefino(root);
 });
 
@@ -56,7 +60,7 @@ async function post(
   path: string,
   body: unknown,
 ): Promise<{ status: number; json: () => Promise<unknown> }> {
-  return app().request(path, { method: "POST", body: JSON.stringify(body) });
+  return app.request(path, { method: "POST", body: JSON.stringify(body) });
 }
 
 describe("POST /api/query/neighbors", () => {
@@ -333,8 +337,8 @@ describe("POST /api/query/range branches with a sibling branch", () => {
 
   let branchRoot: string;
   let branchRefinoDir: string;
-  const branchApp = (): ReturnType<typeof createWebApp> =>
-    createWebApp({ refinoDir: branchRefinoDir });
+  let branchApp: ReturnType<typeof createWebApp>["app"];
+  let closeBranchApp: () => void;
 
   beforeAll(async () => {
     branchRoot = await createRefino({
@@ -346,14 +350,16 @@ describe("POST /api/query/range branches with a sibling branch", () => {
       "nodes/AA/000006-decision.md": decision(K, [L], "K。"),
     });
     branchRefinoDir = join(branchRoot, ".refino");
+    ({ app: branchApp, close: closeBranchApp } = createWebApp({ refinoDir: branchRefinoDir }));
   });
 
   afterAll(async () => {
+    closeBranchApp();
     await removeRefino(branchRoot);
   });
 
   it("selects only the decisions on the two paths to the common ancestor", async () => {
-    const res = await branchApp().request("/api/query/range", {
+    const res = await branchApp.request("/api/query/range", {
       method: "POST",
       body: JSON.stringify({ focusId: F, clickedId: K }),
     });
@@ -384,8 +390,8 @@ describe("POST /api/query/range branches takes one shortest path", () => {
 
   let diamondRoot: string;
   let diamondRefinoDir: string;
-  const diamondApp = (): ReturnType<typeof createWebApp> =>
-    createWebApp({ refinoDir: diamondRefinoDir });
+  let diamondApp: ReturnType<typeof createWebApp>["app"];
+  let closeDiamondApp: () => void;
 
   beforeAll(async () => {
     diamondRoot = await createRefino({
@@ -397,14 +403,16 @@ describe("POST /api/query/range branches takes one shortest path", () => {
       "nodes/BB/000006-decision.md": decision(S, [W2], "S。"),
     });
     diamondRefinoDir = join(diamondRoot, ".refino");
+    ({ app: diamondApp, close: closeDiamondApp } = createWebApp({ refinoDir: diamondRefinoDir }));
   });
 
   afterAll(async () => {
+    closeDiamondApp();
     await removeRefino(diamondRoot);
   });
 
   it("keeps only the nodes on one route per side", async () => {
-    const res = await diamondApp().request("/api/query/range", {
+    const res = await diamondApp.request("/api/query/range", {
       method: "POST",
       body: JSON.stringify({ focusId: X, clickedId: S }),
     });
@@ -426,46 +434,46 @@ describe("POST /api/query/range branches takes one shortest path", () => {
 
 describe("GET /api/search", () => {
   it("paginates over ascending ids with a keyset cursor", async () => {
-    const first = await app().request("/api/search?limit=4");
+    const first = await app.request("/api/search?limit=4");
     expect(first.status).toBe(200);
     const page1 = (await first.json()) as { nodes: Array<{ id: string }>; nextCursor?: string };
     expect(page1.nodes.map((n) => n.id)).toEqual([P1, P2, P3, C1]);
     expect(page1.nextCursor).toBe(C1);
 
-    const second = await app().request(`/api/search?limit=4&cursor=${page1.nextCursor}`);
+    const second = await app.request(`/api/search?limit=4&cursor=${page1.nextCursor}`);
     const page2 = (await second.json()) as { nodes: Array<{ id: string }>; nextCursor?: string };
     expect(page2.nodes.map((n) => n.id)).toEqual([C2, C3, C4, C5]);
     expect(page2.nextCursor).toBe(C5);
 
-    const last = await app().request(`/api/search?limit=4&cursor=${page2.nextCursor}`);
+    const last = await app.request(`/api/search?limit=4&cursor=${page2.nextCursor}`);
     const page3 = (await last.json()) as { nodes: Array<{ id: string }>; nextCursor?: string };
     expect(page3.nodes.map((n) => n.id)).toEqual([C6]);
     expect(page3.nextCursor).toBeUndefined();
   });
 
   it("filters by type and matches id prefixes and summary substrings", async () => {
-    const byType = await app().request("/api/search?type=premise");
+    const byType = await app.request("/api/search?type=premise");
     let body = (await byType.json()) as { nodes: Array<{ id: string }> };
     expect(body.nodes.map((n) => n.id)).toEqual([P1, P2, P3]);
 
-    const byPrefix = await app().request("/api/search?q=1a2b");
+    const byPrefix = await app.request("/api/search?q=1a2b");
     body = (await byPrefix.json()) as { nodes: Array<{ id: string }> };
     expect(body.nodes.map((n) => n.id)).toEqual([P1, P2, P3]);
 
-    const bySummary = await app().request(`/api/search?q=${encodeURIComponent("前提三")}`);
+    const bySummary = await app.request(`/api/search?q=${encodeURIComponent("前提三")}`);
     body = (await bySummary.json()) as { nodes: Array<{ id: string }> };
     expect(body.nodes.map((n) => n.id)).toEqual([P3]);
   });
 
   it("rejects an invalid type filter", async () => {
-    const res = await app().request("/api/search?type=nonsense");
+    const res = await app.request("/api/search?type=nonsense");
     expect(res.status).toBe(400);
   });
 });
 
 describe("GET /api/nodes/:id", () => {
   it("returns the full node with its revision", async () => {
-    const res = await app().request(`/api/nodes/${C2}`);
+    const res = await app.request(`/api/nodes/${C2}`);
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       revision: number;
@@ -479,14 +487,14 @@ describe("GET /api/nodes/:id", () => {
   });
 
   it("answers 404 for unknown ids", async () => {
-    const res = await app().request("/api/nodes/ZZZZZZZZ");
+    const res = await app.request("/api/nodes/ZZZZZZZZ");
     expect(res.status).toBe(404);
   });
 });
 
 describe("GET /api/graph (compatibility)", () => {
   it("serves the whole graph with bodies and the current revision", async () => {
-    const res = await app().request("/api/graph");
+    const res = await app.request("/api/graph");
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       revision: number;

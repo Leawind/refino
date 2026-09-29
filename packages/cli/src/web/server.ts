@@ -253,9 +253,20 @@ function toWireEvent(change: StoreChange): Omit<StoreChange, "affected"> {
   };
 }
 
+/**
+ * A web application without a listening socket, plus the lifecycle handle for
+ * its store: with a `refinoDir` a watched store is armed, and its watcher
+ * keeps the event loop alive (and reacts to file events) until `close()`.
+ */
+export interface StandaloneWebApp {
+  app: Hono;
+  close(): void;
+}
+
 /** Build the web application. Pure object, no listening socket — easy to test. */
-export function createWebApp(options: WebAppOptions = {}): Hono {
-  return createWeb(options).app;
+export function createWebApp(options: WebAppOptions = {}): StandaloneWebApp {
+  const parts = createWeb(options);
+  return { app: parts.app, close: () => parts.web?.close() };
 }
 
 function readIndexHtml(staticRoot: string): string {
