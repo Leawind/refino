@@ -25,14 +25,8 @@ fn opts(body: &str) -> CreateOptions {
     }
 }
 
-/// A store wired with a watcher core whose batches are fed back into it
-/// through `apply` — the Rust shape of `RefinoStore.open(watch: true)`.
-struct WatchedStore {
-    store: RefinoStore<'static, common::FakeIo>,
-    core: Option<WatcherCore>,
-    sink: RecordingSink,
-    batches: std::rc::Rc<std::cell::RefCell<Vec<(Vec<String>, Vec<String>)>>>,
-}
+/// Recorded watcher batches: affected ids plus touched shards.
+type RecordedBatches = std::rc::Rc<std::cell::RefCell<Vec<(Vec<String>, Vec<String>)>>>;
 
 fn refino_dir(root: &std::path::Path) -> PathBuf {
     root.join(".refino")
@@ -43,7 +37,7 @@ fn create_and_read_back_through_the_store() {
     let io = FakeIo::new();
     let root = create_refino(&io, &[]);
     let random = rand();
-    let mut store = RefinoStore::new(&io, &random, refino_dir(&root));
+    let mut store = RefinoStore::new(io.clone(), random, refino_dir(&root));
     store.ready().unwrap();
     let outcome = store
         .create_premise(&CreatePremiseOptions {
@@ -63,7 +57,7 @@ fn create_decision_rejects_unknown_grounds_without_touching_disk() {
     let io = FakeIo::new();
     let root = create_refino(&io, &[]);
     let random = rand();
-    let mut store = RefinoStore::new(&io, &random, refino_dir(&root));
+    let mut store = RefinoStore::new(io.clone(), random, refino_dir(&root));
     store.ready().unwrap();
     let error = store
         .create_decision(&CreateDecisionOptions {
@@ -88,7 +82,7 @@ fn update_premise_rejects_unknown_id() {
     let io = FakeIo::new();
     let root = create_refino(&io, &[]);
     let random = rand();
-    let mut store = RefinoStore::new(&io, &random, refino_dir(&root));
+    let mut store = RefinoStore::new(io.clone(), random, refino_dir(&root));
     store.ready().unwrap();
     let error = store
         .update_premise(
@@ -110,7 +104,7 @@ fn delete_leaves_dangling_grounds_and_rechecks_affected_issues() {
     let io = FakeIo::new();
     let root = create_refino(&io, &[]);
     let random = rand();
-    let mut store = RefinoStore::new(&io, &random, refino_dir(&root));
+    let mut store = RefinoStore::new(io.clone(), random, refino_dir(&root));
     store.ready().unwrap();
     let premise = store
         .create_premise(&CreatePremiseOptions {
@@ -144,7 +138,7 @@ fn no_op_echoes_do_not_bump_the_revision() {
     let io = FakeIo::new();
     let root = create_refino(&io, &[]);
     let random = rand();
-    let mut store = RefinoStore::new(&io, &random, refino_dir(&root));
+    let mut store = RefinoStore::new(io.clone(), random, refino_dir(&root));
     store.ready().unwrap();
     let outcome = store
         .create_premise(&CreatePremiseOptions {
@@ -155,7 +149,12 @@ fn no_op_echoes_do_not_bump_the_revision() {
     let revision_after_write = store.revision();
     // The watcher echo of our own write: same id, unchanged file.
     let echo = store
-        .apply_change(&[outcome.id.clone()], &[], &[], Some(Origin::File))
+        .apply_change(
+            std::slice::from_ref(&outcome.id),
+            &[],
+            &[],
+            Some(Origin::File),
+        )
         .unwrap();
     assert!(echo.is_none(), "no-op echo must be silent");
     assert_eq!(store.revision(), revision_after_write);
@@ -166,7 +165,7 @@ fn external_content_edits_surface_through_mtime() {
     let io = FakeIo::new();
     let root = create_refino(&io, &[]);
     let random = rand();
-    let mut store = RefinoStore::new(&io, &random, refino_dir(&root));
+    let mut store = RefinoStore::new(io.clone(), random, refino_dir(&root));
     store.ready().unwrap();
     let outcome = store
         .create_premise(&CreatePremiseOptions {
@@ -179,7 +178,7 @@ fn external_content_edits_surface_through_mtime() {
     let file = refino_dir(&root).join(format!("nodes/{}/{}-premise.md", &id[..2], &id[2..]));
     io.seed_file(&file, "Second body.");
     let change = store
-        .apply_change(&[id.clone()], &[], &[], Some(Origin::File))
+        .apply_change(std::slice::from_ref(&id), &[], &[], Some(Origin::File))
         .unwrap()
         .expect("change");
     assert_eq!(change.changed, vec![id.clone()]);
@@ -192,7 +191,7 @@ fn id_recreated_as_other_type_replaces_the_node_wholesale() {
     let (file, body) = common::premise_body("A1B2C3D4", "Premise body.\n");
     let root = create_refino(&io, &[(&file, &body)]);
     let random = rand();
-    let mut store = RefinoStore::new(&io, &random, refino_dir(&root));
+    let mut store = RefinoStore::new(io.clone(), random, refino_dir(&root));
     store.ready().unwrap();
     assert_eq!(
         store.graph().nodes.get("A1B2C3D4").unwrap().node_type(),
@@ -217,7 +216,7 @@ fn broken_external_file_reports_orphan_issue_and_clean_up_on_vanish() {
     let io = FakeIo::new();
     let root = create_refino(&io, &[]);
     let random = rand();
-    let mut store = RefinoStore::new(&io, &random, refino_dir(&root));
+    let mut store = RefinoStore::new(io.clone(), random, refino_dir(&root));
     store.ready().unwrap();
     // An external file that never resolves to a node (bad YAML).
     let file = refino_dir(&root).join("nodes/Z9/Y8X7W6V-premise.md");
@@ -260,7 +259,7 @@ fn reload_bumps_revision_and_broadcasts_reload_flag() {
     let (file, body) = common::premise_body("A1B2C3D4", "Fact.\n");
     let root = create_refino(&io, &[(&file, &body)]);
     let random = rand();
-    let mut store = RefinoStore::new(&io, &random, refino_dir(&root));
+    let mut store = RefinoStore::new(io.clone(), random, refino_dir(&root));
     store.ready().unwrap();
     let flags = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
     {
@@ -293,7 +292,7 @@ fn stats_counts_canvas_scope_roots() {
         ],
     );
     let random = rand();
-    let mut store = RefinoStore::new(&io, &random, refino_dir(&root));
+    let mut store = RefinoStore::new(io.clone(), random, refino_dir(&root));
     store.ready().unwrap();
     let stats = store.stats();
     // Canvas-scope roots: B2C3D4 grounds only on a premise (a root);
@@ -311,12 +310,12 @@ fn watcher_batches_flow_through_the_same_incremental_entry() {
     let io = FakeIo::new();
     let root = create_refino(&io, &[]);
     let random = rand();
-    let mut store = RefinoStore::new(&io, &random, refino_dir(&root));
+    let mut store = RefinoStore::new(io.clone(), random, refino_dir(&root));
     store.ready().unwrap();
     // The watcher core records batches; the test plays them into the store
     // through the same incremental entry the production adapter uses.
-    let batches: std::rc::Rc<std::cell::RefCell<Vec<(Vec<String>, Vec<String>)>>> =
-        std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let batches: RecordedBatches =
+        std::rc::Rc::new(std::cell::RefCell::new(Vec::new())) as RecordedBatches;
     let sink_batches = batches.clone();
     let mut core = WatcherCore::new(refino_dir(&root).join("nodes"), 500, move |ids, shards| {
         sink_batches
@@ -388,7 +387,7 @@ fn content_lru_round_trips_through_read_node() {
     let (file, body) = common::premise_body("A1B2C3D4", "Long body.\n");
     let root = create_refino(&io, &[(&file, &body)]);
     let random = rand();
-    let mut store = RefinoStore::new(&io, &random, refino_dir(&root));
+    let mut store = RefinoStore::new(io.clone(), random, refino_dir(&root));
     store.ready().unwrap();
     let content = store.content("A1B2C3D4").unwrap().expect("content");
     assert_eq!(content.body, "Long body.");
@@ -409,7 +408,7 @@ fn sorted_ids_are_ascending_and_rebuilt_after_writes() {
         ],
     );
     let random = rand();
-    let mut store = RefinoStore::new(&io, &random, refino_dir(&root));
+    let mut store = RefinoStore::new(io.clone(), random, refino_dir(&root));
     store.ready().unwrap();
     assert_eq!(
         store.sorted_ids(),
@@ -422,7 +421,7 @@ fn issues_for_matches_by_node_id_or_candidate_files() {
     let io = FakeIo::new();
     let root = create_refino(&io, &[]);
     let random = rand();
-    let mut store = RefinoStore::new(&io, &random, refino_dir(&root));
+    let mut store = RefinoStore::new(io.clone(), random, refino_dir(&root));
     store.ready().unwrap();
     let file = refino_dir(&root).join("nodes/Z9/Y8X7W6V-premise.md");
     io.seed_file(&file, "---\ngrounds: [unclosed\n---\n\nBody.\n");
@@ -447,7 +446,7 @@ fn update_through_store_reports_affected_dependents() {
     let io = FakeIo::new();
     let root = create_refino(&io, &[]);
     let random = rand();
-    let mut store = RefinoStore::new(&io, &random, refino_dir(&root));
+    let mut store = RefinoStore::new(io.clone(), random, refino_dir(&root));
     store.ready().unwrap();
     let premise = store
         .create_premise(&CreatePremiseOptions {

@@ -40,7 +40,7 @@ pub fn with_store<R>(
     opts: &GlobalOptions,
     query: impl FnOnce(&mut RefinoStore<FsIo>) -> Result<R, refino_core::RefinoError>,
 ) -> Result<R, QueryFailure> {
-    let mut store = RefinoStore::new(&FsIo, &OsRandom, refino_dir(opts));
+    let mut store = RefinoStore::new(FsIo, OsRandom, refino_dir(opts));
     match store.ready() {
         Err(error) => Err(classify_refino_error(error)),
         Ok(()) => {
@@ -69,7 +69,7 @@ pub fn with_store_for_write<R>(
     opts: &GlobalOptions,
     action: impl FnOnce(&mut RefinoStore<FsIo>) -> Result<R, StoreError>,
 ) -> Result<R, WriteFailure> {
-    let mut store = RefinoStore::new(&FsIo, &OsRandom, refino_dir(opts));
+    let mut store = RefinoStore::new(FsIo, OsRandom, refino_dir(opts));
     let outcome = match store.ready() {
         Ok(()) => action(&mut store),
         Err(error) => Err(StoreError::Other(error)),

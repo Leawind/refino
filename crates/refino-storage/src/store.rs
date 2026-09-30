@@ -28,6 +28,9 @@ use refino_core::{
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+/// A subscribed change-batch callback.
+type ChangeHandler = Box<dyn FnMut(&StoreChange)>;
+
 /// Write entry that produced an incremental event; absent on snapshots and reloads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -137,10 +140,10 @@ const CONTENT_CACHE_MAX: usize = 500;
 /// Initial revision after the first full load.
 const INITIAL_REVISION: u64 = 1;
 
-pub struct RefinoStore<'a, I: Io> {
+pub struct RefinoStore<I: Io> {
     pub refino_dir: std::path::PathBuf,
-    io: &'a I,
-    random: &'a dyn refino_core::RandomSource,
+    io: I,
+    random: Box<dyn refino_core::RandomSource>,
     graph: Graph,
     entries: BTreeMap<String, StoreEntry>,
     /// Issue cache in two layers. Parse issues come from reading node files
@@ -156,24 +159,24 @@ pub struct RefinoStore<'a, I: Io> {
     contents: HashMap<String, NodeContent>,
     content_order: Vec<String>,
     sorted_ids: Option<Vec<String>>,
-    subscribers: Vec<Box<dyn FnMut(&StoreChange) + 'a>>,
+    subscribers: Vec<ChangeHandler>,
     loaded: bool,
 }
 
-impl<'a, I: Io> RefinoStore<'a, I> {
+impl<I: Io> RefinoStore<I> {
     /// Create a store over the directory. Loading is lazy and retried: call
     /// `ready()` before reading, and a failed load (e.g. a missing directory
     /// the caller treats as recoverable) surfaces through `ready()` again on
     /// the next call.
     pub fn new(
-        io: &'a I,
-        random: &'a dyn refino_core::RandomSource,
+        io: I,
+        random: impl refino_core::RandomSource + 'static,
         refino_dir: std::path::PathBuf,
     ) -> Self {
         RefinoStore {
             refino_dir,
             io,
-            random,
+            random: Box::new(random),
             graph: Graph::default(),
             entries: BTreeMap::new(),
             parse_issues: BTreeMap::new(),
@@ -256,7 +259,7 @@ impl<'a, I: Io> RefinoStore<'a, I> {
             self.touch_content(id);
             return Ok(Some(content));
         }
-        let read = read_node(self.io, &self.refino_dir, id)?;
+        let read = read_node(&self.io, &self.refino_dir, id)?;
         let Some(content) = read.content else {
             return Ok(None);
         };
@@ -310,7 +313,7 @@ impl<'a, I: Io> RefinoStore<'a, I> {
 
     /// Subscribe to applied change batches; returns the subscriber index to
     /// pass to `unsubscribe`.
-    pub fn on_change(&mut self, handler: impl FnMut(&StoreChange) + 'a) -> usize {
+    pub fn on_change(&mut self, handler: impl FnMut(&StoreChange) + 'static) -> usize {
         self.subscribers.push(Box::new(handler));
         self.subscribers.len() - 1
     }
@@ -376,10 +379,10 @@ impl<'a, I: Io> RefinoStore<'a, I> {
         &mut self,
         opts: &CreatePremiseOptions,
     ) -> Result<WriteOutcome, StoreError> {
-        let id = write_premise(self.io, &self.refino_dir, opts, self.random)
+        let id = write_premise(&self.io, &self.refino_dir, opts, self.random.as_ref())
             .map_err(StoreError::Other)?;
         let change = self
-            .apply(&[id.clone()], &[], &[], Some(Origin::Api))
+            .apply(std::slice::from_ref(&id), &[], &[], Some(Origin::Api))
             .map_err(StoreError::Other)?;
         Ok(WriteOutcome { id, change })
     }
@@ -408,10 +411,10 @@ impl<'a, I: Io> RefinoStore<'a, I> {
         if !issues.is_empty() {
             return Err(StoreError::Rejected(WriteRejected::new(issues)));
         }
-        let id = write_decision(self.io, &self.refino_dir, opts, self.random)
+        let id = write_decision(&self.io, &self.refino_dir, opts, self.random.as_ref())
             .map_err(StoreError::Other)?;
         let change = self
-            .apply(&[id.clone()], &[], &[], Some(Origin::Api))
+            .apply(std::slice::from_ref(&id), &[], &[], Some(Origin::Api))
             .map_err(StoreError::Other)?;
         Ok(WriteOutcome { id, change })
     }
@@ -424,7 +427,7 @@ impl<'a, I: Io> RefinoStore<'a, I> {
     ) -> Result<WriteOutcome, StoreError> {
         self.require_entry(id, NodeType::Premise)
             .map_err(StoreError::Other)?;
-        write_premise_update(self.io, &self.refino_dir, id, opts).map_err(StoreError::Other)?;
+        write_premise_update(&self.io, &self.refino_dir, id, opts).map_err(StoreError::Other)?;
         let change = self
             .apply(&[id.to_string()], &[], &[], Some(Origin::Api))
             .map_err(StoreError::Other)?;
@@ -463,7 +466,7 @@ impl<'a, I: Io> RefinoStore<'a, I> {
                 return Err(StoreError::Rejected(WriteRejected::new(issues)));
             }
         }
-        write_decision_update(self.io, &self.refino_dir, id, opts).map_err(StoreError::Other)?;
+        write_decision_update(&self.io, &self.refino_dir, id, opts).map_err(StoreError::Other)?;
         let change = self
             .apply(&[id.to_string()], &[], &[], Some(Origin::Api))
             .map_err(StoreError::Other)?;
@@ -477,7 +480,7 @@ impl<'a, I: Io> RefinoStore<'a, I> {
     /// grounds surface as UNKNOWN_GROUND issues on the applied change;
     /// whether deletion may leave them behind is the caller's policy.
     pub fn delete_node(&mut self, id: &str) -> Result<WriteOutcome, StoreError> {
-        remove_node_file(self.io, &self.refino_dir, id).map_err(StoreError::Other)?;
+        remove_node_file(&self.io, &self.refino_dir, id).map_err(StoreError::Other)?;
         let change = self
             .apply(&[], &[id.to_string()], &[], Some(Origin::Api))
             .map_err(StoreError::Other)?;
@@ -503,7 +506,7 @@ impl<'a, I: Io> RefinoStore<'a, I> {
     /// An id absent from the resident graph, for write-time validation probes.
     fn probe_id(&self) -> String {
         loop {
-            let id = generate_id(self.random);
+            let id = generate_id(self.random.as_ref());
             if !self.graph.nodes.contains_key(&id) {
                 return id;
             }
@@ -512,7 +515,7 @@ impl<'a, I: Io> RefinoStore<'a, I> {
 
     /// Full rescan; replaces every projection structure.
     fn load(&mut self) -> Result<(), RefinoError> {
-        let result = load_graph(self.io, &self.refino_dir)?;
+        let result = load_graph(&self.io, &self.refino_dir)?;
         let mut parse_map: BTreeMap<String, Vec<StoreIssue>> = BTreeMap::new();
         for issue in result.issues {
             store_issue(&mut parse_map, StoreIssue::Storage(issue));
@@ -588,7 +591,7 @@ impl<'a, I: Io> RefinoStore<'a, I> {
         }
         let mut reads = Vec::with_capacity(ids.len());
         for id in &ids {
-            reads.push(read_node(self.io, &self.refino_dir, id)?);
+            reads.push(read_node(&self.io, &self.refino_dir, id)?);
         }
         let stale_file_issues = self.stale_file_issue_keys(&touched_shards)?;
 

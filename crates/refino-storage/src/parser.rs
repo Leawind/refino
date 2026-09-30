@@ -346,10 +346,10 @@ fn parse_grounds(
             );
             return None;
         }
-        if let Yaml::String(text) = entry {
-            if !grounds.contains(text) {
-                grounds.push(text.clone());
-            }
+        if let Yaml::String(text) = entry
+            && !grounds.contains(text)
+        {
+            grounds.push(text.clone());
         }
     }
     Some(grounds)

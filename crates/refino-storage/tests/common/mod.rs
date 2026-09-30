@@ -12,30 +12,34 @@ use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
-/// In-memory filesystem with controllable failures.
+/// In-memory filesystem with controllable failures. Clones share the same
+/// backing state (a store owns its own clone and must observe the same
+/// filesystem the test drives).
+#[derive(Clone)]
 pub struct FakeIo {
+    inner: std::rc::Rc<FakeIoInner>,
+}
+
+#[derive(Default)]
+struct FakeIoInner {
     files: RefCell<BTreeMap<PathBuf, String>>,
     mtimes: RefCell<BTreeMap<PathBuf, f64>>,
     dirs: RefCell<HashSet<PathBuf>>,
     now: Cell<f64>,
-    pub pid: u32,
+    pid: u32,
     /// Remaining transient permission failures for `rename`.
-    pub fail_rename_permission_times: Cell<u32>,
-    pub rename_calls: Cell<u32>,
-    pub sleeps: Cell<u64>,
+    fail_rename_permission_times: Cell<u32>,
+    rename_calls: Cell<u32>,
+    sleeps: Cell<u64>,
 }
 
 impl Default for FakeIo {
     fn default() -> Self {
         FakeIo {
-            files: RefCell::new(BTreeMap::new()),
-            mtimes: RefCell::new(BTreeMap::new()),
-            dirs: RefCell::new(HashSet::new()),
-            now: Cell::new(0.0),
-            pid: 4242,
-            fail_rename_permission_times: Cell::new(0),
-            rename_calls: Cell::new(0),
-            sleeps: Cell::new(0),
+            inner: std::rc::Rc::new(FakeIoInner {
+                pid: 4242,
+                ..FakeIoInner::default()
+            }),
         }
     }
 }
@@ -52,21 +56,24 @@ impl FakeIo {
     }
 
     fn advance(&self) {
-        self.now.set(self.now.get() + 1.0);
+        let now = &self.inner.now;
+        now.set(now.get() + 1.0);
     }
 
     /// Seed (or overwrite) a file and its parent directories, bumping its mtime.
     pub fn seed_file(&self, path: impl Into<PathBuf>, content: &str) {
         self.advance();
         let path = Self::norm(&path.into());
-        self.files
+        self.inner
+            .files
             .borrow_mut()
             .insert(path.clone(), content.to_string());
-        self.mtimes
+        self.inner
+            .mtimes
             .borrow_mut()
-            .insert(path.clone(), self.now.get());
+            .insert(path.clone(), self.inner.now.get());
         for dir in path.ancestors().skip(1) {
-            if !self.dirs.borrow_mut().insert(dir.to_path_buf()) {
+            if !self.inner.dirs.borrow_mut().insert(dir.to_path_buf()) {
                 break;
             }
         }
@@ -76,22 +83,38 @@ impl FakeIo {
     pub fn remove(&self, path: &Path) {
         self.advance();
         let path = &Self::norm(path);
-        self.files.borrow_mut().remove(path);
-        self.mtimes.borrow_mut().remove(path);
+        self.inner.files.borrow_mut().remove(path);
+        self.inner.mtimes.borrow_mut().remove(path);
     }
 
     pub fn set_mtime(&self, path: &Path, mtime: f64) {
         let path = &Self::norm(path);
-        self.mtimes.borrow_mut().insert(path.to_path_buf(), mtime);
+        self.inner
+            .mtimes
+            .borrow_mut()
+            .insert(path.to_path_buf(), mtime);
+    }
+
+    pub fn fail_rename_times(&self, n: u32) {
+        self.inner.fail_rename_permission_times.set(n);
+    }
+
+    pub fn rename_calls(&self) -> u32 {
+        self.inner.rename_calls.get()
+    }
+
+    pub fn sleeps(&self) -> u64 {
+        self.inner.sleeps.get()
     }
 
     // Insert a directory directly (simulating anything on disk).
     pub fn insert_dir(&self, path: &Path) {
-        self.dirs.borrow_mut().insert(Self::norm(path));
+        self.inner.dirs.borrow_mut().insert(Self::norm(path));
     }
 
     pub fn read(&self, path: &Path) -> String {
-        self.files
+        self.inner
+            .files
             .borrow()
             .get(&Self::norm(path))
             .cloned()
@@ -99,7 +122,8 @@ impl FakeIo {
     }
 
     pub fn mtime_of(&self, path: &Path) -> f64 {
-        self.mtimes
+        self.inner
+            .mtimes
             .borrow()
             .get(&Self::norm(path))
             .copied()
@@ -110,10 +134,10 @@ impl FakeIo {
 impl Io for FakeIo {
     fn read_with_mtime(&self, path: &Path) -> std::io::Result<Option<(String, f64)>> {
         let path = &Self::norm(path);
-        match self.files.borrow().get(path) {
+        match self.inner.files.borrow().get(path) {
             Some(content) => Ok(Some((
                 content.clone(),
-                self.mtimes.borrow().get(path).copied().unwrap_or(0.0),
+                self.inner.mtimes.borrow().get(path).copied().unwrap_or(0.0),
             ))),
             None => Ok(None),
         }
@@ -121,33 +145,33 @@ impl Io for FakeIo {
 
     fn read_dir(&self, path: &Path) -> std::io::Result<Vec<DirEntry>> {
         let path = &Self::norm(path);
-        if !self.dirs.borrow().contains(path) {
+        if !self.inner.dirs.borrow().contains(path) {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
                 "no such directory",
             ));
         }
         let mut entries: Vec<DirEntry> = Vec::new();
-        for file in self.files.borrow().keys() {
-            if file.parent() == Some(path) {
-                if let Some(name) = file.file_name() {
-                    entries.push(DirEntry {
-                        name: name.to_string_lossy().to_string(),
-                        is_dir: false,
-                        is_file: true,
-                    });
-                }
+        for file in self.inner.files.borrow().keys() {
+            if file.parent() == Some(path)
+                && let Some(name) = file.file_name()
+            {
+                entries.push(DirEntry {
+                    name: name.to_string_lossy().to_string(),
+                    is_dir: false,
+                    is_file: true,
+                });
             }
         }
-        for dir in self.dirs.borrow().iter() {
-            if dir.parent() == Some(path) {
-                if let Some(name) = dir.file_name() {
-                    entries.push(DirEntry {
-                        name: name.to_string_lossy().to_string(),
-                        is_dir: true,
-                        is_file: false,
-                    });
-                }
+        for dir in self.inner.dirs.borrow().iter() {
+            if dir.parent() == Some(path)
+                && let Some(name) = dir.file_name()
+            {
+                entries.push(DirEntry {
+                    name: name.to_string_lossy().to_string(),
+                    is_dir: true,
+                    is_file: false,
+                });
             }
         }
         entries.sort_by(|a, b| a.name.cmp(&b.name));
@@ -156,7 +180,7 @@ impl Io for FakeIo {
     }
 
     fn is_directory(&self, path: &Path) -> bool {
-        self.dirs.borrow().contains(&Self::norm(path))
+        self.inner.dirs.borrow().contains(&Self::norm(path))
     }
 
     fn create_dir_all(&self, path: &Path) -> std::io::Result<()> {
@@ -165,7 +189,7 @@ impl Io for FakeIo {
         ancestors.reverse();
         for dir in ancestors {
             if !dir.as_os_str().is_empty() {
-                self.dirs.borrow_mut().insert(dir);
+                self.inner.dirs.borrow_mut().insert(dir);
             }
         }
         Ok(())
@@ -174,60 +198,70 @@ impl Io for FakeIo {
     fn write_file(&self, path: &Path, content: &str) -> std::io::Result<()> {
         self.advance();
         let path = &Self::norm(path);
-        self.files
+        self.inner
+            .files
             .borrow_mut()
             .insert(path.to_path_buf(), content.to_string());
-        self.mtimes
+        self.inner
+            .mtimes
             .borrow_mut()
-            .insert(path.to_path_buf(), self.now.get());
+            .insert(path.to_path_buf(), self.inner.now.get());
         Ok(())
     }
 
     fn rename(&self, from: &Path, to: &Path) -> std::io::Result<()> {
         let from = &Self::norm(from);
         let to = &Self::norm(to);
-        self.rename_calls.set(self.rename_calls.get() + 1);
-        if self.fail_rename_permission_times.get() > 0 {
-            self.fail_rename_permission_times
-                .set(self.fail_rename_permission_times.get() - 1);
+        self.inner
+            .rename_calls
+            .set(self.inner.rename_calls.get() + 1);
+        if self.inner.fail_rename_permission_times.get() > 0 {
+            self.inner
+                .fail_rename_permission_times
+                .set(self.inner.fail_rename_permission_times.get() - 1);
             return Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied));
         }
         self.advance();
         let content = self
+            .inner
             .files
             .borrow_mut()
             .remove(from)
             .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "no such file"))?;
-        self.files.borrow_mut().insert(to.to_path_buf(), content);
-        self.mtimes
+        self.inner
+            .files
             .borrow_mut()
-            .insert(to.to_path_buf(), self.now.get());
-        self.mtimes.borrow_mut().remove(from);
+            .insert(to.to_path_buf(), content);
+        self.inner
+            .mtimes
+            .borrow_mut()
+            .insert(to.to_path_buf(), self.inner.now.get());
+        self.inner.mtimes.borrow_mut().remove(from);
         Ok(())
     }
 
     fn remove_file(&self, path: &Path) -> std::io::Result<()> {
         self.advance();
-        self.files.borrow_mut().remove(path);
-        self.mtimes.borrow_mut().remove(path);
+        self.inner.files.borrow_mut().remove(path);
+        self.inner.mtimes.borrow_mut().remove(path);
         Ok(())
     }
 
     fn path_exists(&self, path: &Path) -> bool {
-        self.files.borrow().contains_key(path) || self.dirs.borrow().contains(path)
+        self.inner.files.borrow().contains_key(path) || self.inner.dirs.borrow().contains(path)
     }
 
     fn now_ms(&self) -> i64 {
-        self.now.get() as i64
+        self.inner.now.get() as i64
     }
 
     fn pid(&self) -> u32 {
-        self.pid
+        self.inner.pid
     }
 
     fn sleep_ms(&self, ms: u64) {
-        self.sleeps.set(self.sleeps.get() + ms);
-        self.now.set(self.now.get() + ms as f64);
+        self.inner.sleeps.set(self.inner.sleeps.get() + ms);
+        self.inner.now.set(self.inner.now.get() + ms as f64);
     }
 }
 
@@ -281,7 +315,7 @@ pub fn premise_body(id: &str, body: &str) -> (String, String) {
 }
 
 /// A decision fixture with grounds and rationale frontmatter.
-pub fn decision_body_rationale(id: &str, grounds: &[&str], body: &str, rationale: &str) -> String {
+pub fn decision_body_rationale(_id: &str, grounds: &[&str], body: &str, rationale: &str) -> String {
     let grounds_json: Vec<String> = grounds.iter().map(|g| format!("\"{g}\"")).collect();
     format!(
         "---\ngrounds: [{}]\nrationale: {}\n---\n\n{}",
@@ -318,10 +352,10 @@ impl Default for RecordingSink {
 
 impl refino_storage::WatchSink for RecordingSink {
     fn watch_dir(&mut self, path: &Path) -> Result<(), WatchError> {
-        if path == PathBuf::from("/repo/.refino/nodes") {
-            if let Some(error) = self.fail_root_with {
-                return Err(error);
-            }
+        if path == "/repo/.refino/nodes"
+            && let Some(error) = self.fail_root_with
+        {
+            return Err(error);
         }
         self.watched.push(path.to_path_buf());
         Ok(())

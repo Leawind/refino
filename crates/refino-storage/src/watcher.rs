@@ -28,6 +28,9 @@
 
 use crate::io::{DirEntry, Io, WatchError};
 
+/// The debounced batch callback: affected ids plus touched shards.
+type BatchCallback = Box<dyn FnMut(&[String], &[String])>;
+
 /// A shard directory name: the first 2 characters of a node id.
 fn is_shard_name(name: &str) -> bool {
     name.len() == 2 && name.bytes().all(is_id_byte)
@@ -104,7 +107,7 @@ pub struct WatcherCore {
     rescan_pending: Vec<String>,
     retry_scheduled: bool,
     closed: bool,
-    on_batch: Box<dyn FnMut(&[String], &[String])>,
+    on_batch: BatchCallback,
 }
 
 impl WatcherCore {

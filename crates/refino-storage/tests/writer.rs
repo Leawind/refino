@@ -763,7 +763,7 @@ fn atomic_write_removes_temp_when_rename_fails() {
     io.create_dir_all(&dir).unwrap();
     // A directory occupying the target path makes the rename fail.
     io.insert_dir(&dir.join("B2C3D4-premise.md"));
-    io.fail_rename_permission_times.set(9); // exceeds all retries
+    io.fail_rename_times(9); // exceeds all retries
     let error = atomic_write_file(&io, &dir.join("B2C3D4-premise.md"), "Body.\n");
     assert!(error.is_err());
     let names: Vec<String> = io
@@ -782,10 +782,10 @@ fn atomic_write_retries_transient_rename_failures() {
     let dir = root.join(".refino").join("nodes").join("A1");
     io.create_dir_all(&dir).unwrap();
     // Two transient failures then success: the Windows backoff loop.
-    io.fail_rename_permission_times.set(2);
+    io.fail_rename_times(2);
     atomic_write_file(&io, &dir.join("B2C3D4-premise.md"), "Body.\n").unwrap();
-    assert_eq!(io.rename_calls.get(), 3);
-    assert_eq!(io.sleeps.get(), 10 + 20); // 10ms * attempt, twice
+    assert_eq!(io.rename_calls(), 3);
+    assert_eq!(io.sleeps(), 10 + 20); // 10ms * attempt, twice
     assert_eq!(io.read(&dir.join("B2C3D4-premise.md")), "Body.\n");
 }
 

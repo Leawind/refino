@@ -290,7 +290,7 @@ pub fn cmd_dev_generate(
     }
     let io_ = refino_fs::FsIo;
     let random = refino_fs::OsRandom;
-    let mut store = RefinoStore::new(&io_, &random, refino_dir.clone());
+    let mut store = RefinoStore::new(io_, random, refino_dir.clone());
     let result = (|| -> Result<i32, refino_storage::StoreError> {
         store.ready()?;
         if !store.graph().nodes.is_empty() && !force {

@@ -84,13 +84,8 @@ pub fn read_node<I: Io>(
         let Some(parsed_node) = parsed.node else {
             continue;
         };
-        if node.is_none() {
-            node = Some(parsed_node);
-            content = parsed.content;
-            mtime_ms = Some(mtime);
-            summary_explicit = Some(parsed.summary_explicit);
-        } else {
-            let existing_type = node.as_ref().expect("set above").node_type();
+        if node.is_some() {
+            let existing_type = node.as_ref().map(|n| n.node_type()).expect("set above");
             issues.push(
                 StorageIssue::new(
                     IssueCode::DUPLICATE_ID,
@@ -104,6 +99,10 @@ pub fn read_node<I: Io>(
             );
             break; // both candidates parsed: nothing left to read
         }
+        node = Some(parsed_node);
+        content = parsed.content;
+        mtime_ms = Some(mtime);
+        summary_explicit = Some(parsed.summary_explicit);
     }
     Ok(ReadNodeResult {
         node,
@@ -221,7 +220,7 @@ pub fn load_graph<I: Io>(io: &I, refino_dir: &Path) -> Result<LoadResult, Refino
             let parsed = parse_node_source(&id, &file, node_type, &source);
             issues.extend(parsed.issues);
             let Some(node) = parsed.node else { continue };
-            if let Some(existing_file) = seen_ids.get(&node.id().to_string()) {
+            if let Some(existing_file) = seen_ids.get(node.id()) {
                 issues.push(
                     StorageIssue::new(
                         IssueCode::DUPLICATE_ID,

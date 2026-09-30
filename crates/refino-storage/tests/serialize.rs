@@ -136,7 +136,12 @@ fn grounds_is_always_a_block_sequence() {
             &[("grounds".to_string(), FieldValue::StrList(vec![]))],
             "B."
         ),
-        "---\ngrounds: []\n---\n\nB.\n".replace("[]", "[]") // empty list emits `[]` (flow), matching the yaml package
+        "---
+grounds: []
+---
+
+B.
+" // empty list emits the flow form, like the yaml package
     );
 }
 
