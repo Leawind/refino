@@ -13,26 +13,43 @@
 
 ## 包结构
 
-| 包                             | 职责                                                                                                                                                                          | 状态           |
-| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
-| `refino`                       | 纯引擎：常驻图数据模型（拓扑 + 摘要）、图组装与内存变更原语、结构校验、查询、最长路径分层、ID 生成与校验、批量查询结果形状、写入前图级校验原语                                | 已有           |
-| `@refino/storage`              | DLG 文件系统存储格式（目录结构、节点文件格式、解析与序列化、摘要提取规则）的定义与实现；Node 存储适配器（常驻投影 Store、内容分页、加载、创建、更新、删除、原子写、变更监听） | 已有           |
-| `@refino/cli`                  | `refino` 引擎的命令行薄封装                                                                                                                                                   | 已有           |
-| `@refino/testkit`              | 各包测试共用的夹具与工具函数                                                                                                                                                  | 已有           |
-| `@refino/ui`                   | DLG 可视化编辑组件库（Vue 3）                                                                                                                                                 | 已有           |
-| `@refino/harness`              | 任务界定层（作用域锚点、冻结区与修改空间、授权上下文、冲突检测与越界升级）与 vibe coding 工具插件的公共逻辑（上下文增量生成、模型技能、注入协议）                             | 已有           |
-| `@refino/cordis-plugin-refino` | 以 Cordis 插件形式接入 DeepSeek Harness，bundle 形式分发                                                                                                                      | 已有（未验证） |
-| `@refino/desktop`              | 桌面应用                                                                                                                                                                      | 未来           |
-| `@refino/vscode`               | VSCode 插件                                                                                                                                                                   | 未来           |
+仓库为 pnpm + Cargo 混合 workspace：`crates/` 为 Cargo workspace（Rust 核心），`packages/` 为 pnpm workspace（TS 门面与消费方）。
+
+| 包                             | 职责                                                                                                                                                                                                         | 状态           |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------- |
+| `refino-core`（crate）         | 纯引擎：常驻图数据模型（拓扑 + 摘要）、图组装与内存变更原语、结构校验、查询、最长路径分层、ID 生成与校验、批量查询结果形状、写入前图级校验原语；wasm-clean，同一份实现编译原生与 wasm                        | 已有           |
+| `refino-storage`（crate）      | DLG 文件系统存储格式的定义与实现（目录结构、节点文件格式、解析与序列化、摘要提取规则）与存储核心：常驻投影 Store、内容分页、创建、更新、删除、原子写策略、变更监听状态机；文件系统与时钟经同步 Io trait 注入 | 已有           |
+| `refino-fs`（crate）           | Io trait 的原生实现（std::fs + notify），供命令行二进制与服务端使用                                                                                                                                          | 已有           |
+| `refino`（crate）              | 命令行二进制（clap）；crates.io 渠道（`cargo install refino`）                                                                                                                                               | 已有           |
+| `refino-server`（crate）       | 本地 HTTP 服务（axum）：Web API 与 SSE 变更流，托管 `@refino/ui` 构建产物                                                                                                                                    | 已有           |
+| `refino-wasm`（crate）         | wasm-bindgen 门面：向 JS 导出引擎与存储核心                                                                                                                                                                  | 已有           |
+| `@refino/wasm`                 | wasm 产物与双宿主胶水（浏览器 bundler、Node、jsdom）及 TS 门面：以 JS 原生形状（Map、Array、普通对象）暴露引擎与存储 API                                                                                     | 已有           |
+| `@refino/wire`                 | wire 类型单一来源：ts-rs 自 Rust 结构体生成 TS 定义，产物入库                                                                                                                                                | 已有           |
+| `@refino/cli`                  | npm 分发壳：bin 依平台解析平台二进制（optionalDependencies）；npm 渠道的 `refino` 命令                                                                                                                       | 已有           |
+| `@refino/harness`              | 任务界定层（作用域锚点、冻结区与修改空间、授权上下文、冲突检测与越界升级）与 vibe coding 工具插件的公共逻辑（上下文增量生成、模型技能、注入协议）；TypeScript，图与存储访问经 `@refino/wasm`                 | 已有           |
+| `@refino/ui`                   | DLG 可视化编辑组件库（Vue 3）；wire 类型取自 `@refino/wire`，图计算经 `@refino/wasm`                                                                                                                         | 已有           |
+| `@refino/cordis-plugin-refino` | 以 Cordis 插件形式接入 DeepSeek Harness，bundle 形式分发                                                                                                                                                     | 已有（未验证） |
+| `@refino/testkit`              | 各包测试共用的夹具与工具函数                                                                                                                                                                                 | 已有           |
+| `@refino/desktop`              | 桌面应用                                                                                                                                                                                                     | 未来           |
+| `@refino/vscode`               | VSCode 插件                                                                                                                                                                                                  | 未来           |
+
+## 技术形态与边界
+
+- **核心 Rust 化**：引擎与存储以 Rust 实现（`refino-core`、`refino-storage`），是图逻辑与存储格式的唯一实现；TypeScript 侧不设第二份实现。
+- **全 wasm 统一**：核心经 wasm-bindgen 编译到 wasm32-unknown-unknown，浏览器与 Node 共用同一 wasm 产物（`@refino/wasm`）；不引入 napi 等第二边界技术。唯一的原生产物是命令行二进制（npm 平台包与 crates.io 双渠道分发）。
+- **Io 注入**：存储核心不含文件系统与时钟实现。文件系统操作收敛为同步 Io trait（列目录、同句柄读取与 stat、临时文件写入与 rename、unlink、目录创建、watch 注册与注销、毫秒时钟），由宿主注入：原生侧由 `refino-fs` 提供，JS 侧经 node:fs 适配器注入；外部文件事件由宿主推入存储核心，去抖计时用注入时钟。核心保持全同步语义。
+- **边界形状**：`@refino/wasm` 的 TS 门面产出 JS 原生形状（Map、Array、普通对象），与既有 TS 包签名同构（Promise 包同步调用）；TS 消费方（harness、ui、插件）只更换 import 来源，不改逻辑。
+- **wire 类型单一来源**：QueryGroup、issue、节点 JSON 等 wire 类型由 Rust 结构体定义，经 ts-rs 生成 TS 定义（产物入库），两端契约不可漂移。
+- **性能分层**：Node 侧（wasm + 注入 Io）的 fs 调用次数与移植前持平，YAML 解析与图计算在 Rust 内提速；大规模图的性能上限由原生二进制承担。
 
 ## 引擎纯净性
 
-"引擎"专指 `refino` 包。引擎不依赖任何 Node API（`node:fs`、`node:path`、`node:crypto` 等均不允许），全部为纯逻辑，可在浏览器、Web Worker 等任意 JS 环境运行：
+"引擎"专指 `refino-core` crate。引擎不含文件系统、时钟与网络依赖，全部为纯逻辑，wasm-clean：同一份实现编译到原生（供命令行与服务端）与 wasm32-unknown-unknown（供浏览器与 Node）：
 
 - 引擎只包含纯图数据模型与逻辑：类型定义、图组装、结构校验、查询、最长路径分层、ID 生成与校验、内存变更原语；
-- 随机数使用 Web Crypto（`globalThis.crypto`），因此运行时要求 Node >= 20（或任何提供 `globalThis.crypto` 的环境）；
-- DLG 在文件系统中的存储格式——目录结构、节点文件格式、Markdown/YAML 解析、序列化、摘要提取规则——不是引擎的职责，由 `@refino/storage` 定义并实现；引擎只消费其产出的内存图；
-- 引擎的类型不携带任何存储路径：节点与图上没有文件字段，文件路径由 `@refino/storage` 依“路径即身份”规则从 `(id, type)` 推导；需要路径信息的文件层（CLI、Web 服务）在自身边界内推导；
+- 随机数来自注入的随机源（trait）：原生侧默认操作系统安全随机源，wasm 侧由宿主注入（浏览器为 Web Crypto）；
+- DLG 在文件系统中的存储格式——目录结构、节点文件格式、Markdown/YAML 解析、序列化、摘要提取规则——不是引擎的职责，由 `refino-storage` 定义并实现；引擎只消费其产出的内存图；
+- 引擎的类型不携带任何存储路径：节点与图上没有文件字段，文件路径由 `refino-storage` 依“路径即身份”规则从 `(id, type)` 推导；需要路径信息的文件层（CLI、Web 服务）在自身边界内推导；
 - 引擎的内存模型只含常驻字段（见“渐进披露与常驻集”）；节点内容（`body`、`rationale`）不是引擎类型的组成部分，内容缺席不影响任何拓扑操作。
 
 ## 渐进披露与常驻集
@@ -46,7 +63,7 @@ DLG 支持按需遍历与渐进式知识披露（dlg.md 核心原则 13），图
 - `summary`：渐进披露的入口——先以低成本知悉节点内容主旨，再决定展开什么；10⁶ × ~64B 的摘要内存量级（一两百 MB）完全可接受；
 - `grounds`：父节点引用，声明序、去重，是边关系的语义权威；
 - `children`：子节点引用，图内派生的反向索引，按 id 排序去重，由引擎在组装与变更时维护；
-- `confirmed`（仅前提）：内存中为 epoch 毫秒 `number`，文件中仍为 RFC 3339 带显式 UTC 偏移，由 `@refino/storage` 在文件边界相互转换（重写时规范化为 UTC Z 形式）。confirmed 虽非必要属性，但 number 体积很小，而为读取一个时间戳频繁访问存储的代价过高。
+- `confirmed`（仅前提）：内存中为 epoch 毫秒 `number`，文件中仍为 RFC 3339 带显式 UTC 偏移，由 `refino-storage` 在文件边界相互转换（重写时规范化为 UTC Z 形式）。confirmed 虽非必要属性，但 number 体积很小，而为读取一个时间戳频繁访问存储的代价过高。
 - `exploring`（仅决策）：布尔，标记该决策为试行承诺，缺省（字段缺席与显式 false 等价）为定案。存储规范形为只落盘 `exploring: true`，转正即从文件移除该字段。生效状态不存储、读时派生：自身标记为真，或任一依据（决策）生效探索中。注入标注与派生计算要求该字段常驻。
 
 **分页集**——不经引擎内存，按 id 由存储层按需供给：`body` 与 `rationale`，完整内容通常 0–5KB，引擎不作硬性限制。图的持久化介质多样（文件系统、数据库、LocalStorage），速度可能较低，且持久化格式未必支持 O(1) 的邻接查询，因此节点 ID 与关系（拓扑）及判断相关性所需的摘要必须常驻内存并建立索引，内容则可以容忍按需加载的延迟。
@@ -64,23 +81,23 @@ DLG 支持按需遍历与渐进式知识披露（dlg.md 核心原则 13），图
 issue 与错误携带的 `code` 字段是对外的 wire 值（SCREAMING_SNAKE 字符串），类型为 `string`，不构成封闭集合，由**产生方**定义各自的码：
 
 - 引擎的 `IssueCode` 只包含图级语义码（id 规则、grounds 结构、id 唯一性、成环、节点不存在等），供所有产生方复用；
-- 存储格式相关的码（frontmatter、节点文件路径形状、`.refino` 目录存在性、`confirmed` 时间戳格式——内存中它是 number，格式校验只发生在文件边界）由 `@refino/storage` 定义；
+- 存储格式相关的码（frontmatter、节点文件路径形状、`.refino` 目录存在性、`confirmed` 时间戳格式——内存中它是 number，格式校验只发生在文件边界）由 `refino-storage` 定义；
 - 请求形状相关的码由各请求处理层自行定义，不得借用其他产生方的码。
 
 消费方按需针对具体码做分支（如 HTTP 状态映射、友好提示），展示类消费直接透传字符串。
 
-issue 的其余归属字段同样由产生方定义：引擎 issue 携带 `nodeId`（及 `groundId`、`cycle` 等图级细节字段），不含文件路径；持久化层的 `StorageIssue`（`@refino/storage`）在 `RefinoIssue` 之上额外要求 `file`——对从未解析出节点的文件（如路径形状非法），文件路径是唯一可靠的定位。
+issue 的其余归属字段同样由产生方定义：引擎 issue 携带 `nodeId`（及 `groundId`、`cycle` 等图级细节字段），不含文件路径；持久化层的 `StorageIssue`（`refino-storage`）在 `RefinoIssue` 之上额外要求 `file`——对从未解析出节点的文件（如路径形状非法），文件路径是唯一可靠的定位。
 
 ## 引擎提供的共享原语
 
 以下原语由引擎统一提供，供 CLI、Web API、harness 等所有消费方复用，避免各自重复实现：
 
 - **`QueryGroup<T>`**：批量查询的标准结果形状（`{id, results: T[]} | {id, error: string}`），承载部分成功语义。所有批量查询接口（CLI、harness 工具、Web 按需查询）均使用此形状作为返回契约。
-- **`checkGroundsChange(graph, node, newGrounds): Issue[]`**：写入前 grounds 校验原语。给定当前图、图内的目标决策节点与新 grounds 列表，返回校验问题（引用不存在、成环等）；签名接收决策节点，对 premise 目标设置 grounds 在类型上不可表达。写入路径统一经由 `@refino/storage` 的 Store（见下节），由其内部在落盘前调用此原语，确保图级校验逻辑单一来源；目标节点尚未持久化时（如创建决策），Store 向图的副本插入待写节点后调用原语。
+- **`checkGroundsChange(graph, node, newGrounds): Issue[]`**：写入前 grounds 校验原语。给定当前图、图内的目标决策节点与新 grounds 列表，返回校验问题（引用不存在、成环等）；签名接收决策节点，对 premise 目标设置 grounds 在类型上不可表达。写入路径统一经由 `refino-storage` 的 Store（见下节），由其内部在落盘前调用此原语，确保图级校验逻辑单一来源；目标节点尚未持久化时（如创建决策），Store 向图的副本插入待写节点后调用原语。
 
 ## 存储层 Store
 
-长驻消费方（Web 服务、工具插件宿主）需要在内存中维护与磁盘一致的常驻投影；“写完落盘后忘记更新投影”与“API 写入和外部文件事件走两套更新逻辑”是这一模式的固有风险。为此 `@refino/storage` 提供有状态的 **Store**（`RefinoStore`），把投影一致性收敛到变更发生的同一处：
+长驻消费方（Web 服务、工具插件宿主）需要在内存中维护与磁盘一致的常驻投影；“写完落盘后忘记更新投影”与“API 写入和外部文件事件走两套更新逻辑”是这一模式的固有风险。为此 `refino-storage` 提供有状态的 **Store**（`RefinoStore`），把投影一致性收敛到变更发生的同一处：
 
 - **职责**：常驻投影（拓扑 + 摘要 + confirmed）、内容分页缓存（body/rationale 的 LRU）、双层 issue 缓存（解析 + 图级）、单调递增的 revision 计数、变更监听接入；
 - **写入流程**：写入方法内部完成 写入前校验（`checkGroundsChange`）→ 原子写 → 重读文件 → 以引擎变更原语增量应用 → 内容缓存失效/预热 → 受影响节点的 issue 复检 → 广播变更事件。校验失败抛出携带 issues 的 `WriteRejected`，消费方不应也无法绕过校验直接写文件；
@@ -92,15 +109,15 @@ CLI、Web 服务与工具插件一律经 Store 访问 `.refino/`，不再各自�
 
 ## 存储格式容错
 
-节点 frontmatter 中的未知字段一律忽略，不视为错误而报告 issue；只有引擎已知的字段参与解析与校验，已知字段的清单由 `@refino/storage` 的格式定义给出。这保证存储格式可以在不破坏既有节点文件的前提下向前演进（新增字段时，旧版本引擎仍能正常读取）。
+节点 frontmatter 中的未知字段一律忽略，不视为错误而报告 issue；只有引擎已知的字段参与解析与校验，已知字段的清单由 `refino-storage` 的格式定义给出。这保证存储格式可以在不破坏既有节点文件的前提下向前演进（新增字段时，旧版本引擎仍能正常读取）。
 
-“已知字段出现在错误类型的节点上”（如 premise 文件声明 `grounds`、decision 文件声明 `confirmed`、premise 文件声明 `exploring`）与未知字段同待遇：静默忽略，不报告 issue、不参与解析；写入 API 对显式传入的错位字段同样静默忽略。决策文件上 `exploring` 取非布尔值时，报告 `@refino/storage` 定义的 issue（对齐 `confirmed` 的格式校验待遇）。从 premise 节点的视角，`grounds` 与任何其他未定义的属性一样，没有特殊性。将来可在命令行与 harness 工具调用层为显式传入的非法字段提供拦截提示，引擎与存储层不作区分。
+“已知字段出现在错误类型的节点上”（如 premise 文件声明 `grounds`、decision 文件声明 `confirmed`、premise 文件声明 `exploring`）与未知字段同待遇：静默忽略，不报告 issue、不参与解析；写入 API 对显式传入的错位字段同样静默忽略。决策文件上 `exploring` 取非布尔值时，报告 `refino-storage` 定义的 issue（对齐 `confirmed` 的格式校验待遇）。从 premise 节点的视角，`grounds` 与任何其他未定义的属性一样，没有特殊性。将来可在命令行与 harness 工具调用层为显式传入的非法字段提供拦截提示，引擎与存储层不作区分。
 
 由此得到一条硬不变量：**边只来自决策节点的 `grounds` 字段**——任何其他字段在任何一层（引擎、存储、查询、注入）都不产生边。
 
 ## 摘要与内容分离
 
-摘要（summary）是独立于正文的属性，用于遍历时快速判断节点相关性、节约上下文长度（见 dlg.md）。摘要在内存中常驻（见“渐进披露与常驻集”）；"摘要如何随节点文件存储与维护"（如独立的 frontmatter 字段、缺省时的回退规则）是 `@refino/storage` 的实现细节，dlg.md 不作规定。
+摘要（summary）是独立于正文的属性，用于遍历时快速判断节点相关性、节约上下文长度（见 dlg.md）。摘要在内存中常驻（见“渐进披露与常驻集”）；"摘要如何随节点文件存储与维护"（如独立的 frontmatter 字段、缺省时的回退规则）是 `refino-storage` 的实现细节，dlg.md 不作规定。
 
 ## 命令行工具
 
@@ -109,6 +126,8 @@ CLI 是自文档接口：agent 在没有其他上下文的情况下，仅凭 CLI
 命令面：`init`（显式采用）、`guide`（自文档）、`validate`、`list`、`show`、`grounds`、`ancestors`、`dependents`、`new`、`update`、`delete`、`web`；`dev` 为 `REFINO_DEV=true` 下的隐藏开发工具。批量与部分成功语义见“批量查询”；写入语义（部分更新、grounds 整体替换、删除守卫）见 `@refino/cli` 的 DESIGN.md。
 
 CLI 不校验授权上下文（冻结区与越界概念属插件形态）：插件接管的会话中一律经插件工具读写，不得以 CLI 规避插件的写路径校验；guide 将此列为硬规则。
+
+CLI 以单一原生二进制分发，双渠道同 tag 发布：npm 渠道为平台包模式（`@refino/cli` 作分发壳，bin 依平台解析 optionalDependencies 中的平台二进制包），crates.io 渠道经 `cargo install refino`（bin crate 名 `refino`，引擎 crate 以 `refino-core` 让名）。npm 渠道沿用 npm trusted publishing；crates.io 凭据经 CI secret 注入。
 
 ## 任务层归属
 
@@ -141,7 +160,7 @@ CLI 不校验授权上下文（冻结区与越界概念属插件形态）：插�
 - 读取：`list`、`search`（按摘要/ID 关键字分页搜索，语义与 Web `GET /api/search` 对齐；大规模图下 `list` 不可用时的定位手段）、`show`、`grounds`、`ancestors`、`dependents`（受影响决策集）、`siblings`（强兄弟：共享直接依据的决策，供细化时参考同级决策）。
 - 待审查查询：前提变化后处于待审查状态的决策集合（派生态，内存计算）。
 - 写入：新增、修改、删除节点；`update` 采用部分更新语义（与 CLI `update` 对齐：省略的字段保持不变，传空串即清除），grounds 仍整体替换并经校验，避免模型凭记忆重打未读取的正文。`exploring` 布尔字段省略保持不变、显式布尔设定，“传空串清除”不适用于它。写入前经授权上下文校验；越界（目标落在冻结区）即拒绝，并返回结构化升级报告（阻挡决策及其图上位置、受影响下游决策、建议与替代方案占位）。写入前 grounds 校验经由引擎 `checkGroundsChange` 原语，结构校验经由引擎 `validateGraph`。
-- 写入经由 `@refino/storage`。
+- 写入经由 `refino-storage`。
 
 ### 批量查询
 
@@ -182,7 +201,7 @@ refino 的四项接入需求中，两项只有进程内 Cordis 插件能实现�
 
 - **分发**：npm 包声明 `dsh.bundle` manifest 指向包内 `cordis.patch.yml`，用户经 `dsh plugin --profile <name> add <包>` 安装；git 直装需自包含 `prepare` 构建脚本，发 npm 或 tarball 则免构建许可。
 - **默认授权上下文**：默认值仅在未显式签发时使用——冻结区默认取全部根决策连同其祖先，前提全部注入；锚点按注入协议自动推导（不超过 1024 节点时取全部节点，超预算时注入极简引导、以搜索定位）。签发后的授权上下文是**会话状态**：只存在于插件进程内存，不落任何文件；resume 后回落默认上下文或编排者凭据，并在恢复时注入一行当前授权状态，防止模型持有过期的授权认知。外部变更不再重置为默认值，仅做收敛（签发列表中被删除的节点随之移除，其余保持）。编排者凭据（`REFINO_AUTHORIZATION`）生效时插件拒绝一切签发，任务内授权不可自我扩张，改冻结区须回到签发者。
-- **会话初始化**：监听 `agent/session-start`，取会话 cwd 定位 `.refino/`，经 `@refino/storage` 的 Store 打开图，按解析出的授权上下文（编排者凭据 → 默认值）构造 `HarnessSession`，按两级策略渲染并以 `<system-reminder>` 框架注入（锚点与前提，冻结锚点标注 `[冻结]`、生效探索中锚点标注 `[探索]`，随附协议声明“标注 `[冻结]` 者只读，未列出者属修改空间；标注 `[探索]` 者为试行承诺，可能被替换或撤销”）。开局注入随附授权状态一行（来源与 signedAt），编排者凭据场景据此核对签发归属。图超自动锚点预算时不静默：注入极简引导（图已连接、节点数、根决策摘要、以搜索定位），模型按需展开工作，需要调整冻结区时经签署工具提议。resume 不重放基线，仅注入一行当前授权状态。
+- **会话初始化**：监听 `agent/session-start`，取会话 cwd 定位 `.refino/`，经 `refino-storage` 的 Store 打开图，按解析出的授权上下文（编排者凭据 → 默认值）构造 `HarnessSession`，按两级策略渲染并以 `<system-reminder>` 框架注入（锚点与前提，冻结锚点标注 `[冻结]`、生效探索中锚点标注 `[探索]`，随附协议声明“标注 `[冻结]` 者只读，未列出者属修改空间；标注 `[探索]` 者为试行承诺，可能被替换或撤销”）。开局注入随附授权状态一行（来源与 signedAt），编排者凭据场景据此核对签发归属。图超自动锚点预算时不静默：注入极简引导（图已连接、节点数、根决策摘要、以搜索定位），模型按需展开工作，需要调整冻结区时经签署工具提议。resume 不重放基线，仅注入一行当前授权状态。
 - **工具**：`refino_list` / `refino_search`（按摘要/ID 分页搜索，语义与 Web `GET /api/search` 对齐，大规模图下的定位手段）/ `refino_show` / `refino_grounds` / `refino_ancestors` / `refino_dependents` / `refino_siblings`（强兄弟，供细化时参考同级决策）/ `refino_pending_review` 与写入工具；`refino_update_node` 采用部分更新语义（与 CLI `update` 对齐：省略即不变，传空串即清除），grounds 仍整体替换并经校验。`refino_context` 重述生效授权（默认或已签发、frontier、冻结计数、注入策略、编排凭据是否生效）。`refino_request_authorization` 承载对话签发：模型起草冻结区划分（frontier 整体替换）并在对话中呈现草案，工具执行中经 dsh 原生审批服务（`ctx.approval.request()`）请求人的明确批准，批准后签署并在会话内即时生效、以 delta 注入新冻结区，不落任何文件；编排者凭据生效时拒绝签发。写入内部走 Store 的写入方法（grounds 校验、原子写与投影更新内建）+ harness `checkModification`，越界（目标落在冻结区）返回结构化升级报告（正常工具结果，非报错）。修改空间沿细化方向向下封闭（见 dlg.md 2.4），写入无需下游波及冻结区的检查。
 - **增量同步**：经 Store 的变更事件（`onChange`）获得受影响节点与待审查原料，产出待审查集与 delta 事件后注入；无监听能力时降级为 touch 驱动（参照 dsh `agent-instructions` 的 `tools/result` 模式）。delta 注入降噪：合并多批事件并设最小注入间隔。更新通知为会话已知集的字段级差分（见“增量更新与缓存友好”）：在降噪窗口发射时刻对当前图计算，仅覆盖已知集内节点；待审查集仍按变更源全量派生。渲染文本是变更集合的纯函数，与上一次注入相同时（如仅 mtime 变化的重写再次触发事件）不注入。
 - **冻结区签发（对话签发）**：主交互面为签署工具 `refino_request_authorization`（见“工具”）——模型起草冻结区划分并在对话中呈现草案，工具执行中经 dsh 原生审批服务（`ctx.approval.request()`，`@deepseek-ai/dsh-user-approval`）请求人的明确批准：fail-closed，仅显式允许生效，无应答者或 `'never'` 策略下一律拒绝并维持当前授权。批准即签署：会话内即时生效、以 delta 注入新冻结区、返回生效结果——不落任何文件，会话内签发不跨 resume。授权控制台组件（`@refino/ui`，见“用户侧：授权上下文的签发”）是后继增强，经 dsh Web Client 的 slots/Conversation 节点扩展点挂载后作为人在图上直接圈选的界面。不设用户命令面：信息类需求由模型工具与对话承担，签发由签署工具承担。升级报告在宿主支持结构化渲染时呈现为升级卡片（阻挡决策、原因、受影响下游），无宿主 UI 时降级为文本：模型向用户报告升级内容与建议，用户裁决为调整冻结区时经签署工具提议再签发，以 delta 续行任务。
@@ -210,7 +229,7 @@ vibe coding 工具插件的包名遵循宿主生态自身的插件命名约定�
 
 ## Web 界面（`refino web`）
 
-`refino web` 是面向人类的 DLG 浏览、编辑与变更审阅工具：通过 CLI 启动本地 HTTP 服务，在浏览器中访问。它只提供对 DLG 本身的访问，与 agent 任务执行无关——作用域锚点选择、冻结区签发（授权控制台）等任务界定功能属于工具插件宿主的交互组件，不在本界面范围内。
+`refino web` 是面向人类的 DLG 浏览、编辑与变更审阅工具：通过 CLI 启动本地 HTTP 服务（`refino-server`），在浏览器中访问。它只提供对 DLG 本身的访问，与 agent 任务执行无关——作用域锚点选择、冻结区签发（授权控制台）等任务界定功能属于工具插件宿主的交互组件，不在本界面范围内。
 
 跨包的设计决策与契约如下；界面结构、页面与交互细节见 `@refino/ui` 的 [DESIGN.md](../packages/ui/DESIGN.md)。
 
@@ -222,7 +241,7 @@ vibe coding 工具插件的包名遵循宿主生态自身的插件命名约定�
 
 `refino web` 绑定 `--host`（默认 `127.0.0.1`）与 `--port`（默认 5649）。未显式指定端口时，服务从默认端口起向上顺延，跳过被占端口直至绑定成功，实际地址以启动输出为准；消费方（如 `@refino/ui` 的开发代理）经 `REFINO_WEB_PORT` 对齐实际端口。显式指定 `--port` 时被占即启动失败、不顺延：显式表达的地址必须精确生效，不得被静默替换。
 
-### 后端 API 契约（v1，由 `@refino/cli` 的 web 服务实现，`@refino/ui` 消费）
+### 后端 API 契约（v1，由 `refino-server` 实现，经 `refino web` 启动，`@refino/ui` 消费）
 
 全量读写（保留，画布不再调用，仅适用于小规模图或兼容场景）：
 
@@ -234,14 +253,14 @@ vibe coding 工具插件的包名遵循宿主生态自身的插件命名约定�
 
 #### 服务端常驻索引架构
 
-画布按需查询在 10⁶ 规模下要求服务端具备索引化的按需读取能力。常驻索引由 `@refino/storage` 的 Store 承载（见“存储层 Store”）：常驻集（id、type、summary、grounds、confirmed、exploring、children）驻留内存，body/rationale 按需读取并 LRU 缓存；issue 双层缓存、增量更新（API 写入与外部文件事件同一入口）、mtime 变更检测、revision 计数与全量重建（`POST /api/reload`）均为 Store 的职责。
+画布按需查询在 10⁶ 规模下要求服务端具备索引化的按需读取能力。常驻索引由 `refino-storage` 的 Store 承载（见“存储层 Store”）：常驻集（id、type、summary、grounds、confirmed、exploring、children）驻留内存，body/rationale 按需读取并 LRU 缓存；issue 双层缓存、增量更新（API 写入与外部文件事件同一入口）、mtime 变更检测、revision 计数与全量重建（`POST /api/reload`）均为 Store 的职责。
 
 Web 层只保留 HTTP 语义：
 
 - **revision 与乐观并发**：Store 的全局 revision 与 per-node revision 驱动 SSE 推送与 PUT 的 409 判定；纯 body 编辑对常驻字段不可见，mtime 保证这类修改同样递增 revision 并经 SSE 推送，使乐观并发覆盖正文级外部修改。
 - **变更来源**：SSE 事件的 `origin: "api" | "file"` 标注变更入口（界面/API 写入或外部文件事件），供变更审阅标注来源，不承诺区分具体客户端。
 
-当前 `@refino/storage` 的全量目录扫描只适合小规模图；大规模索引的方案（持久化索引等）是后续设计课题，落地前以 Store 的常驻内存投影为 v1 实现。
+当前 `refino-storage` 的全量目录扫描只适合小规模图；大规模索引的方案（持久化索引等）是后续设计课题，落地前以 Store 的常驻内存投影为 v1 实现。
 
 #### 画布按需查询
 
@@ -262,13 +281,13 @@ Web 层只保留 HTTP 语义：
 
 #### 外部变更同步
 
-工具插件经由 `@refino/storage` 直接写入 `.refino/`，不经过 web 服务，因此服务端内存索引必然与磁盘漂移。同步机制如下：
+工具插件经由 `refino-storage` 直接写入 `.refino/`，不经过 web 服务，因此服务端内存索引必然与磁盘漂移。同步机制如下：
 
 - **检测**：监听 `.refino/nodes/` 下的分片目录（分片目录数量有界，watch 数随之有界），事件按 500ms 安静期去抖后批量应用；API 写入与外部文件事件走同一个索引更新入口。监听初始化失败时静默降级为纯手动刷新。
 - **推送**：服务端维护单调递增的图修订号（revision），任何来源的变更应用后递增；通过 SSE（`/api/events`）向客户端推送 `{ revision, changed: string[], deleted: string[], origin }`，`origin: "api" | "file"` 标注变更入口（界面/API 写入或外部文件事件），供变更审阅标注来源，不承诺区分具体客户端。SSE 断线重连后按当前 revision 全量比对刷新。
 - **节点历史（后续课题）**：存储“路径即身份”，节点文件路径稳定，可经 git 提供 per-node log/diff，支撑编辑器中的历史与差异视图；依赖服务端 git 集成，单独立项。
 - **手动刷新**：保留为权威重建通道（服务重启后的累积变更、监听不可用的平台），对应 `POST /api/reload`。
-- **存储写入原子化**：`@refino/storage` 的写入改为临时文件 + rename，避免监听触发的读取撞上写了一半的文件。
+- **存储写入原子化**：`refino-storage` 的写入改为临时文件 + rename，避免监听触发的读取撞上写了一半的文件。
 
 #### 编辑冲突处理
 
@@ -286,8 +305,13 @@ Web 读接口在图存在 issues 时照常返回数据并附带 issues；CLI 查
 
 画布以问题角标呈现，不因 Agent 任务执行中的瞬态无效状态阻塞浏览。
 
-编辑功能的写入经由 `@refino/storage` 的 update/delete 写 API（原子写，grounds 引用有效性在落盘前校验）；PUT 到一个尚不存在的合法 id 则以该 id 创建，用于外部删除后的同 id 重建。
+编辑功能的写入经由 `refino-storage` 的 update/delete 写 API（原子写，grounds 引用有效性在落盘前校验）；PUT 到一个尚不存在的合法 id 则以该 id 创建，用于外部删除后的同 id 重建。
+
+## 持续集成
+
+- verify（push/PR）：`pnpm check`（格式、lint、类型、TS 测试）+ Rust 门禁（`cargo fmt --check`、`cargo clippy -D warnings`、`cargo test`、wasm32-unknown-unknown 目标编译检查）。
+- release（`v*` tag）：cargo build 平台矩阵（windows-x64、linux-x64-gnu、linux-arm64、darwin-x64、darwin-arm64）→ npm 平台包与分发壳发布（trusted publishing）+ `cargo publish` 按依赖序发布各 crate；同一 tag 双渠道发布。
 
 ## 测试工具
 
-`@refino/testkit`：`private: true`，不发布，直接以 TS 源码作为 exports，避免构建顺序问题。各包以 devDependency 引入。
+`@refino/testkit`：`private: true`，不发布，直接以 TS 源码作为 exports，避免构建顺序问题。各包以 devDependency 引入。Rust 侧在 Cargo workspace 内提供同构的 test-util（内存 Io 与 `.refino/` fixture 构造器），供各 crate 测试复用。

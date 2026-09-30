@@ -50,3 +50,15 @@
 ## 摘要规则
 
 摘要是独立于正文的属性（见 dlg.md）：frontmatter 声明 `summary` 字段时直接采用；未声明时回退为正文首段，折叠内部空白为单行，超过 100 字符时截断并追加 `...`。截断仅发生在回退路径上，显式 `summary` 字段与正文本身不限制字数。
+
+## YAML 序列化规范形
+
+写入侧不使用通用 YAML 序列化器，而是受限发射器：只输出存储层已知的字段集合，输出形状钉死如下。解析侧接受任意合法 YAML（用户手写 frontmatter 不受写入规范形约束）；规范形只约束写入输出。
+
+- 字段出现顺序固定：premise 为 `confirmed`、`summary`；decision 为 `grounds`、`rationale`、`summary`、`exploring`；缺席字段跳过（`exploring` 仅在 `true` 时出现）。
+- `grounds`：块序列——键行后每个条目独立一行，缩进两空格、`- ` 前缀。
+- 标量（`summary`、`rationale`、`confirmed`）：plain 风格 `key: value`；plain 表示有歧义或非法时（含 `": "` 或 `" #"`、首字符为 YAML 指示符、可被误读为 bool/null/数字等）改用双引号并以 `\` 转义。
+- 折叠：plain 标量超过 80 列在空格处折行，续行缩进两空格；引号标量的折行细节以黄金用例为准。
+- 整体文件形状：有字段时 `---\n<YAML>\n---\n\n<body>`，无字段时纯正文；body 去尾部空白后补单个换行。
+
+以上形状与移植基准（`yaml` 包 2.9.x 的当前输出）逐字节一致，由 writer 的黄金用例锚定；Rust 实现按本节规则手写发射器，不引入通用 YAML emitter。
