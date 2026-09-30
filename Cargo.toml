@@ -1,0 +1,16 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.0.2"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/Leawind/refino"
+
+[workspace.dependencies]
+refino-core = { path = "crates/refino-core" }
+refino-storage = { path = "crates/refino-storage" }
+refino-fs = { path = "crates/refino-fs" }
+refino-server = { path = "crates/refino-server" }
+refino-wasm = { path = "crates/refino-wasm" }

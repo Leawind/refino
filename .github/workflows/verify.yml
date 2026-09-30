@@ -27,3 +27,24 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - run: pnpm check
+
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: cargo fmt --all --check
+
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - run: cargo test --workspace
+
+      # wasm-clean gate: pure crates must compile for the browser target.
+      - run: cargo check -p refino-core --target wasm32-unknown-unknown
