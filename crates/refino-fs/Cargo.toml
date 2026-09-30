@@ -1,0 +1,12 @@
+[package]
+name = "refino-fs"
+description = "Native host adapters for refino: the Io implementation over std::fs and the OS random source."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+refino-core = { workspace = true }
+refino-storage = { workspace = true }
+getrandom = "0.3"

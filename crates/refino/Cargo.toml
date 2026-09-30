@@ -1,0 +1,18 @@
+[package]
+name = "refino"
+description = "Command line interface for Decision Lineage Graphs (DLG)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "refino"
+path = "src/main.rs"
+
+[dependencies]
+refino-core = { workspace = true }
+refino-storage = { workspace = true }
+refino-fs = { workspace = true }
+clap = { version = "4", features = ["derive", "string"] }
+serde_json = "1"
