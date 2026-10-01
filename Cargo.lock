@@ -636,8 +636,10 @@ dependencies = [
  "clap",
  "refino-core",
  "refino-fs",
+ "refino-server",
  "refino-storage",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]

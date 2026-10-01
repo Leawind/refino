@@ -7,20 +7,18 @@
 pub mod query;
 pub mod watch;
 
+use axum::Router;
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Json, Response};
-use axum::routing::{delete, get, post, put};
-use axum::Router;
+use axum::routing::{get, post};
 use refino_core::{
-    get_dependents, is_valid_id, IssueCode, NodeType, QueryGroup, RefinoError, RefinoNode,
+    IssueCode, NodeType, QueryGroup, RefinoError, RefinoNode, get_dependents, is_valid_id,
 };
 use refino_fs::FsIo;
-use refino_storage::{
-    confirmed_to_ms, is_valid_confirmed, RefinoStore, StoreIssue, StorageIssueCode, WatcherCore,
-};
-use serde_json::{json, Value};
+use refino_storage::{RefinoStore, StorageIssueCode, confirmed_to_ms, is_valid_confirmed};
+use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -31,7 +29,7 @@ pub const INVALID_REQUEST: &str = "INVALID_REQUEST";
 /// Shared server state: the watched store plus the change feed's broadcast
 /// channel.
 pub struct AppState {
-    pub store: Mutex<RefinoStore<FsIo>>,
+    pub store: Arc<Mutex<RefinoStore<FsIo>>>,
     /// SSE change feed receivers (docs/design.md, "外部变更同步").
     pub changes: tokio::sync::broadcast::Sender<ChangeFeed>,
     /// Directory holding the built `@refino/ui` assets; `None` disables
@@ -69,7 +67,10 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/health", get(health))
         .route("/api/graph", get(get_graph))
         .route("/api/validate", get(get_validate))
-        .route("/api/nodes/{id}", get(get_node).put(put_node).delete(delete_node))
+        .route(
+            "/api/nodes/{id}",
+            get(get_node).put(put_node).delete(delete_node),
+        )
         .route("/api/nodes/premise", post(post_premise))
         .route("/api/nodes/decision", post(post_decision))
         .route("/api/reload", post(post_reload))
@@ -83,30 +84,27 @@ pub fn router(state: Arc<AppState>) -> Router {
         .with_state(state.clone());
 
     let static_root = state.static_root.clone();
-    let fallback_state = state;
+    let _fallback_state = state;
     api.fallback(move |req| {
         let static_root = static_root.clone();
         async move { static_fallback(req, static_root).await }
     })
 }
 
-async fn static_fallback(
-    req: axum::extract::Request,
-    static_root: Option<PathBuf>,
-) -> Response {
+async fn static_fallback(req: axum::extract::Request, static_root: Option<PathBuf>) -> Response {
     use tower::ServiceExt as _;
-    if req.method() == axum::http::Method::GET {
-        if let Some(root) = static_root {
-            let service = tower_http::services::ServeDir::new(&root);
-            if let Ok(response) = service.oneshot(req).await {
-                if response.status() != StatusCode::NOT_FOUND {
-                    return response.into_response();
-                }
-            }
-            // SPA fallback: unmatched GET requests get the app shell.
-            if let Ok(index) = std::fs::read_to_string(root.join("index.html")) {
-                return (StatusCode::OK, [("content-type", "text/html")], index).into_response();
-            }
+    if req.method() == axum::http::Method::GET
+        && let Some(root) = static_root
+    {
+        let service = tower_http::services::ServeDir::new(&root);
+        if let Ok(response) = service.oneshot(req).await
+            && response.status() != StatusCode::NOT_FOUND
+        {
+            return response.into_response();
+        }
+        // SPA fallback: unmatched GET requests get the app shell.
+        if let Ok(index) = std::fs::read_to_string(root.join("index.html")) {
+            return (StatusCode::OK, [("content-type", "text/html")], index).into_response();
         }
     }
     (
@@ -173,10 +171,13 @@ type ApiResult = Result<Response, ApiError>;
 fn with_store<R>(
     state: &AppState,
     body: impl FnOnce(&mut RefinoStore<FsIo>) -> Result<R, ApiError>,
-) -> ApiResult {
+) -> ApiResult
+where
+    R: IntoResponse,
+{
     let mut store = state.store.lock().expect("store lock");
     store.ready().map_err(ApiError::from)?;
-    body(&mut store)
+    body(&mut store).map(IntoResponse::into_response)
 }
 
 // ---- read endpoints ----
@@ -207,10 +208,10 @@ pub fn node_json(node: &RefinoNode, content: &refino_storage::NodeContent) -> Va
             map.insert("exploring".into(), json!(true));
         }
     }
-    if let Some(premise) = node.as_premise() {
-        if let Some(confirmed) = premise.confirmed {
-            map.insert("confirmed".into(), json!(confirmed));
-        }
+    if let Some(premise) = node.as_premise()
+        && let Some(confirmed) = premise.confirmed
+    {
+        map.insert("confirmed".into(), json!(confirmed));
     }
     Value::Object(map)
 }
@@ -281,7 +282,7 @@ async fn delete_node(State(state): State<Arc<AppState>>, Path(id): Path<String>)
                 .iter()
                 .map(|entry| json!({ "id": entry.node.id(), "depth": entry.depth }))
                 .collect();
-            return Ok((
+            let conflict: Response = (
                 StatusCode::CONFLICT,
                 Json(json!({
                     "error": format!(
@@ -289,9 +290,10 @@ async fn delete_node(State(state): State<Arc<AppState>>, Path(id): Path<String>)
                         affected.len()
                     ),
                     "dependents": dependents,
-                }))
-                .into_response(),
-            ));
+                })),
+            )
+                .into_response();
+            return Ok(conflict);
         }
         let outcome = store.delete_node(&id)?;
         if let Some(change) = outcome.change {
@@ -307,7 +309,9 @@ async fn post_reload(State(state): State<Arc<AppState>>) -> Response {
     let result = with_store(&state, |store| {
         let change = store.reload()?;
         broadcast(&state, &change);
-        Ok(Json(serde_json::to_value(change_feed(&change)).unwrap_or_default()))
+        Ok(Json(
+            serde_json::to_value(change_feed(&change)).unwrap_or_default(),
+        ))
     });
     finish(result)
 }
@@ -325,27 +329,37 @@ fn finish(result: ApiResult) -> Response {
 
 // ---- write endpoints ----
 
-async fn post_premise(State(state): State<Arc<AppState>>, body: Result<Json<Value>, JsonRejection>) -> Response {
+async fn post_premise(
+    State(state): State<Arc<AppState>>,
+    body: Result<Json<Value>, JsonRejection>,
+) -> Response {
     match body {
         Err(_) => error_response(&ApiError::Refino(RefinoError::new(
             INVALID_REQUEST,
             "Request body must be valid JSON.",
         ))),
         Ok(Json(payload)) => {
-            let result = with_store(&state, |store| create_node(store, &state, &payload, NodeType::Premise, None));
+            let result = with_store(&state, |store| {
+                create_node(store, &state, &payload, NodeType::Premise, None)
+            });
             finish(result)
         }
     }
 }
 
-async fn post_decision(State(state): State<Arc<AppState>>, body: Result<Json<Value>, JsonRejection>) -> Response {
+async fn post_decision(
+    State(state): State<Arc<AppState>>,
+    body: Result<Json<Value>, JsonRejection>,
+) -> Response {
     match body {
         Err(_) => error_response(&ApiError::Refino(RefinoError::new(
             INVALID_REQUEST,
             "Request body must be valid JSON.",
         ))),
         Ok(Json(payload)) => {
-            let result = with_store(&state, |store| create_node(store, &state, &payload, NodeType::Decision, None));
+            let result = with_store(&state, |store| {
+                create_node(store, &state, &payload, NodeType::Decision, None)
+            });
             finish(result)
         }
     }
@@ -363,11 +377,19 @@ fn create_node(
     let confirmed = read_confirmed(payload)?;
     let outcome = match node_type {
         NodeType::Premise => store.create_premise(&refino_storage::CreatePremiseOptions {
-            base: refino_storage::CreateOptions { body, id: explicit_id, summary },
+            base: refino_storage::CreateOptions {
+                body,
+                id: explicit_id,
+                summary,
+            },
             confirmed,
         })?,
         NodeType::Decision => store.create_decision(&refino_storage::CreateDecisionOptions {
-            base: refino_storage::CreateOptions { body, id: explicit_id, summary },
+            base: refino_storage::CreateOptions {
+                body,
+                id: explicit_id,
+                summary,
+            },
             grounds: resolve_grounds(payload)?,
             rationale: optional_string(payload, "rationale")?,
             exploring: read_exploring(payload)?.unwrap_or(false),
@@ -377,7 +399,11 @@ fn create_node(
         broadcast(state, &change);
     }
     let revision = store.entry(&outcome.id).map(|e| e.revision);
-    Ok((StatusCode::CREATED, Json(json!({ "id": outcome.id, "revision": revision }))).into_response())
+    Ok((
+        StatusCode::CREATED,
+        Json(json!({ "id": outcome.id, "revision": revision })),
+    )
+        .into_response())
 }
 
 async fn put_node(
@@ -399,9 +425,10 @@ async fn put_node(
         let body_text = required_string(&payload, "body")?;
         let summary = optional_string(&payload, "summary")?;
         let client_revision = read_revision(&payload)?;
-        if let Some(client) = client_revision {
-            if client != entry.revision {
-                let conflict: Response = (
+        if let Some(client) = client_revision
+            && client != entry.revision
+        {
+            let conflict: Response = (
                     StatusCode::CONFLICT,
                     Json(json!({
                         "error": format!(
@@ -411,8 +438,7 @@ async fn put_node(
                     })),
                 )
                     .into_response();
-                return Ok(conflict);
-            }
+            return Ok(conflict);
         }
         if let Some(type_field) = optional_string(&payload, "type")? {
             let current = match entry.node.node_type() {
@@ -429,27 +455,32 @@ async fn put_node(
             }
         }
         let change = match &entry.node.node {
-            RefinoNode::Premise(premise) => {
-                store.update_premise(
-                    &id,
-                    &refino_storage::UpdatePremiseOptions {
-                        base: refino_storage::UpdateOptions { body: body_text, summary },
-                        confirmed: read_confirmed(&payload)?.or(premise.confirmed),
+            RefinoNode::Premise(premise) => store.update_premise(
+                &id,
+                &refino_storage::UpdatePremiseOptions {
+                    base: refino_storage::UpdateOptions {
+                        body: body_text,
+                        summary,
                     },
-                )?
-            }
+                    confirmed: read_confirmed(&payload)?.or(premise.confirmed),
+                },
+            )?,
             RefinoNode::Decision(decision) => {
                 let grounds = resolve_grounds(&payload)?;
                 store.update_decision(
                     &id,
                     &refino_storage::UpdateDecisionOptions {
-                        base: refino_storage::UpdateOptions { body: body_text, summary },
+                        base: refino_storage::UpdateOptions {
+                            body: body_text,
+                            summary,
+                        },
                         grounds: if payload.get("grounds").is_some() {
                             grounds
                         } else {
                             Some(decision.grounds.clone())
                         },
-                        rationale: optional_string(&payload, "rationale")?.or(content_rationale(store, &id)),
+                        rationale: optional_string(&payload, "rationale")?
+                            .or(content_rationale(store, &id)),
                         exploring: read_exploring(&payload)?.unwrap_or(false),
                     },
                 )?
@@ -465,7 +496,7 @@ async fn put_node(
 }
 
 fn content_rationale(store: &RefinoStore<FsIo>, id: &str) -> Option<String> {
-    store.entry(id).and_then(|_| None) // rationale lives in paged content
+    store.entry(id).and(None) // rationale lives in paged content
 }
 
 fn create_with_id(
@@ -480,8 +511,10 @@ fn create_with_id(
             format!("Node \"{id}\" is not a valid node id."),
         )));
     }
-    let type_field = optional_string(payload, "type")?
-        .ok_or_refino(INVALID_REQUEST, format!("\"type\" must be \"premise\" or \"decision\" to create node \"{id}\"."))?;
+    let type_field = optional_string(payload, "type")?.ok_or_refino(
+        INVALID_REQUEST,
+        format!("\"type\" must be \"premise\" or \"decision\" to create node \"{id}\"."),
+    )?;
     let node_type = match type_field.as_str() {
         "premise" => NodeType::Premise,
         "decision" => NodeType::Decision,
@@ -553,12 +586,10 @@ async fn query_range(
             None | Some(Value::Null) => query::DEFAULT_RANGE_BUDGET,
             _ => non_negative_int(payload, "budget")?,
         };
-        Ok(Json(serde_json::to_value(query::range(
-            &store.graph().clone(),
-            &focus_id,
-            &clicked_id,
-            budget,
-        )?)?))
+        let result = query::range(&store.graph().clone(), &focus_id, &clicked_id, budget);
+        let payload = serde_json::to_value(result)
+            .map_err(|error| ApiError::Refino(RefinoError::new("INTERNAL", error.to_string())))?;
+        Ok(Json(payload).into_response())
     })
 }
 
@@ -582,11 +613,15 @@ async fn query_expand(
 /// Batch responses answer 200 when every id resolved, 207 when any group
 /// carries a per-id error.
 fn batch_response<T: serde::Serialize>(groups: &[QueryGroup<T>]) -> ApiResult {
-    let any_error = groups
-        .iter()
-        .any(|g| matches!(g, QueryGroup::Error { .. }));
-    let status = if any_error { StatusCode::MULTI_STATUS } else { StatusCode::OK };
-    Ok((status, Json(serde_json::to_value(groups)?)).into_response())
+    let any_error = groups.iter().any(|g| matches!(g, QueryGroup::Error { .. }));
+    let status = if any_error {
+        StatusCode::MULTI_STATUS
+    } else {
+        StatusCode::OK
+    };
+    let payload = serde_json::to_value(groups)
+        .map_err(|error| ApiError::Refino(RefinoError::new("INTERNAL", error.to_string())))?;
+    Ok((status, Json(payload)).into_response())
 }
 
 const SEARCH_DEFAULT_LIMIT: usize = 50;
@@ -619,7 +654,7 @@ async fn get_search(
             None | Some("") => None,
             Some("premise") => Some(NodeType::Premise),
             Some("decision") => Some(NodeType::Decision),
-            Some(other) => {
+            Some(_other) => {
                 return Err(ApiError::Refino(RefinoError::new(
                     INVALID_REQUEST,
                     "\"type\" must be \"premise\" or \"decision\".",
@@ -645,19 +680,22 @@ async fn get_search(
             if matched.len() > limit {
                 break;
             }
-            let Some(entry) = store.entry(id) else { continue };
+            let Some(entry) = store.entry(id) else {
+                continue;
+            };
             let decision = entry.node.as_decision();
-            if let Some(want) = type_filter {
-                if entry.node.node_type() != want {
-                    continue;
-                }
+            if let Some(want) = type_filter
+                && entry.node.node_type() != want
+            {
+                continue;
             }
             if roots_only
                 && (entry.node.node_type() != NodeType::Decision
                     || decision
                         .map(|d| {
                             d.grounds.iter().any(|g| {
-                                store.entry(g).map(|e| e.node.node_type()) == Some(NodeType::Decision)
+                                store.entry(g).map(|e| e.node.node_type())
+                                    == Some(NodeType::Decision)
                             })
                         })
                         .unwrap_or(false))
@@ -693,7 +731,11 @@ async fn get_search(
                 })
             })
             .collect();
-        let next_cursor = if has_more { page.last().and_then(|n| n.get("id")).cloned() } else { None };
+        let next_cursor = if has_more {
+            page.last().and_then(|n| n.get("id")).cloned()
+        } else {
+            None
+        };
         Ok(Json(json!({ "nodes": page, "nextCursor": next_cursor })))
     });
     finish(result)
@@ -727,32 +769,39 @@ async fn get_stats(State(state): State<Arc<AppState>>) -> Response {
 /// change batch (docs/design.md, "外部变更同步").
 async fn get_events(State(state): State<Arc<AppState>>) -> Response {
     use axum::response::sse::{Event, KeepAlive, Sse};
-    use futures::stream::Stream;
-    let mut rx = state.changes.subscribe();
+
+    let rx = state.changes.subscribe();
     let revision = state.store.lock().map(|s| s.revision()).unwrap_or(0);
-    let snapshot = ChangeFeed {
+    // The snapshot event goes first (clients refresh wholesale), then one
+    // event per applied change batch.
+    let pending_snapshot = Some(ChangeFeed {
         revision,
         changed: vec![],
         deleted: vec![],
         origin: None,
         reload: Some(true),
-    };
-    let stream = futures::stream::iter(vec![Ok::<Event, std::convert::Infallible>(
-        Event::default().data(serde_json::to_string(&snapshot).unwrap_or_default()),
-    )])
-    .chain(futures::stream::unfold(rx, |mut rx| async move {
-        loop {
-            match rx.recv().await {
-                Ok(change) => {
-                    let event = Event::default()
-                        .data(serde_json::to_string(&change).unwrap_or_default());
-                    return Some((Ok(event), rx));
-                }
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => return None,
+    });
+    let stream = futures::stream::unfold(
+        (rx, pending_snapshot),
+        |(mut rx, mut snapshot)| async move {
+            if let Some(first) = snapshot.take() {
+                let event =
+                    Event::default().data(serde_json::to_string(&first).unwrap_or_default());
+                return Some((Ok::<Event, std::convert::Infallible>(event), (rx, snapshot)));
             }
-        }
-    }));
+            loop {
+                match rx.recv().await {
+                    Ok(change) => {
+                        let event = Event::default()
+                            .data(serde_json::to_string(&change).unwrap_or_default());
+                        return Some((Ok(event), (rx, snapshot)));
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => return None,
+                }
+            }
+        },
+    );
     Sse::new(stream)
         .keep_alive(KeepAlive::default())
         .into_response()
@@ -847,11 +896,9 @@ fn optional_string(payload: &Value, key: &str) -> Result<Option<String>, ApiErro
     match payload.get(key) {
         None | Some(Value::Null) => Ok(None),
         Some(Value::String(text)) => Ok(Some(text.clone())),
-        Some(_) => Err(RefinoError::new(
-            INVALID_REQUEST,
-            format!("\"{key}\" must be a string."),
-        )
-        .into()),
+        Some(_) => {
+            Err(RefinoError::new(INVALID_REQUEST, format!("\"{key}\" must be a string.")).into())
+        }
     }
 }
 
@@ -877,11 +924,9 @@ fn read_exploring(payload: &Value) -> Result<Option<bool>, ApiError> {
     match payload.get("exploring") {
         None | Some(Value::Null) => Ok(None),
         Some(Value::Bool(flag)) => Ok(Some(*flag)),
-        Some(_) => Err(RefinoError::new(
-            INVALID_REQUEST,
-            "\"exploring\" must be a boolean.",
-        )
-        .into()),
+        Some(_) => {
+            Err(RefinoError::new(INVALID_REQUEST, "\"exploring\" must be a boolean.").into())
+        }
     }
 }
 
@@ -933,4 +978,121 @@ fn read_revision(payload: &Value) -> Result<Option<u64>, ApiError> {
 /// The SSE wire event JSON for tests.
 pub fn change_feed_json(change: &refino_storage::StoreChange) -> Value {
     serde_json::to_value(change_feed(change)).unwrap_or_default()
+}
+
+// ---- server assembly ----
+
+/// Options of `refino web`.
+pub struct WebServerOptions {
+    pub host: String,
+    /// Port to listen on. When None the server auto-picks from
+    /// [`DEFAULT_WEB_PORT`] upward, skipping occupied ports. An explicit port
+    /// fails on address-in-use instead (docs/design.md, "服务启动与端口").
+    pub port: Option<u16>,
+    pub refino_dir: PathBuf,
+    /// Directory holding the built `@refino/ui` assets; `None` disables
+    /// static hosting.
+    pub static_root: Option<PathBuf>,
+    /// Quiet period for external file-event debouncing; 500ms per design.
+    pub watch_debounce_ms: Option<u64>,
+}
+
+/// Preferred port of `refino web`; auto picking bumps from here when taken.
+pub const DEFAULT_WEB_PORT: u16 = 5649;
+
+/// A bound server: drop the guard to stop accepting and release the watcher.
+pub struct RunningWebServer {
+    pub url: String,
+    shutdown: tokio::sync::oneshot::Sender<()>,
+    watcher: Option<watch::WatchGuard>,
+}
+
+impl RunningWebServer {
+    /// Signal the server to stop; resolve after the socket closes.
+    pub async fn shutdown(self) {
+        let _ = self.shutdown.send(());
+        drop(self.watcher);
+        // Give axum's graceful shutdown a beat to release the socket.
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+}
+
+/// Open the watched store, arm the notify watcher, bind the socket and serve.
+pub async fn start_web_server(options: WebServerOptions) -> std::io::Result<RunningWebServer> {
+    let io = FsIo;
+    let random = refino_fs::OsRandom;
+    let store = RefinoStore::new(io, random, options.refino_dir.clone());
+    let (changes, _) = tokio::sync::broadcast::channel::<ChangeFeed>(64);
+    let state = Arc::new(AppState {
+        store: Arc::new(Mutex::new(store)),
+        changes: changes.clone(),
+        static_root: options.static_root.clone(),
+    });
+
+    // Arm the external-change watcher; a permanent failure degrades to manual
+    // reload (docs/design.md, "外部变更同步").
+    let watch_target = Arc::new(watch::WatchTarget {
+        store: state.store.clone(),
+        changes,
+    });
+    let watcher = watch::start(options.refino_dir.join("nodes"), watch_target);
+
+    let app = router(state);
+    let auto = options.port.is_none();
+    let mut port = options.port.unwrap_or(DEFAULT_WEB_PORT);
+    let listener = loop {
+        match tokio::net::TcpListener::bind((options.host.as_str(), port)).await {
+            Ok(listener) => break listener,
+            Err(error)
+                if auto && error.kind() == std::io::ErrorKind::AddrInUse && port < u16::MAX =>
+            {
+                port += 1;
+            }
+            Err(error) => return Err(error),
+        }
+    };
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+    let url = format!("http://{}:{}", options.host, port);
+    tokio::spawn(async move {
+        let shutdown = async move {
+            let _ = shutdown_rx.await;
+        };
+        let _ = axum::serve(listener, app)
+            .with_graceful_shutdown(shutdown)
+            .await;
+    });
+    // Yield once so the accept loop is live before the caller announces.
+    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    Ok(RunningWebServer {
+        url,
+        shutdown: shutdown_tx,
+        watcher,
+    })
+}
+
+/// Resolve the built `@refino/ui` assets: `REFINO_UI_DIR` overrides, then the
+/// nearest `node_modules/@refino/ui/dist` walking up from `from`. None when
+/// absent — the server serves the placeholder shell.
+pub fn resolve_ui_static_root(from: &std::path::Path) -> Option<PathBuf> {
+    if let Ok(override_dir) = std::env::var("REFINO_UI_DIR") {
+        let dir = PathBuf::from(override_dir);
+        if dir.is_dir() {
+            return Some(dir);
+        }
+        return None;
+    }
+    let mut current = from.to_path_buf();
+    loop {
+        let candidate = current
+            .join("node_modules")
+            .join("@refino")
+            .join("ui")
+            .join("dist");
+        if candidate.is_dir() {
+            return Some(candidate);
+        }
+        if !current.pop() {
+            return None;
+        }
+    }
 }

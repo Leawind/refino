@@ -29,7 +29,7 @@ use serde::Serialize;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// A subscribed change-batch callback.
-type ChangeHandler = Box<dyn FnMut(&StoreChange)>;
+type ChangeHandler = Box<dyn FnMut(&StoreChange) + Send>;
 
 /// Write entry that produced an incremental event; absent on snapshots and reloads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -143,7 +143,7 @@ const INITIAL_REVISION: u64 = 1;
 pub struct RefinoStore<I: Io> {
     pub refino_dir: std::path::PathBuf,
     io: I,
-    random: Box<dyn refino_core::RandomSource>,
+    random: Box<dyn refino_core::RandomSource + Send>,
     graph: Graph,
     entries: BTreeMap<String, StoreEntry>,
     /// Issue cache in two layers. Parse issues come from reading node files
@@ -170,7 +170,7 @@ impl<I: Io> RefinoStore<I> {
     /// the next call.
     pub fn new(
         io: I,
-        random: impl refino_core::RandomSource + 'static,
+        random: impl refino_core::RandomSource + Send + 'static,
         refino_dir: std::path::PathBuf,
     ) -> Self {
         RefinoStore {
@@ -313,7 +313,7 @@ impl<I: Io> RefinoStore<I> {
 
     /// Subscribe to applied change batches; returns the subscriber index to
     /// pass to `unsubscribe`.
-    pub fn on_change(&mut self, handler: impl FnMut(&StoreChange) + 'static) -> usize {
+    pub fn on_change(&mut self, handler: impl FnMut(&StoreChange) + Send + 'static) -> usize {
         self.subscribers.push(Box::new(handler));
         self.subscribers.len() - 1
     }

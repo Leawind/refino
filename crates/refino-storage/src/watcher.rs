@@ -29,7 +29,7 @@
 use crate::io::{DirEntry, Io, WatchError};
 
 /// The debounced batch callback: affected ids plus touched shards.
-type BatchCallback = Box<dyn FnMut(&[String], &[String])>;
+type BatchCallback = Box<dyn FnMut(&[String], &[String]) + Send>;
 
 /// A shard directory name: the first 2 characters of a node id.
 fn is_shard_name(name: &str) -> bool {
@@ -116,7 +116,7 @@ impl WatcherCore {
     pub fn new(
         nodes_dir: std::path::PathBuf,
         debounce_ms: u64,
-        on_batch: impl FnMut(&[String], &[String]) + 'static,
+        on_batch: impl FnMut(&[String], &[String]) + Send + 'static,
     ) -> Self {
         WatcherCore {
             nodes_dir,

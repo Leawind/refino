@@ -26,7 +26,7 @@ fn opts(body: &str) -> CreateOptions {
 }
 
 /// Recorded watcher batches: affected ids plus touched shards.
-type RecordedBatches = std::rc::Rc<std::cell::RefCell<Vec<(Vec<String>, Vec<String>)>>>;
+type RecordedBatches = std::sync::Arc<std::sync::Mutex<Vec<(Vec<String>, Vec<String>)>>>;
 
 fn refino_dir(root: &std::path::Path) -> PathBuf {
     root.join(".refino")
@@ -261,17 +261,17 @@ fn reload_bumps_revision_and_broadcasts_reload_flag() {
     let random = rand();
     let mut store = RefinoStore::new(io.clone(), random, refino_dir(&root));
     store.ready().unwrap();
-    let flags = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let flags = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     {
         let sink = flags.clone();
-        let index = store.on_change(move |change| sink.borrow_mut().push(change.reload));
+        let index = store.on_change(move |change| sink.lock().expect("flags").push(change.reload));
         let change = store.reload().unwrap();
         assert!(change.reload.unwrap_or(false));
         assert!(change.changed.is_empty());
         assert_eq!(store.revision(), 2);
         store.unsubscribe(index);
     }
-    assert_eq!(*flags.borrow(), vec![Some(true)]);
+    assert_eq!((*flags.lock().expect("flags")), vec![Some(true)]);
 }
 
 #[test]
@@ -315,11 +315,12 @@ fn watcher_batches_flow_through_the_same_incremental_entry() {
     // The watcher core records batches; the test plays them into the store
     // through the same incremental entry the production adapter uses.
     let batches: RecordedBatches =
-        std::rc::Rc::new(std::cell::RefCell::new(Vec::new())) as RecordedBatches;
+        std::sync::Arc::new(std::sync::Mutex::new(Vec::new())) as RecordedBatches;
     let sink_batches = batches.clone();
     let mut core = WatcherCore::new(refino_dir(&root).join("nodes"), 500, move |ids, shards| {
         sink_batches
-            .borrow_mut()
+            .lock()
+            .expect("batches")
             .push((ids.to_vec(), shards.to_vec()));
     });
     io.create_dir_all(&refino_dir(&root).join("nodes")).unwrap();
@@ -336,7 +337,7 @@ fn watcher_batches_flow_through_the_same_incremental_entry() {
     core.on_shard_event("AB", Some("C3D4E5F6-premise.md"), &mut sink, &io);
     // Debounce timer tick flushes the batch into the store.
     core.on_timer(TimerKind::Debounce, &mut sink, &io);
-    let recorded = batches.borrow().clone();
+    let recorded = batches.lock().expect("batches").clone();
     assert_eq!(
         recorded,
         vec![(vec!["ABC3D4E5F6".to_string()], vec!["AB".to_string()])]

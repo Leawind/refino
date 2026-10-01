@@ -2,6 +2,7 @@
 //! storage watcher state machine, and watcher batches fed back into the
 //! store's single incremental entry, then broadcast over SSE.
 
+use notify::Watcher as _;
 use refino_fs::FsIo;
 use refino_storage::{Origin, TimerKind, WatchError, WatchSink, WatcherCore};
 use std::path::{Path, PathBuf};
@@ -10,7 +11,10 @@ use std::sync::{Arc, Mutex};
 /// What the notify callbacks forward into the driver loop.
 enum Raw {
     Root(Option<String>),
-    Shard { shard: String, filename: Option<String> },
+    Shard {
+        shard: String,
+        filename: Option<String>,
+    },
     Timer(TimerKind),
 }
 
@@ -22,28 +26,37 @@ struct NotifySink {
 }
 
 impl NotifySink {
-    fn arm(&self, path: PathBuf, translate: impl Fn(Option<String>) -> Raw + Send + 'static) -> Result<(), WatchError> {
+    fn arm(
+        &self,
+        path: PathBuf,
+        translate: impl Fn(Option<String>) -> Raw + Send + 'static,
+    ) -> Result<(), WatchError> {
         let tx = self.tx.clone();
-        let watcher = notify::recommended_watcher(
-            move |result: Result<notify::Event, notify::Error>| {
+        let mut watcher =
+            notify::recommended_watcher(move |result: Result<notify::Event, notify::Error>| {
                 let Ok(event) = result else { return };
                 let filename = event
                     .paths
                     .first()
                     .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()));
                 let _ = tx.send(translate(filename));
-            },
-        )
-        .map_err(|error| refino_fs::watch_error_class(&error))?;
-        // Note: notify watches must be kept alive; `watch` returns a handle we
-        // store. `notify::RecommendedWatcher::watch` starts immediately on
-        // construction with `Config`, so use the manual watch call here.
-        let mut handle = watcher;
-        handle
+            })
+            .map_err(notify_watch_error)?;
+        // Watches must be armed explicitly and the handle kept alive: dropping
+        // a notify watcher unregisters it.
+        watcher
             .watch(&path, notify::RecursiveMode::NonRecursive)
-            .map_err(|error| refino_fs::watch_error_class(&error))?;
-        self.watches.lock().expect("watches").push(handle);
+            .map_err(notify_watch_error)?;
+        self.watches.lock().expect("watches").push(watcher);
         Ok(())
+    }
+}
+
+/// Classify a notify error for the watcher's retry policy.
+fn notify_watch_error(error: notify::Error) -> WatchError {
+    match error.kind {
+        notify::ErrorKind::Io(io) => refino_fs::watch_error_class(&io),
+        _ => WatchError::Permanent,
     }
 }
 
@@ -51,10 +64,7 @@ impl WatchSink for NotifySink {
     fn watch_dir(&mut self, path: &Path) -> Result<(), WatchError> {
         let is_root = path.file_name().is_none_or(|n| n != "nodes") && path.ends_with("nodes");
         if is_root {
-            self.arm(
-                path.to_path_buf(),
-                Box::new(|filename| Raw::Root(filename)),
-            )
+            self.arm(path.to_path_buf(), Box::new(Raw::Root))
         } else {
             let shard = path
                 .file_name()
@@ -62,7 +72,10 @@ impl WatchSink for NotifySink {
                 .unwrap_or_default();
             self.arm(
                 path.to_path_buf(),
-                Box::new(move |filename| Raw::Shard { shard: shard.clone(), filename }),
+                Box::new(move |filename| Raw::Shard {
+                    shard: shard.clone(),
+                    filename,
+                }),
             )
         }
     }
@@ -118,7 +131,9 @@ pub fn start(nodes_dir: PathBuf, target: Arc<WatchTarget>) -> Option<WatchGuard>
     let changes_for_batches = target.changes.clone();
     let mut core = WatcherCore::new(nodes_dir.clone(), refino_storage::DEFAULT_DEBOUNCE_MS, {
         move |ids, shards| {
-            let Ok(mut store) = store_for_batches.lock() else { return };
+            let Ok(mut store) = store_for_batches.lock() else {
+                return;
+            };
             let change = store
                 .apply_change(ids, &[], shards, Some(Origin::File))
                 .ok()
@@ -130,8 +145,8 @@ pub fn start(nodes_dir: PathBuf, target: Arc<WatchTarget>) -> Option<WatchGuard>
         }
     });
 
-    let mut sink_guard = sink.lock().expect("sink").clone_shallow();
-    // Arm against a shallow clone so the shared channel forwards events.
+    // Arm through the shared sink; the notify callbacks forward raw events
+    // over the same channel the driver loop consumes.
     let arm_result = {
         let mut shallow = ShallowSink(sink.clone());
         core.arm(&mut shallow, &FsIo, false)
@@ -151,7 +166,9 @@ pub fn start(nodes_dir: PathBuf, target: Arc<WatchTarget>) -> Option<WatchGuard>
     let nodes_for_loop = nodes_dir.clone();
     tokio::spawn(async move {
         while let Some(raw) = rx.recv().await {
-            let Ok(mut core) = core_for_loop.lock() else { return };
+            let Ok(mut core) = core_for_loop.lock() else {
+                return;
+            };
             let mut shallow = ShallowSink(sink_for_loop.clone());
             match raw {
                 Raw::Root(filename) => core.on_root_event(filename.as_deref(), &mut shallow, &FsIo),
@@ -194,12 +211,3 @@ impl WatchSink for ShallowSink {
         self.0.lock().expect("sink").cancel_timer(kind)
     }
 }
-
-impl NotifySink {
-    fn clone_shallow(&self) -> NotifySinkShallow {
-        NotifySinkShallow(self.tx.clone())
-    }
-}
-
-/// The channel-only view (arming happens through `ShallowSink`).
-struct NotifySinkShallow(tokio::sync::mpsc::UnboundedSender<Raw>);

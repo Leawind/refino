@@ -156,6 +156,15 @@ enum Command_ {
     Init,
     /// print the agent-facing usage guide (concepts, conventions, caveats)
     Guide,
+    /// start the web UI server
+    Web {
+        /// IP address to bind
+        #[arg(long)]
+        host: Option<String>,
+        /// port to listen on (default: 5649; bumps to the next free port when taken)
+        #[arg(long)]
+        port: Option<String>,
+    },
     /// development utilities (only registered when REFINO_DEV=true)
     #[command(hide = true)]
     Dev {
@@ -298,6 +307,7 @@ fn dispatch(cli: Cli, io: &mut dyn CliSink) -> i32 {
             io.out(&guide::guide_text());
             0
         }
+        Command_::Web { host, port } => cmd_web(io, &opts, host, port),
         Command_::Dev { kind } => {
             // Without REFINO_DEV=true the command does not exist at all —
             // help output, unknown command errors and completions are
@@ -880,4 +890,72 @@ fn cmd_init(io: &mut dyn CliSink, opts: &GlobalOptions) -> i32 {
         dir.display()
     ));
     0
+}
+
+/// `refino web` — start the local HTTP service and block until interrupted.
+fn cmd_web(
+    io: &mut dyn CliSink,
+    opts: &GlobalOptions,
+    host: Option<String>,
+    port: Option<String>,
+) -> i32 {
+    let port_number = match port {
+        None => None,
+        Some(text) => match text.parse::<u16>() {
+            Ok(parsed) => Some(parsed),
+            Err(_) => {
+                io.err(&format!("error: invalid port \"{text}\"\n"));
+                return 1;
+            }
+        },
+    };
+    let static_root = refino_server::resolve_ui_static_root(&opts.root);
+    let options = refino_server::WebServerOptions {
+        host: host.unwrap_or_else(|| "127.0.0.1".to_string()),
+        port: port_number,
+        refino_dir: refino_dir(opts),
+        static_root,
+        watch_debounce_ms: None,
+    };
+    let runtime = match tokio::runtime::Runtime::new() {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            io.err(&format!("error: {error}\n"));
+            return 1;
+        }
+    };
+    runtime.block_on(async move {
+        let server = match refino_server::start_web_server(options).await {
+            Ok(server) => server,
+            Err(error) => {
+                io.err(&format!("error: {error}\n"));
+                return 1;
+            }
+        };
+        io.out(&format!("listening on {}\n", server.url));
+        // Block on SIGINT/SIGTERM, then shut the socket and watcher down.
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {},
+            _ = sigterm() => {},
+        };
+        server.shutdown().await;
+        0
+    })
+}
+
+async fn sigterm() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+        match signal(SignalKind::terminate()) {
+            Ok(mut stream) => {
+                stream.recv().await;
+            }
+            Err(_) => std::future::pending::<()>().await,
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        std::future::pending::<()>().await
+    }
 }

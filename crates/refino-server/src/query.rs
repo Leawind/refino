@@ -2,8 +2,8 @@
 //! "画布按需查询"). Pure graph functions: HTTP shaping lives in the server.
 
 use refino_core::{
-    get_ancestors, get_dependents, get_grounds, get_siblings, query_groups, Graph, NodeLite,
-    NodeType, QueryGroup, RefinoNode, TraversalOptions,
+    Graph, NodeLite, NodeType, QueryGroup, RefinoNode, TraversalOptions, get_ancestors,
+    get_dependents, get_grounds, get_siblings, query_groups,
 };
 use std::collections::BTreeMap;
 
@@ -77,7 +77,9 @@ pub fn neighbors(
         if let Ok(entries) = get_ancestors(
             g,
             id,
-            TraversalOptions { max_depth: Some(params.ancestor_depth) },
+            TraversalOptions {
+                max_depth: Some(params.ancestor_depth),
+            },
         ) {
             for entry in entries {
                 depth.insert(entry.node.id().to_string(), entry.depth);
@@ -86,7 +88,9 @@ pub fn neighbors(
         if let Ok(entries) = get_dependents(
             g,
             id,
-            TraversalOptions { max_depth: Some(params.descendant_depth) },
+            TraversalOptions {
+                max_depth: Some(params.descendant_depth),
+            },
         ) {
             for entry in entries {
                 match depth.get(entry.node.id()) {
@@ -138,11 +142,7 @@ pub fn grounds(graph: &Graph, ids: &[String]) -> Vec<QueryGroup<NodeLite>> {
 /// Per-id expansion block: the anchor's full upstream closure,
 /// `descendant_depth` generations of decisions downstream, strong siblings,
 /// and the upstream closure of every block decision.
-pub fn expand(
-    graph: &Graph,
-    ids: &[String],
-    params: &ExpandParams,
-) -> Vec<QueryGroup<Expansion>> {
+pub fn expand(graph: &Graph, ids: &[String], params: &ExpandParams) -> Vec<QueryGroup<Expansion>> {
     query_groups(graph, ids, |g, id| vec![expand_one(g, id, params)])
 }
 
@@ -152,7 +152,13 @@ fn expand_one(graph: &Graph, id: &str, params: &ExpandParams) -> Expansion {
     depth.insert(id.to_string(), 0);
 
     // Downstream decisions, nearest-first min-depth merge.
-    if let Ok(entries) = get_dependents(graph, id, TraversalOptions { max_depth: params.descendant_depth }) {
+    if let Ok(entries) = get_dependents(
+        graph,
+        id,
+        TraversalOptions {
+            max_depth: params.descendant_depth,
+        },
+    ) {
         for entry in entries {
             match depth.get(entry.node.id()) {
                 None => {
@@ -174,15 +180,15 @@ fn expand_one(graph: &Graph, id: &str, params: &ExpandParams) -> Expansion {
             seeds.push((node_id.clone(), *d));
         }
     }
-    if params.show_siblings {
-        if let Ok(all) = get_siblings(graph, id) {
-            let kept: Vec<_> = match params.sibling_limit {
-                Some(limit) => &all[..limit.min(all.len())],
-                None => &all,
-            };
-            for entry in kept {
-                seeds.push((entry.node.id().to_string(), 2));
-            }
+    if params.show_siblings
+        && let Ok(all) = get_siblings(graph, id)
+    {
+        let kept: Vec<refino_core::NodeWithOverlap> = match params.sibling_limit {
+            Some(limit) => all[..limit.min(all.len())].to_vec(),
+            None => all,
+        };
+        for entry in kept {
+            seeds.push((entry.node.id().to_string(), 2));
         }
     }
     seeds.sort_by(depth_then_id);
@@ -231,17 +237,39 @@ pub struct RangeResult {
 /// Range selection between two endpoints: ancestor / branches / disconnected.
 #[allow(clippy::too_many_lines)]
 pub fn range(graph: &Graph, focus_id: &str, clicked_id: &str, budget: usize) -> RangeResult {
-    let mut focus_anc = ancestors_within(graph, focus_id, budget.max(1));
+    let focus_anc = ancestors_within(graph, focus_id, budget.max(1));
     let focus_expansions = focus_anc.expansions;
-    let clicked_anc = ancestors_within(graph, clicked_id, budget.saturating_sub(focus_expansions).max(1));
+    let clicked_anc = ancestors_within(
+        graph,
+        clicked_id,
+        budget.saturating_sub(focus_expansions).max(1),
+    );
 
     // A node is trivially its own ancestor; treat self-selection as ancestor.
     if focus_id == clicked_id || focus_anc.depths.contains_key(clicked_id) {
-        let ancestor_id = if focus_id == clicked_id { focus_id } else { clicked_id };
-        return ancestor_range(graph, focus_id, clicked_id, ancestor_id, &focus_anc, &clicked_anc);
+        let ancestor_id = if focus_id == clicked_id {
+            focus_id
+        } else {
+            clicked_id
+        };
+        return ancestor_range(
+            graph,
+            focus_id,
+            clicked_id,
+            ancestor_id,
+            &focus_anc,
+            &clicked_anc,
+        );
     }
     if clicked_anc.depths.contains_key(focus_id) {
-        return ancestor_range(graph, focus_id, clicked_id, focus_id, &focus_anc, &clicked_anc);
+        return ancestor_range(
+            graph,
+            focus_id,
+            clicked_id,
+            focus_id,
+            &focus_anc,
+            &clicked_anc,
+        );
     }
 
     // Nearest common ancestor: minimal total path length, then decision nodes
@@ -250,7 +278,9 @@ pub fn range(graph: &Graph, focus_id: &str, clicked_id: &str, budget: usize) -> 
     let mut best = usize::MAX;
     let mut lca_is_premise = false;
     for (id, from_focus) in &focus_anc.depths {
-        let Some(from_clicked) = clicked_anc.depths.get(id) else { continue };
+        let Some(from_clicked) = clicked_anc.depths.get(id) else {
+            continue;
+        };
         let total = from_focus + from_clicked;
         let premise = graph.nodes.get(id).map(|n| n.node_type()) != Some(NodeType::Decision);
         let better = total < best
@@ -258,8 +288,7 @@ pub fn range(graph: &Graph, focus_id: &str, clicked_id: &str, budget: usize) -> 
                 && match &lca {
                     None => true,
                     Some(existing) => {
-                        (lca_is_premise && !premise)
-                            || (lca_is_premise == premise && id < existing)
+                        (lca_is_premise && !premise) || (lca_is_premise == premise && id < existing)
                     }
                 });
         if better {
@@ -276,22 +305,31 @@ pub fn range(graph: &Graph, focus_id: &str, clicked_id: &str, budget: usize) -> 
         shortest_path_down(graph, &lca, focus_id, &focus_anc.depths, &mut |id, left| {
             depth_from_focus.insert(id.to_string(), left);
         });
-        shortest_path_down(graph, &lca, clicked_id, &clicked_anc.depths, &mut |id, left| {
-            let total = from_focus_lca + (from_clicked_lca - left);
-            match depth_from_focus.get(id) {
-                None => {
-                    depth_from_focus.insert(id.to_string(), total);
+        shortest_path_down(
+            graph,
+            &lca,
+            clicked_id,
+            &clicked_anc.depths,
+            &mut |id, left| {
+                let total = from_focus_lca + (from_clicked_lca - left);
+                match depth_from_focus.get(id) {
+                    None => {
+                        depth_from_focus.insert(id.to_string(), total);
+                    }
+                    Some(previous) if total < *previous => {
+                        depth_from_focus.insert(id.to_string(), total);
+                    }
+                    _ => {}
                 }
-                Some(previous) if total < *previous => {
-                    depth_from_focus.insert(id.to_string(), total);
-                }
-                _ => {}
-            }
-        });
+            },
+        );
         // Endpoints are kept even when premises.
         depth_from_focus.insert(focus_id.to_string(), 0);
         depth_from_focus.insert(clicked_id.to_string(), from_focus_lca + from_clicked_lca);
-        return RangeResult { mode: "branches", nodes: materialize(graph, &depth_from_focus, None) };
+        return RangeResult {
+            mode: "branches",
+            nodes: materialize(graph, &depth_from_focus, None),
+        };
     }
 
     RangeResult {
@@ -315,8 +353,16 @@ fn ancestor_range(
     clicked_anc: &BoundedAncestors,
 ) -> RangeResult {
     let focus_is_ancestor = ancestor_id == focus_id;
-    let descendant_id = if focus_is_ancestor { clicked_id } else { focus_id };
-    let descendant_ancestors = if focus_is_ancestor { &clicked_anc.depths } else { &focus_anc.depths };
+    let descendant_id = if focus_is_ancestor {
+        clicked_id
+    } else {
+        focus_id
+    };
+    let descendant_ancestors = if focus_is_ancestor {
+        &clicked_anc.depths
+    } else {
+        &focus_anc.depths
+    };
 
     let down = get_dependents(graph, ancestor_id, TraversalOptions::default()).unwrap_or_default();
     let mut ids: BTreeMap<String, ()> = BTreeMap::new();
@@ -346,7 +392,10 @@ fn ancestor_range(
         }
     }
     let ids = ids.into_keys().collect::<Vec<_>>();
-    RangeResult { mode: "ancestor", nodes: materialize(graph, &depth_from_focus, Some(&ids)) }
+    RangeResult {
+        mode: "ancestor",
+        nodes: materialize(graph, &depth_from_focus, Some(&ids)),
+    }
 }
 
 /// One shortest decision path from the LCA down to an endpoint.
@@ -364,8 +413,8 @@ fn shortest_path_down(
     while current != end_id {
         let remaining = depths[&current];
         let mut next: Option<String> = None;
-        let dependents =
-            get_dependents(graph, &current, TraversalOptions { max_depth: Some(1) }).unwrap_or_default();
+        let dependents = get_dependents(graph, &current, TraversalOptions { max_depth: Some(1) })
+            .unwrap_or_default();
         for entry in dependents {
             if depths.get(entry.node.id()) != Some(&(remaining - 1)) {
                 continue;
@@ -422,8 +471,12 @@ struct BoundedAncestors {
 fn ancestors_within(graph: &Graph, start: &str, budget: usize) -> BoundedAncestors {
     let mut depths: BTreeMap<String, usize> = BTreeMap::new();
     depths.insert(start.to_string(), 0);
-    let (expansions, _) =
-        upstream_closure(graph, &[(start.to_string(), 0)], &mut depths, Some(budget.max(1)));
+    let (expansions, _) = upstream_closure(
+        graph,
+        &[(start.to_string(), 0)],
+        &mut depths,
+        Some(budget.max(1)),
+    );
     BoundedAncestors { depths, expansions }
 }
 
@@ -451,8 +504,7 @@ fn upstream_closure(
         }
         let seed_depth = depths[seed_id];
         let mut queue: Vec<(String, usize)> = vec![(seed_id.clone(), seed_depth)];
-        let mut visited: std::collections::HashSet<String> =
-            std::collections::HashSet::new();
+        let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
         visited.insert(seed_id.clone());
         let mut capped = false;
         let mut head = 0;

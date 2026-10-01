@@ -14,5 +14,7 @@ path = "src/main.rs"
 refino-core = { workspace = true }
 refino-storage = { workspace = true }
 refino-fs = { workspace = true }
+refino-server = { workspace = true }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal"] }
 clap = { version = "4", features = ["derive", "string"] }
 serde_json = "1"
