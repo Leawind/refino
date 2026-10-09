@@ -121,7 +121,7 @@ CLI、Web 服务与工具插件一律经 Store 访问 `.refino/`，不再各自�
 
 ## 命令行工具
 
-CLI 是自文档接口：agent 在没有其他上下文的情况下，仅凭 CLI 即可了解其概念、用法与注意事项。`refino guide` 输出面向 agent 的使用指南（概念、用法约定、硬规则），文本单一来源在代码中、随 CLI 一同演进；`refino --help` 末尾指路 guide。guide 只承载自文档，不访问图，不受采用契约决策（无 `.refino/` 时同样可用）。
+CLI 是自文档接口：agent 在没有其他上下文的情况下，仅凭 CLI 即可了解其概念、用法与注意事项。`refino guide` 输出面向 agent 的使用指南（概念、用法约定、硬规则），文本单一来源在代码中、随 CLI 一同演进；`refino --help` 末尾指路 guide。guide 只承载自文档，不访问图，不受采用契约决策（无 `.refino/` 时同样可用）。refino 具体用法的唯一权威是所接入 harness 的工具说明与 refino 命令（guide、`--help`）；使用 refino 的项目不把 refino 用法复制进自身文档（如 AGENTS.md），以免随工具演进而失真。
 
 命令面：`init`（显式采用）、`guide`（自文档）、`validate`、`list`、`show`、`grounds`、`ancestors`、`dependents`、`new`、`update`、`delete`、`web`；`dev` 为 `REFINO_DEV=true` 下的隐藏开发工具。批量与部分成功语义见“批量查询”；写入语义（部分更新、grounds 整体替换、删除守卫）见 `@refino/cli` 的 DESIGN.md。
 
