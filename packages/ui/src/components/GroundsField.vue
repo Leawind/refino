@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Grounds editor shared by the modal editor and the inline row form
-// (README, "编辑功能"): one ground per full-width row, rendered as its
+// (DESIGN.md, "编辑功能"): one ground per full-width row, rendered as its
 // summary — raw ids mean nothing to users and stay out of sight (they live
 // in the peek card and the editor head). Rows support Alt+hover peeking;
 // removal is per-row, appending goes through the compact remote search

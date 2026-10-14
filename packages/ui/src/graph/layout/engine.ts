@@ -265,7 +265,7 @@ function placeComponent(
   // Buckets are sorted by their parents' rows (min ground order, then id)
   // so adjacent nodes land close together. Each node takes the free slot
   // nearest to the average of its grounds' rows: a family centers on its
-  // ground instead of drifting to one side of it (README: 相邻层中点对齐).
+  // ground instead of drifting to one side of it (DESIGN.md: 相邻层中点对齐).
   const assigned = new Map<string, number>();
   let rootCount = 0;
   for (const layer of [...byLayer.keys()].sort((a, b) => a - b)) {

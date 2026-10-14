@@ -73,7 +73,7 @@ export function getDependents(
 }
 
 /**
- * Effective exploring status of a node (docs/dlg.md 1.1): a decision is
+ * Effective exploring status of a node: a decision is
  * effectively exploring when it carries the trial mark itself or any
  * (transitive) ground decision does; premises are never exploring.
  * Derived at read time along the grounds closure, never stored per node.

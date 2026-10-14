@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Ordered selection list as a floating layer over the canvas (README,
+// Ordered selection list as a floating layer over the canvas (DESIGN.md,
 // "交互"): click locates (makes the entry the focus), the per-item button
 // removes, the head button clears.
 import { useI18n } from "vue-i18n";

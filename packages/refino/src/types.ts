@@ -1,5 +1,5 @@
 /**
- * Reference document: docs/dlg.md (Decision Lineage Graph).
+ * Decision Lineage Graph (DLG) node and graph types.
  *
  * A graph holds two kinds of nodes:
  * - premise nodes: objective project facts, never have `grounds`;

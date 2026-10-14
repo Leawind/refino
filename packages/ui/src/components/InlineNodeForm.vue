@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Inline row editor of the resource explorer (README, "编辑功能"): one
+// Inline row editor of the resource explorer (DESIGN.md, "编辑功能"): one
 // property per full-width row, single-column. Shares the store's edit
 // session with the modal editor (base snapshot, revision, field merges);
 // the row is row-scoped and does not follow the canvas focus. Conflict

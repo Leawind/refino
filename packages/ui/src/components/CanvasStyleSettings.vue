@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Canvas style settings: an edge button opening a small floating panel
-// (README, "配置项"). Holds the canvas text size multiplier; the value
+// (DESIGN.md, "配置项"). Holds the canvas text size multiplier; the value
 // persists through the workspace canvas config like every other setting.
 // Like every float panel, an outside press or Escape collapses it.
 import { computed, ref } from "vue";

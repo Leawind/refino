@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// The single resource explorer (README, "布局"): one list for decisions
+// The single resource explorer (DESIGN.md, "布局"): one list for decisions
 // and premises with a type filter and the unreferenced-premises quick view.
 // Listings come from the paginated /api/search endpoint — the full graph is
 // never loaded. Rows expand into the inline editor (single accordion);
@@ -188,7 +188,7 @@ function select(node: SearchNode): void {
   workspace.select(node);
 }
 
-/** Double click opens the modal editor (README, "细节三层模型"). */
+/** Double click opens the modal editor (DESIGN.md, "细节三层模型"). */
 function open(node: SearchNode): void {
   select(node);
   store.openDetail(node.id);

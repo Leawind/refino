@@ -1,6 +1,6 @@
 /**
  * Render budget: cost units, initial estimation, frame-time adaptation and
- * priority culling for the WebGL canvas (ui README, "渲染预算").
+ * priority culling for the WebGL canvas (ui DESIGN.md, "渲染预算").
  *
  * Rendering scale is capped in abstract cost units rather than node counts:
  * a node that draws text costs more than a bare shape, an edge costs a

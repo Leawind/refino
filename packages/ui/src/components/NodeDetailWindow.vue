@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Full editor modal (README, "细节三层模型"): the ground for creation,
+// Full editor modal (DESIGN.md, "细节三层模型"): the ground for creation,
 // long-form editing, grounds list editing (one row per ground, Alt+hover
 // peeking) and conflict/deletion decisions. Opens on double click; closing
 // keeps the selection. External changes merge field-by-field per

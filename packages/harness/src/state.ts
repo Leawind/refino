@@ -4,7 +4,7 @@ import type { SignedAuthorization } from "./authorization.js";
 
 /**
  * The orchestrator credential lane of the plugin form (docs/design.md,
- * "审核状态的作用域"): an orchestrator hands each task a signed authorization
+ * "dsh 插件落地形态"): an orchestrator hands each task a signed authorization
  * document by path via the `REFINO_AUTHORIZATION` environment variable, and
  * the plugin resolves it at its session boundary. The conversation lane —
  * the plugin's in-session signings — lives with the plugin, not here.

@@ -30,7 +30,7 @@ dsh plugin --profile <profile> add /path/to/refino/packages/cordis-plugin-refino
 ## 了解更多
 
 - 包内设计细节（会话态、注入、签发、依赖策略）：[DESIGN.md](./DESIGN.md)
-- 接入形态定案与协议：[docs/design.md](../../docs/design.md)；概念模型见 [docs/dlg.md](../../docs/dlg.md)
+- 接入形态定案与协议：[docs/design.md](../../docs/design.md)
 
 ## 职责边界
 

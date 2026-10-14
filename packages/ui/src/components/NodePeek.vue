@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Alt-peek preview card (README, "交互"): a read-only floating summary of
+// Alt-peek preview card (DESIGN.md, "交互"): a read-only floating summary of
 // the hovered node, anchored to the cursor. The cached lite shape renders
 // immediately; the full record (body, rationale) fills in asynchronously
 // with a latest-wins guard, and grounds render as a plain unordered list of
@@ -371,7 +371,7 @@ const style = computed(() => {
   opacity: 0.55;
 }
 
-/* Grounds render as a plain unordered list of summaries (README, "交互"). */
+/* Grounds render as a plain unordered list of summaries (DESIGN.md, "交互"). */
 .grounds {
   margin: 2px 0 0;
   padding-left: 18px;

@@ -34,7 +34,7 @@ import { createTools } from "./tools.js";
 /** Cordis plugin name used by loader diagnostics. */
 export const name = "refino";
 
-/** Minimum spacing between external-change injections (docs/design.md, delta 降噪). */
+/** Minimum spacing between external-change injections (docs/design.md, delta 注入降噪). */
 const EXTERNAL_SYNC_INTERVAL_MS = 2000;
 
 /** dsh tool names (`refino_show`); injected texts cite the same names. */

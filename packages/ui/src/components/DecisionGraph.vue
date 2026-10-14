@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Center canvas: the working set rendered by the WebGL2 batch renderer
-// (README, "画布"): nodes, edges and labels draw on the GPU with the render
+// (DESIGN.md, "画布"): nodes, edges and labels draw on the GPU with the render
 // budget culling over-budget parts; floating controls stay DOM. Clicking a
 // node selects it, shift+click range-selects (replacing the selection),
 // right-click toggles, double click opens the detail bar, hovering pulls in
@@ -368,7 +368,7 @@ watch(
 onMounted(ensureRenderer);
 
 watch(scene, (value) => renderer?.setScene(value));
-// setScene keeps the focus placed (README: 相机随焦点). Direction flips
+// setScene keeps the focus placed (DESIGN.md: 相机随焦点). Direction flips
 // re-fit the whole working set.
 watch(
   () => props.direction,
@@ -447,7 +447,7 @@ function onClick(event: MouseEvent): void {
 
 function onContextMenu(event: MouseEvent): void {
   // Right click toggles the node's membership; the browser menu stays
-  // suppressed on the canvas (README, "交互").
+  // suppressed on the canvas (DESIGN.md, "交互").
   event.preventDefault();
   const id = pickAt(event);
   if (id === null) return;

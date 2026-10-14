@@ -22,7 +22,7 @@ import {
 import { createProgram, EDGE_QUAD, type Program, UNIT_QUAD } from "./programs";
 
 /**
- * WebGL2 canvas renderer for the working set (ui README, "画布"): batched
+ * WebGL2 canvas renderer for the working set (ui DESIGN.md, "画布"): batched
  * instanced drawing of nodes, edges and labels, with the render budget
  * culling over-budget nodes and the hover fade-in/out as per the display
  * rules. DOM floating controls stay outside this module.
@@ -35,7 +35,7 @@ import { createProgram, EDGE_QUAD, type Program, UNIT_QUAD } from "./programs";
  * (camera.ts focusFollow) per the scene's policy: snapshot layouts
  * compensate relayout displacement so a clicked node stays put, while
  * converging layouts leave the viewport entirely to the user. At rest the
- * camera always satisfies the bounding-box constraints (README, "视口").
+ * camera always satisfies the bounding-box constraints (DESIGN.md, "视口").
  */
 
 export type RGBA = [number, number, number, number];
@@ -61,7 +61,7 @@ export interface RenderNodeInput {
   selected: boolean;
   focus: boolean;
   hovered: boolean;
-  /** Premise nodes draw as weakened capsules (README, "显示规则与样式"). */
+  /** Premise nodes draw as weakened capsules (DESIGN.md, "显示规则与样式"). */
   premise: boolean;
   /** Display-only node: drawn but never picked — no hover, no drag, no
    * selection; used for layout-internal helpers such as the force
@@ -114,7 +114,7 @@ const CAMERA_TAU_MS = 110;
 /** Camera snap threshold. */
 const CAMERA_EPSILON = 0.01;
 // Geometry constants below are in virtual units: they scale with the
-// viewport zoom like every canvas content (ui README, "视口").
+// viewport zoom like every canvas content (ui DESIGN.md, "视口").
 const LABEL_FONT_PX = 12;
 const LABEL_PAD_X = 10;
 /** Vertical label padding and line height (in font-size units): a default
@@ -371,7 +371,7 @@ export class GraphRenderer {
 
     canvas.addEventListener("webglcontextlost", this.#onContextLost);
     canvas.addEventListener("webglcontextrestored", this.#onContextRestored);
-    // Wheel zooms the viewport (README, "视口") and may never page-zoom;
+    // Wheel zooms the viewport (DESIGN.md, "视口") and may never page-zoom;
     // left-drag pans 1:1 and suppresses the click
     // that follows a gesture beyond the click slop.
     canvas.addEventListener("wheel", this.#onWheel, { passive: false });
@@ -463,7 +463,7 @@ export class GraphRenderer {
     }
     this.#edges = scene.edges;
 
-    // The camera follows the focus (README: 相机随焦点): it flies to an
+    // The camera follows the focus (DESIGN.md: 相机随焦点): it flies to an
     // off-screen or newly joining focus and compensates a relayout that
     // displaces an unchanged focus, so a canvas click never moves the
     // clicked node. The focus id and the focus node's scene entry change in
@@ -510,7 +510,7 @@ export class GraphRenderer {
   }
 
   /** Pans both cameras by the inverse of the focus node's virtual
-   * displacement so the node keeps its screen position (README: 相机补偿
+   * displacement so the node keeps its screen position (DESIGN.md: 相机补偿
    * 焦点的位移). Both move at once — the relayout itself is instantaneous,
    * and a gliding correction would drag the focus along. */
   #compensateFocus(dx: number, dy: number): void {
@@ -584,7 +584,7 @@ export class GraphRenderer {
   }
 
   #onWheel = (event: WheelEvent): void => {
-    // Wheel zooms the viewport and never page-zooms (README, "视口").
+    // Wheel zooms the viewport and never page-zooms (DESIGN.md, "视口").
     // Multiplicative zoom keeps the gesture linear in perceived scale.
     event.preventDefault();
     const box = this.#contentBox();
@@ -702,7 +702,7 @@ export class GraphRenderer {
   };
 
   /** True when the left press that just ended moved beyond the click slop:
-   * the browser click that follows it must be ignored (README: 超过阈值视为
+   * the browser click that follows it must be ignored (DESIGN.md: 超过阈值视为
    * 拖拽，不触发点击). Resets on the next press. */
   get clickSuppressed(): boolean {
     return this.#clickSuppressed;
@@ -1051,7 +1051,7 @@ export class GraphRenderer {
     this.#atlas.setRasterScale(quantizeRasterScale(scale * this.#textScale));
     // Glyph metrics are resolved in virtual units so glyph quads are
     // submitted like every other geometry; the text size multiplier
-    // resizes text on top of the camera (README: 文本随视口缩放).
+    // resizes text on top of the camera (DESIGN.md: 文本随视口缩放).
     const fontUnits = LABEL_FONT_PX * this.#textScale;
     const padUnits = LABEL_PAD_X * this.#textScale;
     const padYUnits = LABEL_PAD_Y * this.#textScale;

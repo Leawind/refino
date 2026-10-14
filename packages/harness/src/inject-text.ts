@@ -92,8 +92,8 @@ export function authorizationStatusText(origin: AuthorizationOrigin, tools: Tool
 const ORIENTATION_ROOTS = 8;
 
 /**
- * Root decisions shown in the over-budget orientation (docs/design.md, dsh
- * 插件落地形态: 超预算时不静默). Shared with the known-set seeding so the
+ * Root decisions shown in the over-budget orientation (docs/design.md,
+ * "上下文注入协议"). Shared with the known-set seeding so the
  * session's tracked baseline matches what the orientation actually injected.
  */
 export function orientationRoots(graph: Graph): RefinoNode[] {
@@ -105,7 +105,7 @@ export function orientationRoots(graph: Graph): RefinoNode[] {
 
 /**
  * Minimal orientation for graphs above the auto-anchor budget (docs/design.md,
- * dsh 插件落地形态: 超预算时不静默) — enough for the model to locate nodes by
+ * "上下文注入协议") — enough for the model to locate nodes by
  * search instead of working without any project context.
  */
 export function orientationText(graph: Graph, tools: ToolRefs): string {

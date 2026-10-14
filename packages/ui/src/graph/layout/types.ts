@@ -1,7 +1,7 @@
 import type { LayoutDirection } from "../../types";
 
 /**
- * Session-based layout contract (ui README, "布局").
+ * Session-based layout contract (ui DESIGN.md, "布局").
  *
  * A layout strategy owns one algorithm; a session is one live layout of
  * exactly the node set it was created with. Snapshot layouts (layered)

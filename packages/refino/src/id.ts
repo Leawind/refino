@@ -1,6 +1,6 @@
 /**
  * Node id rule, defined and validated here; every package checks ids against
- * `ID_RE` instead of redefining the rule (see this package's README, "ID
+ * `ID_RE` instead of redefining the rule (see this package's DESIGN.md, "ID
  * 规则"). Ids are 3-16 characters of uppercase letters, digits and
  * underscores; hyphens, dots, spaces and lowercase are invalid. Ids contain
  * neither `-` nor `.`; the storage layer's path scheme relies on this.

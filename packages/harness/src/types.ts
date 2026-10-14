@@ -1,7 +1,7 @@
 import type { Graph, NodeWithDepth, RefinoNode } from "refino";
 
 /**
- * Authorization context of a task (docs/dlg.md, task delimitation layer).
+ * Authorization context of a task.
  * Validation is based solely on this context, never on actor identity.
  */
 export interface AuthorizationContext {
@@ -14,7 +14,7 @@ export interface AuthorizationContext {
   /**
    * Frozen decision ids naming the frozen zone: the zone is these
    * decisions plus all their ancestor nodes, decisions and premises
-   * alike (docs/dlg.md 2.4). Everything outside the zone is the modification
+   * alike. Everything outside the zone is the modification
    * space; new nodes created in the task belong to it. Premises are never
    * named directly — they join the zone as ancestors — and duplicates are
    * rejected by `validateContext`.
@@ -39,8 +39,8 @@ export interface ModificationCheck {
 }
 
 /**
- * Structured escalation report for a blocked modification
- * (docs/dlg.md, boundary escalation). Suggested changes and in-boundary
+ * Structured escalation report for a blocked modification.
+ * Suggested changes and in-boundary
  * alternatives are the caller's responsibility to fill in.
  */
 export interface EscalationReport {
@@ -94,8 +94,8 @@ export function unknownNodes(graph: Graph, ids: readonly string[]): string[] {
 }
 
 /**
- * Tool-name citations used by injected and rendered texts (docs/design.md,
- * 增量注入与工具指称). A host that owns its tool naming passes the names the
+ * Tool-name citations used by injected and rendered texts. A host that owns
+ * its tool naming passes the names the
  * model actually calls (dsh native tools: `refino_show`); a host that surfaces
  * tools under its own scheme injects the full names into the model's tool list
  * itself (MCP hosts), so texts cite the bare short names — a hard-coded host

@@ -90,8 +90,8 @@ function rfc3339(date: Date): string {
 }
 
 /**
- * Materialize the unsigned default as a document (docs/design.md, dsh plugin
- * defaults): the frontier names all root decisions. Revision 0; the
+ * Materialize the unsigned default as a document (docs/design.md, "dsh 插件
+ * 落地形态"): the frontier names all root decisions. Revision 0; the
  * default is derived live and never persisted.
  */
 export function materializeDefaultAuthorization(
@@ -140,7 +140,7 @@ export interface ApplyPreview {
   /**
    * Current root decisions the draft leaves outside the frozen zone.
    * Unfreezing roots lifts the project's highest-level decisions into the
-   * modification space (docs/dlg.md 1.3) — callers must warn loudly.
+   * modification space — callers must warn loudly.
    */
   unfrozenRoots: string[];
   /** Frontier candidates dropped because another candidate dominates them. */

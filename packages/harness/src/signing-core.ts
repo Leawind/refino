@@ -19,8 +19,8 @@ import type { RefinoWorkspace } from "./workspace.js";
  * effect — fail-closed, and refused outright while an orchestrator
  * credential is active. An approved signing applies to the session and goes
  * out as one delta injection; it lives in process memory only — the plugin
- * forms write no state files anywhere (docs/design.md, “授权状态的作用域”:
- * the plugin form's conversation lane is the session).
+ * forms write no state files anywhere (docs/design.md, "dsh 插件落地形态":
+ * the signed context is session state).
  *
  * Host adapters provide the approval surface (dsh: the native approval
  * service; MCP-only hosts: the dialogue-approval protocol, where the

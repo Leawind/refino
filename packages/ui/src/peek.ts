@@ -1,7 +1,7 @@
 import { reactive } from "vue";
 
 /**
- * Alt-peek state (README, "交互"): holding Alt while hovering any node
+ * Alt-peek state (DESIGN.md, "交互"): holding Alt while hovering any node
  * surface shows a read-only floating preview card. The state is a singleton
  * reactive — one peek at a time, fed by every node surface (canvas, explorer
  * rows, selection list). The card itself is non-interactive

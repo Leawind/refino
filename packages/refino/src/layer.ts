@@ -1,5 +1,5 @@
 /**
- * Longest-path layering (ui README, "布局：分层").
+ * Longest-path layering.
  *
  * Sources sit at layer 0; every other node takes one past the deepest
  * ground reachable behind it, so a node's layer is the length of the

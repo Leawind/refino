@@ -94,7 +94,7 @@ export class HarnessSession {
     return queryGroups(this.graph, ids, getDependents);
   }
 
-  /** Keyset-paginated id/summary search over the graph (docs/design.md, `search`). */
+  /** Keyset-paginated id/summary search over the graph (docs/design.md, "模型侧：DLG 访问工具"). */
   search(params: SearchParams = {}): SearchPage {
     return searchNodes(this.graph, params);
   }

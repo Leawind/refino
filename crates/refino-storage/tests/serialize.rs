@@ -1,7 +1,7 @@
-//! Golden tests for the restricted YAML emitter (the storage DESIGN.md
-//! "YAML 序列化规范形"). Every expected string was produced by the `yaml`
-//! package 2.9.x the TypeScript implementation used, so the emitter is
-//! byte-compatible by construction.
+//! Golden tests pinning the restricted YAML emitter's canonical output shape
+//! (packages/storage/DESIGN.md, "YAML 序列化规范形"). Every expected string was
+//! produced by the `yaml` package 2.9.x the TypeScript implementation used, so
+//! the emitter is byte-compatible by construction.
 
 use refino_storage::serialize_node;
 use refino_storage::yaml::FieldValue;

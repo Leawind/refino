@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Authorization console (docs/design.md, "用户侧：授权控制台"): one
+// Authorization console (docs/design.md, "用户侧：授权上下文的签发"): one
 // interaction for signing the task's authorization context — anchors plus
 // the frozen-zone declarations — with the frozen-zone propagation, the
 // injection preview and its size estimate visible before signing. The same
@@ -96,7 +96,7 @@ const nodeOptions = computed(() =>
 
 const frozenOptions = computed(() => {
   // Premises are never frozen directly — they join the zone as ancestors
-  // (docs/dlg.md 2.4) — so only decisions are offered.
+  // — so only decisions are offered.
   const options = new Map(
     nodeOptions.value
       .filter((option) => graph.value?.nodes.get(option.value)?.type === "decision")

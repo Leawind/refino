@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Command palette (README, "布局"): Ctrl/Cmd+K opens the single entry point
+// Command palette (DESIGN.md, "布局"): Ctrl/Cmd+K opens the single entry point
 // for node search and every global action. Results combine the paginated
 // node search with static actions; arrows move, Enter executes, Esc closes.
 import { computed, onBeforeUnmount, onMounted, ref, watch, type Component } from "vue";

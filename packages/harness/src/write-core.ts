@@ -24,7 +24,7 @@ import type { RefinoWorkspace } from "./workspace.js";
  * validates against a prospective graph copy) and harness `checkModification`
  * — a frozen-zone target returns a structured escalation report as a normal
  * tool result, never an error. The modification space closes downwards along
- * dependents (docs/dlg.md 2.4), so no downstream-freeze check exists. The
+ * dependents, so no downstream-freeze check exists. The
  * target's own sync runs after persisting; its pending-review set rides the
  * result instead of being injected. Successful writes absorb into the
  * session known set (docs/design.md, 会话已知集): the author knows what it

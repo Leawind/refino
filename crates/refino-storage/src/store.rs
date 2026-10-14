@@ -51,7 +51,7 @@ pub struct StoreChange {
     pub deleted: Vec<String>,
     /// Direct dependents (one hop) of the changed nodes in the new graph plus
     /// the removed nodes' pre-mutation dependents — the pending-review raw
-    /// material (docs/dlg.md 1.6). Sorted, deduplicated.
+    /// material. Sorted, deduplicated.
     pub affected: Vec<String>,
     /// Write entry that produced an incremental event; absent on snapshots and reloads.
     #[serde(skip_serializing_if = "Option::is_none")]

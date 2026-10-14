@@ -1,5 +1,5 @@
 /**
- * Camera math for the canvas viewport (ui README, "视口"). Pure functions:
+ * Camera math for the canvas viewport (ui DESIGN.md, "视口"). Pure functions:
  * the renderer owns the current/target camera pair and animates towards the
  * target, these helpers compute constraint-compliant targets.
  *

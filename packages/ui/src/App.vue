@@ -59,7 +59,7 @@ watchEffect(() => {
 
 onMounted(() => {
   workspace.start();
-  // Alt-peek modifier tracking (README, "交互"); cleaned up on unmount.
+  // Alt-peek modifier tracking (DESIGN.md, "交互"); cleaned up on unmount.
   onBeforeUnmount(installAltTracking());
 });
 onBeforeUnmount(() => {

@@ -9,7 +9,7 @@ import type { ChangeEvent, IssueRecord, LayoutDirection, NodeLite } from "./type
 
 /**
  * Accumulated working-set state (docs/design.md, "画布按需查询"; @refino/ui
- * README, "数据：按需工作集").
+ * DESIGN.md, "数据：按需工作集").
  *
  * The full graph is never loaded. Each selection change expands one block
  * per selected node (full upstream closure, bounded descendants, strong
@@ -17,7 +17,7 @@ import type { ChangeEvent, IssueRecord, LayoutDirection, NodeLite } from "./type
  * the canvas, so exploring accumulates. Only the total working-set limit
  * evicts, least recently visited first (selection immune). Clearing the
  * selection keeps the canvas; the content resets only via deletion events.
- * Premise nodes are not displayed (ui README, "显示规则与样式"). Nodes keep
+ * Premise nodes are not displayed (ui DESIGN.md, "显示规则与样式"). Nodes keep
  * their identity in `liteCache` when evicted so re-entry is instant.
  *
  * Selection is an ordered, duplicate-free id list; the focus is its last
@@ -36,7 +36,7 @@ export interface CanvasConfig {
   /** Sibling candidates kept per anchor (overlap-descending, id-ascending). */
   siblingLimit: number;
   /** Total nodes the working set keeps; over the limit, least recently
-   * visited non-selected nodes are evicted (ui README, "数据：按需工作集"). */
+   * visited non-selected nodes are evicted (ui DESIGN.md, "数据：按需工作集"). */
   workingSetLimit: number;
   /** Render budget mode: estimated from viewport/hardware, or pinned. */
   budgetMode: "auto" | "manual";
@@ -374,7 +374,7 @@ export function createWorkspace(client: RefinoClient) {
   /**
    * Cold start: expand from the root decisions down to the working set
    * limit so the canvas opens on the whole inheritance structure instead of
-   * an empty state (README, "数据：按需工作集"). A root decision is one with
+   * an empty state (DESIGN.md, "数据：按需工作集"). A root decision is one with
    * no decision among its direct grounds (premise-only or empty grounds);
    * the definition lives in the server's `/api/search?roots` filter.
    * Downstream depth is unbounded here — the limit is the bound. Seed
@@ -636,7 +636,7 @@ export function createWorkspace(client: RefinoClient) {
 
   /**
    * Nodes the canvas draws: the working set's decisions, plus its premises
-   * when the facts layer is on (README, "显示规则与样式" — premises render
+   * when the facts layer is on (DESIGN.md, "显示规则与样式" — premises render
    * as weakened capsules). Edges come from the grounds of the displayed
    * decisions, restricted to grounds that are themselves displayed nodes.
    */

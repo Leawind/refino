@@ -14,8 +14,8 @@ export interface NodeLite {
   type: string;
   summary: string;
   /**
-   * Decisions only: the derived effective exploring status (docs/dlg.md
-   * 1.1) — set to true when the node carries the trial mark or any ground
+   * Decisions only: the derived effective exploring status — set to true
+   * when the node carries the trial mark or any ground
    * decision does. Absent for premises and settled decisions.
    */
   exploring?: boolean;
@@ -45,7 +45,7 @@ export interface IssueLite {
 }
 
 /**
- * Structured escalation report for a blocked write (docs/dlg.md 3.4): the
+ * Structured escalation report for a blocked write: the
  * target itself sits in the frozen zone. The modification space closes
  * downwards along dependents, so no other escalation reason exists. The
  * model is expected to stop modifying, report to the user, and propose

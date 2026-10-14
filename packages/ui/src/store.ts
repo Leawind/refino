@@ -70,7 +70,7 @@ interface State {
   theme: Theme;
   locale: Locale;
   /**
-   * The explorer row expanded into the inline editor (README, "编辑功能"):
+   * The explorer row expanded into the inline editor (DESIGN.md, "编辑功能"):
    * the same single edit session as the modal, row-scoped instead of
    * following the focus. null when no row is expanded.
    */
@@ -201,7 +201,7 @@ export function createStore(client: RefinoClient, workspace: Workspace) {
     const generation = detailGeneration;
     // The session is alive for the modal and the expanded explorer row
     // alike — and for a collapsed row that still holds a draft, which
-    // keeps merging external changes (README, "编辑功能").
+    // keeps merging external changes (DESIGN.md, "编辑功能").
     const sessionAlive =
       state.detailOpen ||
       state.inlineId !== null ||
@@ -332,7 +332,7 @@ export function createStore(client: RefinoClient, workspace: Workspace) {
     /**
      * Expand an explorer row into the inline editor: the same edit session
      * as the modal, row-scoped. Re-expanding the same id keeps the draft;
-     * expanding another id replaces the session (README, "编辑功能").
+     * expanding another id replaces the session (DESIGN.md, "编辑功能").
      */
     expandInline(id: string): void {
       state.inlineId = id;

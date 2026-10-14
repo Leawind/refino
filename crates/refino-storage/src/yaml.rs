@@ -3,9 +3,8 @@
 //!
 //! Writing does not use a general YAML emitter: the field set is closed
 //! (grounds, rationale, summary, exploring, confirmed) and the canonical
-//! output shape is pinned in the storage DESIGN.md ("YAML 序列化规范形").
-//! The shape mirrors the `yaml` package's output byte for byte, anchored by
-//! golden tests in tests/serialize.rs.
+//! output shape is pinned by golden tests in tests/serialize.rs, matching
+//! packages/storage/DESIGN.md ("YAML 序列化规范形").
 
 use yaml_rust2::Yaml;
 

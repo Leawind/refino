@@ -3,7 +3,7 @@ import { CROSS_GAP, layeredLayout } from "../src/graph/layout/engine";
 import type { LayoutNode } from "../src/graph/layout/engine";
 
 /**
- * Stateless layered layout (ui README, "布局"): the whole displayed subgraph
+ * Stateless layered layout (ui DESIGN.md, "布局"): the whole displayed subgraph
  * is laid out from scratch on every call — relative positions are a pure
  * function of the current structure. Covers layer assignment, family
  * centering, independent components, determinism and the direction mapping.
@@ -74,7 +74,7 @@ describe("layer assignment", () => {
     const rows = ids.map((id) => byId(laid, id).y).sort((a, b) => a - b);
     expect(new Set(rows).size).toBe(4);
     // Adjacent rows are one slot apart and the family straddles the ground's
-    // row (README: 相邻层中点大致对齐，围绕锚点对称展开).
+    // row (DESIGN.md: 相邻层中点大致对齐，围绕锚点对称展开).
     const pitch = rows[1]! - rows[0]!;
     for (let i = 2; i < rows.length; i++) {
       expect(rows[i]! - rows[i - 1]!).toBe(pitch);
@@ -153,7 +153,7 @@ describe("premise placement", () => {
 
   it("displays a premise beside the shallowest decision it supports, not on the frontier", () => {
     // Layers: G 0, M 1, D 2. P only supports D, so it displays at layer 1 —
-    // M's line — instead of the layer-0 frontier (README: 前提就近放置).
+    // M's line — instead of the layer-0 frontier (DESIGN.md: 前提就近放置).
     const laid = layeredLayout(
       [premise(P), decision(G, []), decision(M, [G]), decision(D, [M, P])],
       "LR",

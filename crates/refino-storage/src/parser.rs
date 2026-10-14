@@ -88,7 +88,7 @@ pub fn parse_node_source(
         None => normalized.trim().to_string(),
     };
 
-    // The summary is an independent attribute (docs/dlg.md). A "summary"
+    // The summary is an independent attribute. A "summary"
     // frontmatter field takes precedence; the first-paragraph fallback keeps
     // summary-less files readable.
     let summary_field = field(&fields, "summary");

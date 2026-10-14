@@ -39,7 +39,7 @@ export interface SyncOutcome {
   changed: string[];
   /** Ids of externally deleted nodes. */
   deleted: string[];
-  /** Direct dependents of the changed nodes, pending review (docs/dlg.md 1.6). */
+  /** Direct dependents of the changed nodes, pending review. */
   pending: RefinoNode[];
 }
 
@@ -318,7 +318,7 @@ export class RefinoWorkspace {
    * budget the anchor block covers every node; above it, the orientation's
    * root-decision set. Runs once at open, over the then-current graph — a
    * change between the host's baseline render and this point is fail-soft
-   * miss territory (docs/design.md, cc 插件落地形态 boundaries).
+   * miss territory (docs/design.md, 增量更新与缓存友好).
    */
   #seedKnown(): void {
     const graph = this.#store.graph;
