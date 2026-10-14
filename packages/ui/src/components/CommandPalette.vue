@@ -211,7 +211,6 @@ onBeforeUnmount(() => {
               v-model="query"
               class="input"
               :placeholder="t('palette.placeholder')"
-              @keydown.stop
             />
           </div>
           <ul class="list">
