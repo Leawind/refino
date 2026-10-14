@@ -9,10 +9,12 @@ import {
   MoonOutline,
   SunnyOutline,
   RefreshOutline,
+  SearchOutline,
   ChevronDownOutline,
   CheckmarkOutline,
 } from "@vicons/ionicons5";
 import { injectRequired } from "../context";
+import { openPalette } from "../palette";
 import { storeKey } from "../store";
 
 const store = injectRequired(storeKey, "store");
@@ -62,6 +64,14 @@ const localeOptions = computed(() =>
     </div>
 
     <div class="actions">
+      <button
+        class="nav-btn"
+        :aria-label="t('palette.title')"
+        :title="t('palette.title')"
+        @click="openPalette"
+      >
+        <NIcon :component="SearchOutline" />
+      </button>
       <slot />
       <button class="nav-btn" :aria-label="t('app.refresh')" @click="emit('refresh')">
         <NIcon :component="RefreshOutline" />

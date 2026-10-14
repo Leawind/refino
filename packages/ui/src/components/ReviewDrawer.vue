@@ -15,8 +15,7 @@ const workspace = injectRequired(workspaceKey, "workspace");
 const { t } = useI18n();
 
 function locate(id: string): void {
-  const cached = workspace.displayed.value.find((node) => node.id === id);
-  workspace.select(cached ?? { id, type: "decision", summary: "" });
+  workspace.locate(id);
 }
 
 /** Entries render by summary; the id is the last resort for nodes the

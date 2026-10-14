@@ -451,6 +451,16 @@ export function createWorkspace(client: RefinoClient) {
     setSelection([...state.selection.filter((existing) => existing !== id), id]);
   }
 
+  /**
+   * Locate a node by id (review drawer, issue list, palette): make it the
+   * only selection, which re-expands the working set around it even when it
+   * was never displayed. The lite shape falls back to a bare decision stub
+   * until a real one arrives from the expansion.
+   */
+  function locate(id: string): void {
+    select(liteCache.get(id) ?? { id, type: "decision", summary: "" });
+  }
+
   function removeFromSelection(id: string): void {
     if (!state.selection.includes(id)) return;
     setSelection(state.selection.filter((existing) => existing !== id));
@@ -666,6 +676,7 @@ export function createWorkspace(client: RefinoClient) {
     rangeSelect,
     toggle,
     setFocus,
+    locate,
     removeFromSelection,
     clearSelection,
     hover,

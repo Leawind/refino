@@ -423,6 +423,16 @@ describe("selection model", () => {
     expect(workspace.state.selection).toEqual([C2, C1, C3]);
     expect(workspace.state.focusId).toBe(C3);
   });
+
+  it("locates an unseen node by id and expands around it", async () => {
+    // The review drawer / issue list locate paths: the node may never have
+    // been displayed; the selection expansion brings its block in.
+    workspace.locate(C5);
+    await vi.waitFor(() => expect(workspace.state.selection).toEqual([C5]));
+    expect(workspace.state.focusId).toBe(C5);
+    await vi.waitFor(() => expect(workspace.state.loading).toBe(false));
+    expect(new Set(displayedIds())).toEqual(new Set([C5, P3]));
+  });
 });
 
 describe("hover", () => {

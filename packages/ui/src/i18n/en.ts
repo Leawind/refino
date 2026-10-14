@@ -150,5 +150,6 @@ export default {
     decisions: "Decisions",
     selected: "Selected",
     issues: "Issues",
+    locate: "Locate",
   },
 };

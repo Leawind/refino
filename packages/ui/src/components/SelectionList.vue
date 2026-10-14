@@ -1,10 +1,13 @@
 <script setup lang="ts">
 // Ordered selection list as a floating layer over the canvas (DESIGN.md,
 // "交互"): click locates (makes the entry the focus), the per-item button
-// removes, the head button clears.
+// removes, the head button clears, Alt+hover peeks (DESIGN.md, "交互" —
+// the list is one of the peek surfaces).
 import { useI18n } from "vue-i18n";
 import { injectRequired } from "../context";
+import { peekHide, peekMove } from "../peek";
 import { workspaceKey } from "../workspace";
+import type { NodeLite } from "../types";
 
 const workspace = injectRequired(workspaceKey, "workspace");
 
@@ -12,6 +15,10 @@ const { t } = useI18n();
 
 // A top-level binding so the template sees the unwrapped array.
 const selectedNodes = workspace.selectedNodes;
+
+function onMove(event: MouseEvent, node: NodeLite): void {
+  peekMove(node.id, event.clientX, event.clientY);
+}
 </script>
 
 <template>
@@ -29,6 +36,8 @@ const selectedNodes = workspace.selectedNodes;
         :class="{ focus: node.id === workspace.state.focusId }"
         :title="t('selection.locate')"
         @click="workspace.setFocus(node.id)"
+        @mousemove="onMove($event, node)"
+        @mouseleave="peekHide(node.id)"
       >
         <span class="marker" />
         <span class="summary">

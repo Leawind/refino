@@ -14,6 +14,7 @@ import {
 } from "@vicons/ionicons5";
 import { clientKey } from "../api";
 import { injectRequired } from "../context";
+import { closePalette, paletteState, togglePalette } from "../palette";
 import { storeKey } from "../store";
 import { workspaceKey } from "../workspace";
 import type { SearchNode } from "../types";
@@ -23,7 +24,6 @@ const store = injectRequired(storeKey, "store");
 const workspace = injectRequired(workspaceKey, "workspace");
 const { t } = useI18n();
 
-const open = ref(false);
 const query = ref("");
 const active = ref(0);
 const nodes = ref<SearchNode[]>([]);
@@ -151,29 +151,28 @@ function searchNodes(): void {
 
 watch(query, searchNodes);
 
-function show(): void {
-  open.value = true;
-  query.value = "";
-  active.value = 0;
-  nodes.value = [];
-  searchNodes();
-  void Promise.resolve().then(() => inputEl.value?.focus());
-}
-
-function close(): void {
-  open.value = false;
-}
+/** Every open — whatever surface asked for it — starts a fresh search. */
+watch(
+  () => paletteState.open,
+  (value) => {
+    if (!value) return;
+    query.value = "";
+    active.value = 0;
+    nodes.value = [];
+    searchNodes();
+    void Promise.resolve().then(() => inputEl.value?.focus());
+  },
+);
 
 function onKeydown(event: KeyboardEvent): void {
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
     event.preventDefault();
-    if (open.value) close();
-    else show();
+    togglePalette();
     return;
   }
-  if (!open.value) return;
+  if (!paletteState.open) return;
   if (event.key === "Escape") {
-    close();
+    closePalette();
     // The app shell's Esc handler (clear selection) also sits on document:
     // this listener registered first (child before parent), so stop the
     // event here or closing the palette would clear the selection.
@@ -188,7 +187,7 @@ function onKeydown(event: KeyboardEvent): void {
     event.preventDefault();
     const item = items.value[active.value];
     if (item === undefined) return;
-    close();
+    closePalette();
     item.run();
   }
 }
@@ -203,7 +202,7 @@ onBeforeUnmount(() => {
 <template>
   <Teleport to="body">
     <Transition name="palette">
-      <div v-if="open" class="backdrop" @click.self="close">
+      <div v-if="paletteState.open" class="backdrop" @click.self="closePalette">
         <div class="palette" role="dialog" :aria-label="t('palette.title')">
           <div class="input-row">
             <NIcon :component="SearchOutline" class="search-icon" />
@@ -223,7 +222,7 @@ onBeforeUnmount(() => {
               :class="{ active: index === active }"
               @mousemove="active = index"
               @click="
-                close();
+                closePalette();
                 item.run();
               "
             >

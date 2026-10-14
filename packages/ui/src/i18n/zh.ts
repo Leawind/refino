@@ -148,5 +148,6 @@ export default {
     decisions: "决策",
     selected: "选中",
     issues: "校验问题",
+    locate: "定位",
   },
 };

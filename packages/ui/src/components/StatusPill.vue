@@ -1,9 +1,11 @@
 <script setup lang="ts">
-// Status pill: read-only canvas statistics and warnings (truncation, render
-// culling, issue count, current focus). Sits in the bottom-left float
-// corner and never takes input.
+// Status pill: canvas statistics and warnings (truncation, render culling,
+// issue count, current focus). Sits in the bottom-left float corner. The
+// issue count expands a problem list whose entries locate their node on the
+// canvas (ui DESIGN.md, "布局"); everything else stays read-only.
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
+import { NButton, NPopover } from "naive-ui";
 import { injectRequired } from "../context";
 import { renderCulled } from "../renderStatus";
 import { workspaceKey } from "../workspace";
@@ -15,6 +17,31 @@ const workspace = injectRequired(workspaceKey, "workspace");
 const decisionCount = computed(
   () => workspace.displayed.value.filter((n) => n.type === "decision").length,
 );
+
+/** Issues grouped by their node so one row reads as one problem site;
+ * only the rendered strings are kept (the state's issue shape is a deep
+ * readonly view). */
+const issueRows = computed(() => {
+  const rows: Array<{ node: string | null; messages: string[] }> = [];
+  const byNode = new Map<string, string[]>();
+  const loose: string[] = [];
+  for (const issue of workspace.state.issues) {
+    if (issue.nodeId === undefined) {
+      loose.push(issue.message);
+      continue;
+    }
+    const group = byNode.get(issue.nodeId);
+    if (group === undefined) byNode.set(issue.nodeId, [issue.message]);
+    else group.push(issue.message);
+  }
+  for (const [node, messages] of byNode) rows.push({ node, messages });
+  if (loose.length > 0) rows.push({ node: null, messages: loose });
+  return rows;
+});
+
+function locate(id: string): void {
+  workspace.locate(id);
+}
 </script>
 
 <template>
@@ -26,9 +53,33 @@ const decisionCount = computed(
     <span v-if="renderCulled" class="issues">
       {{ t("canvas.renderCulled") }}
     </span>
-    <span v-if="workspace.state.issues.length > 0" class="issues">
-      {{ t("status.issues") }}: {{ workspace.state.issues.length }}
-    </span>
+    <NPopover
+      v-if="workspace.state.issues.length > 0"
+      trigger="click"
+      placement="top-start"
+      :show-arrow="false"
+      raw
+      class="issue-popover"
+    >
+      <template #trigger>
+        <button class="issues issue-trigger" :title="t('status.issues')">
+          {{ t("status.issues") }}: {{ workspace.state.issues.length }}
+        </button>
+      </template>
+      <div class="issue-panel">
+        <div v-for="row in issueRows" :key="row.node ?? row.messages[0]" class="issue-row">
+          <div class="issue-texts">
+            <span v-if="row.node !== null" class="issue-node mono">{{ row.node }}</span>
+            <span v-for="message in row.messages" :key="message" class="issue-message">
+              {{ message }}
+            </span>
+          </div>
+          <NButton v-if="row.node !== null" size="tiny" quaternary @click="locate(row.node)">
+            {{ t("status.locate") }}
+          </NButton>
+        </div>
+      </div>
+    </NPopover>
     <span v-if="workspace.state.focusId !== null" class="mono">
       {{ t("status.selected") }}: {{ workspace.state.focusId }}
     </span>
@@ -54,7 +105,59 @@ const decisionCount = computed(
   color: #d03050;
 }
 
-.status-pill .mono {
+/* The issue count is a popover trigger styled like the surrounding text. */
+.issue-trigger {
+  border: none;
+  background: transparent;
+  color: #d03050;
+  font: inherit;
+  padding: 0;
+  cursor: pointer;
+}
+
+.issue-trigger:hover {
+  text-decoration: underline;
+}
+
+.mono {
   font-family: monospace;
+}
+
+/* Raw popover: the panel carries its own surface styling. */
+.issue-panel {
+  max-width: 420px;
+  max-height: 50vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  font-size: 12px;
+  background: var(--refino-surface);
+  border: 1px solid var(--refino-border);
+  border-radius: var(--refino-radius);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+}
+
+.issue-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.issue-texts {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.issue-node {
+  opacity: 0.6;
+}
+
+.issue-message {
+  color: #d03050;
 }
 </style>
