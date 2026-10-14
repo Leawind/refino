@@ -32,6 +32,18 @@ export function peekHide(id?: string): void {
   if (id === undefined || peekState.id === id) peekState.id = null;
 }
 
+/** Whether the event target is a text entry surface; global key handling
+ * (Alt tracking, shortcut dispatch) must stand aside while it is. */
+export function isTextEntry(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLElement &&
+    (target.tagName === "INPUT" ||
+      target.tagName === "TEXTAREA" ||
+      target.isContentEditable ||
+      target.closest("input, textarea, [contenteditable]") !== null)
+  );
+}
+
 /**
  * Global Alt tracking. Installs window-level key listeners; returns the
  * cleanup function. Alt keydowns are prevented outside text entry surfaces
@@ -40,13 +52,6 @@ export function peekHide(id?: string): void {
  * macOS is untouched because inputs are skipped.
  */
 export function installAltTracking(): () => void {
-  const isTextEntry = (target: EventTarget | null): boolean =>
-    target instanceof HTMLElement &&
-    (target.tagName === "INPUT" ||
-      target.tagName === "TEXTAREA" ||
-      target.isContentEditable ||
-      target.closest("input, textarea, [contenteditable]") !== null);
-
   const onKeydown = (event: KeyboardEvent): void => {
     if (event.key !== "Alt") return;
     if (isTextEntry(event.target)) return;

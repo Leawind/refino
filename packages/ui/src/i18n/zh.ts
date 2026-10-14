@@ -20,6 +20,19 @@ export default {
     float: "切换为浮动侧栏",
     dock: "切换为嵌入侧栏",
     peekHint: "按住 Alt 悬停可速览节点",
+    zoomIn: "放大",
+    zoomOut: "缩小",
+    fitView: "适应视图",
+    fitSelection: "适应所选",
+    shortcuts: "快捷键帮助",
+  },
+  common: {
+    on: "开",
+    off: "关",
+  },
+  help: {
+    title: "快捷键",
+    hint: "输入框中获得焦点时全局快捷键不生效",
   },
   explorer: {
     title: "节点",

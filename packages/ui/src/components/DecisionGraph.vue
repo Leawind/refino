@@ -22,6 +22,7 @@ import { createLayoutSession } from "../graph/layout/registry";
 import { structureSignature } from "../graph/layout/structure";
 import type { LaidOutNode, LayoutSession } from "../graph/layout/types";
 import type { LayoutMode } from "../graph/layout/types";
+import { setViewportCommands } from "../viewportBridge";
 import {
   CULL_FOCUS,
   CULL_HOVERED,
@@ -331,6 +332,27 @@ function dragNode(id: string, x: number, y: number, phase: "drag" | "end"): void
   runSession();
 }
 
+/** Virtual bounding box of the selected nodes (fit-to-selection); null
+ * when nothing selectable is on screen. */
+function selectionBox(): { minX: number; minY: number; maxX: number; maxY: number } | null {
+  const positions = new Map(layout.value.map((n) => [n.id, n] as const));
+  const width = workspace.state.config.nodeWidth;
+  const height = workspace.state.config.nodeHeight;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const id of workspace.state.selection) {
+    const node = positions.get(id);
+    if (node === undefined) continue;
+    minX = Math.min(minX, node.x);
+    minY = Math.min(minY, node.y);
+    maxX = Math.max(maxX, node.x + width);
+    maxY = Math.max(maxY, node.y + height);
+  }
+  return Number.isFinite(minX) ? { minX, minY, maxX, maxY } : null;
+}
+
 function ensureRenderer(): void {
   const canvas = canvasEl.value;
   if (canvas === null || renderer !== null) return;
@@ -356,6 +378,16 @@ function ensureRenderer(): void {
   renderer.setTheme(readThemeColors());
   renderer.setNodeDragHandler(props.layoutMode === "layered" ? null : dragNode);
   renderer.setScene(scene.value);
+  // Viewport commands (zoom/fit) reach global shortcuts and the palette
+  // through the bridge; cleared on unmount so stale handlers never fire.
+  setViewportCommands({
+    zoomBy: (factor) => renderer?.zoomBy(factor),
+    fitView: () => renderer?.fitToContent(),
+    fitSelection: () => {
+      const box = selectionBox();
+      if (box !== null) renderer?.fitToBox(box);
+    },
+  });
 }
 
 // Node dragging follows the layout mode: only converging layouts have
@@ -422,6 +454,7 @@ watch(
 onBeforeUnmount(() => {
   if (layoutRestart !== undefined) clearTimeout(layoutRestart);
   stopSession();
+  setViewportCommands(null);
   renderer?.dispose();
   renderer = null;
   budget = null;

@@ -1,18 +1,21 @@
 <script setup lang="ts">
 // Command palette (DESIGN.md, "布局"): Ctrl/Cmd+K opens the single entry point
 // for node search and every global action. Results combine the paginated
-// node search with static actions; arrows move, Enter executes, Esc closes.
+// node search with the shared command registry; arrows move, Enter
+// executes, Esc closes.
 import { computed, onBeforeUnmount, onMounted, ref, watch, type Component } from "vue";
 import { useI18n } from "vue-i18n";
 import { NIcon } from "naive-ui";
 import {
   AddOutline,
   MoonOutline,
-  SunnyOutline,
   RefreshOutline,
   SearchOutline,
+  SunnyOutline,
+  HelpCircleOutline,
 } from "@vicons/ionicons5";
 import { clientKey } from "../api";
+import { commands, commandLabel, type Command } from "../commands";
 import { injectRequired } from "../context";
 import { closePalette, paletteState, togglePalette } from "../palette";
 import { storeKey } from "../store";
@@ -24,84 +27,35 @@ const store = injectRequired(storeKey, "store");
 const workspace = injectRequired(workspaceKey, "workspace");
 const { t } = useI18n();
 
+const ctx = { store, workspace };
+
 const query = ref("");
 const active = ref(0);
 const nodes = ref<SearchNode[]>([]);
 const inputEl = ref<HTMLInputElement | null>(null);
 
-interface ActionItem {
-  key: string;
-  label: string;
-  icon?: Component;
-  run(): void;
+const ICONS: Record<string, Component> = {
+  "create-decision": AddOutline,
+  "create-premise": AddOutline,
+  theme: store.state.theme === "dark" ? SunnyOutline : MoonOutline,
+  "help-shortcuts": HelpCircleOutline,
+  refresh: RefreshOutline,
+};
+
+function iconOf(command: Command): Component | undefined {
+  if (command.id === "theme") return store.state.theme === "dark" ? SunnyOutline : MoonOutline;
+  return ICONS[command.id];
 }
 
-const actions = computed<ActionItem[]>(() => [
-  {
-    key: "create-decision",
-    label: t("node.createDecision"),
-    icon: AddOutline,
-    run: () => store.startCreate("decision"),
-  },
-  {
-    key: "create-premise",
-    label: t("node.createPremise"),
-    icon: AddOutline,
-    run: () => store.startCreate("premise"),
-  },
-  {
-    key: "theme",
-    label: store.state.theme === "dark" ? t("app.themeLight") : t("app.themeDark"),
-    icon: store.state.theme === "dark" ? SunnyOutline : MoonOutline,
-    run: () => store.setTheme(store.state.theme === "dark" ? "light" : "dark"),
-  },
-  {
-    key: "layout-layered",
-    label: t("app.layoutLayered"),
-    run: () => workspace.setConfig({ layoutMode: "layered" }),
-  },
-  {
-    key: "layout-force",
-    label: t("app.layoutForce"),
-    run: () => workspace.setConfig({ layoutMode: "force" }),
-  },
-  {
-    key: "layout-rail",
-    label: t("app.layoutRail"),
-    run: () => workspace.setConfig({ layoutMode: "rail" }),
-  },
-  {
-    key: "direction-lr",
-    label: `${t("app.direction")} →`,
-    run: () => workspace.setConfig({ direction: "LR" }),
-  },
-  {
-    key: "direction-tb",
-    label: `${t("app.direction")} ↓`,
-    run: () => workspace.setConfig({ direction: "TB" }),
-  },
-  {
-    key: "direction-rl",
-    label: `${t("app.direction")} ←`,
-    run: () => workspace.setConfig({ direction: "RL" }),
-  },
-  {
-    key: "direction-bt",
-    label: `${t("app.direction")} ↑`,
-    run: () => workspace.setConfig({ direction: "BT" }),
-  },
-  {
-    key: "premises",
-    label: `${t("canvas.premises")}: ${workspace.state.config.showPremises ? t("app.themeDark") : t("app.themeLight")}`,
-    run: () => workspace.setConfig({ showPremises: !workspace.state.config.showPremises }),
-  },
-  {
-    key: "refresh",
-    label: t("app.refresh"),
-    icon: RefreshOutline,
-    run: () => void workspace.reload(),
-  },
-]);
+const actions = computed(() =>
+  commands.map((command) => ({
+    key: command.id,
+    label: commandLabel(command, ctx, t),
+    keys: command.keys,
+    icon: iconOf(command),
+    run: () => command.run(ctx),
+  })),
+);
 
 const q = computed(() => query.value.trim().toLowerCase());
 
@@ -113,6 +67,7 @@ interface Item {
   key: string;
   kind: "action" | "node";
   label: string;
+  keys?: string;
   icon?: Component;
   run(): void;
 }
@@ -122,6 +77,7 @@ const items = computed<Item[]>(() => [
     key: `action:${action.key}`,
     kind: "action" as const,
     label: action.label,
+    keys: action.keys,
     icon: action.icon,
     run: action.run,
   })),
@@ -227,6 +183,7 @@ onBeforeUnmount(() => {
             >
               <NIcon v-if="item.icon !== undefined" :component="item.icon" class="icon" />
               <span class="label">{{ item.label }}</span>
+              <kbd v-if="item.keys !== undefined" class="keys">{{ item.keys }}</kbd>
               <span class="kind">{{
                 item.kind === "action" ? t("palette.action") : t("palette.node")
               }}</span>
@@ -326,6 +283,16 @@ onBeforeUnmount(() => {
 .kind {
   font-size: 10px;
   opacity: 0.45;
+}
+
+.keys {
+  flex: none;
+  font-family: monospace;
+  font-size: 11px;
+  padding: 0 6px;
+  border: 1px solid var(--refino-border);
+  border-radius: 5px;
+  opacity: 0.7;
 }
 
 .empty {

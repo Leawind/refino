@@ -19,6 +19,7 @@ import {
 } from "naive-ui";
 import { injectRequired } from "./context";
 import { installAltTracking } from "./peek";
+import { installShortcuts } from "./shortcuts";
 import { storeKey } from "./store";
 import { workspaceKey } from "./workspace";
 import AppHeader from "./components/AppHeader.vue";
@@ -26,6 +27,7 @@ import ResourceExplorer from "./components/ResourceExplorer.vue";
 import GraphArea from "./components/GraphArea.vue";
 import NodeDetailWindow from "./components/NodeDetailWindow.vue";
 import CommandPalette from "./components/CommandPalette.vue";
+import ShortcutHelp from "./components/ShortcutHelp.vue";
 import ReviewDrawer from "./components/ReviewDrawer.vue";
 import WorkspaceToasts from "./components/WorkspaceToasts.vue";
 import type { LayoutDirection } from "./types";
@@ -61,6 +63,8 @@ onMounted(() => {
   workspace.start();
   // Alt-peek modifier tracking (DESIGN.md, "交互"); cleaned up on unmount.
   onBeforeUnmount(installAltTracking());
+  // Global shortcut dispatch over the command registry (DESIGN.md, "交互").
+  onBeforeUnmount(installShortcuts({ store, workspace }));
 });
 onBeforeUnmount(() => {
   workspace.stop();
@@ -116,6 +120,7 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
           </div>
         </div>
         <CommandPalette />
+        <ShortcutHelp />
       </div>
     </NMessageProvider>
   </NConfigProvider>

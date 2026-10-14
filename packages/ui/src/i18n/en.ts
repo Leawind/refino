@@ -20,6 +20,19 @@ export default {
     float: "Switch to floating sidebar",
     dock: "Switch to docked sidebar",
     peekHint: "Hold Alt and hover to peek a node",
+    zoomIn: "Zoom in",
+    zoomOut: "Zoom out",
+    fitView: "Fit view",
+    fitSelection: "Fit selection",
+    shortcuts: "Keyboard shortcuts",
+  },
+  common: {
+    on: "On",
+    off: "Off",
+  },
+  help: {
+    title: "Keyboard shortcuts",
+    hint: "Global shortcuts stand down while a text field has the focus",
   },
   explorer: {
     title: "Nodes",

@@ -539,8 +539,42 @@ export class GraphRenderer {
   fitToContent(): void {
     const box = this.#contentBox();
     if (box === null) return;
+    this.fitToBox(box);
+  }
+
+  /** Moves the camera so the given virtual box fits with the standard
+   * margin (zoom-to-selection and the overview navigate through here). */
+  fitToBox(box: CameraBox): void {
     this.#target = fitCamera(box, this.#viewport(), this.#maxScale, FIT_MARGIN);
     this.#schedule();
+  }
+
+  /** Programmatic zoom by a multiplicative factor around the viewport
+   * center; clamped exactly like wheel zoom. */
+  zoomBy(factor: number): void {
+    const box = this.#contentBox();
+    if (box === null) return;
+    this.#target = zoomCamera(this.#target, factor, null, this.#viewport(), box, this.#maxScale);
+    this.#schedule();
+  }
+
+  /** Centers the viewport on a virtual point, keeping the current scale. */
+  centerOn(vx: number, vy: number): void {
+    const box = this.#contentBox();
+    if (box === null) return;
+    this.#target = centeredCamera(
+      { x: vx, y: vy },
+      this.#viewport(),
+      this.#camera,
+      box,
+      this.#maxScale,
+    );
+    this.#schedule();
+  }
+
+  /** The current camera scale (1 = 100%), for viewport readouts. */
+  get scale(): number {
+    return this.#camera.scale;
   }
 
   setZoomAnchor(anchor: "cursor" | "center"): void {
