@@ -17,6 +17,7 @@ import {
 import { clientKey } from "../api";
 import { commands, commandLabel, type Command } from "../commands";
 import { injectRequired } from "../context";
+import { injectRequiredNodeOps } from "../nodeOps";
 import { closePalette, paletteState, togglePalette } from "../palette";
 import { storeKey } from "../store";
 import { workspaceKey } from "../workspace";
@@ -25,9 +26,10 @@ import type { SearchNode } from "../types";
 const client = injectRequired(clientKey, "client");
 const store = injectRequired(storeKey, "store");
 const workspace = injectRequired(workspaceKey, "workspace");
+const nodeOps = injectRequiredNodeOps();
 const { t } = useI18n();
 
-const ctx = { store, workspace };
+const ctx = { store, workspace, nodeOps };
 
 const query = ref("");
 const active = ref(0);

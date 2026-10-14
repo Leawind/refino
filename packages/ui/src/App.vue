@@ -3,11 +3,12 @@
 // controls, see GraphArea) and the detail window. Graph data flows through
 // the on-demand workspace; the shell only wires lifecycle and global
 // actions.
-import { computed, inject, onBeforeUnmount, onMounted, watchEffect } from "vue";
+import { computed, inject, onBeforeUnmount, onMounted, provide, watchEffect } from "vue";
 import { useI18n } from "vue-i18n";
 import {
   NAlert,
   NConfigProvider,
+  NDialogProvider,
   NGlobalStyle,
   NLayoutHeader,
   NMessageProvider,
@@ -17,8 +18,10 @@ import {
   enUS,
   dateEnUS,
 } from "naive-ui";
+import { clientKey } from "./api";
 import { injectRequired } from "./context";
 import { installAltTracking } from "./peek";
+import { createNodeOps, nodeOpsKey } from "./nodeOps";
 import { installShortcuts } from "./shortcuts";
 import { storeKey } from "./store";
 import { workspaceKey } from "./workspace";
@@ -30,12 +33,19 @@ import CommandPalette from "./components/CommandPalette.vue";
 import ShortcutHelp from "./components/ShortcutHelp.vue";
 import ReviewDrawer from "./components/ReviewDrawer.vue";
 import WorkspaceToasts from "./components/WorkspaceToasts.vue";
+import CanvasDialogs from "./components/CanvasDialogs.vue";
 import type { LayoutDirection } from "./types";
 
+const client = injectRequired(clientKey, "client");
 const store = injectRequired(storeKey, "store");
 const workspace = injectRequired(workspaceKey, "workspace");
 
 const { t, locale } = useI18n();
+
+/** Canvas-side node operations (connect gesture, guarded delete), shared
+ * with the context menu and the shortcut commands via injection. */
+const nodeOps = createNodeOps(client, store, workspace, t);
+provide(nodeOpsKey, nodeOps);
 
 // The store owns the persisted language preference; keep vue-i18n in sync.
 watchEffect(() => {
@@ -64,7 +74,7 @@ onMounted(() => {
   // Alt-peek modifier tracking (DESIGN.md, "交互"); cleaned up on unmount.
   onBeforeUnmount(installAltTracking());
   // Global shortcut dispatch over the command registry (DESIGN.md, "交互").
-  onBeforeUnmount(installShortcuts({ store, workspace }));
+  onBeforeUnmount(installShortcuts({ store, workspace, nodeOps }));
 });
 onBeforeUnmount(() => {
   workspace.stop();
@@ -91,37 +101,40 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
     :theme-overrides="{ common: { primaryColor: '#18a058', borderRadius: '8px' } }"
   >
     <NMessageProvider>
-      <WorkspaceToasts />
-      <NGlobalStyle />
-      <!-- Own flex shell: naive's NLayout boxes carry no layout of their own. -->
-      <div class="shell" :class="{ dark: store.state.theme === 'dark' }">
-        <NLayoutHeader class="header" bordered>
-          <AppHeader v-model:direction="direction" @refresh="refresh">
-            <ReviewDrawer />
-          </AppHeader>
-        </NLayoutHeader>
-        <div class="content">
-          <NAlert
-            v-if="workspace.state.error !== null"
-            class="load-error"
-            type="error"
-            :show-icon="true"
-            closable
-            @close="workspace.dismissError"
-          >
-            {{ t("app.loadError") }}: {{ workspace.state.error }}
-          </NAlert>
-          <div class="workbench">
-            <ResourceExplorer />
-            <div class="center-pane">
-              <GraphArea />
-              <NodeDetailWindow />
+      <NDialogProvider>
+        <WorkspaceToasts />
+        <CanvasDialogs />
+        <NGlobalStyle />
+        <!-- Own flex shell: naive's NLayout boxes carry no layout of their own. -->
+        <div class="shell" :class="{ dark: store.state.theme === 'dark' }">
+          <NLayoutHeader class="header" bordered>
+            <AppHeader v-model:direction="direction" @refresh="refresh">
+              <ReviewDrawer />
+            </AppHeader>
+          </NLayoutHeader>
+          <div class="content">
+            <NAlert
+              v-if="workspace.state.error !== null"
+              class="load-error"
+              type="error"
+              :show-icon="true"
+              closable
+              @close="workspace.dismissError"
+            >
+              {{ t("app.loadError") }}: {{ workspace.state.error }}
+            </NAlert>
+            <div class="workbench">
+              <ResourceExplorer />
+              <div class="center-pane">
+                <GraphArea />
+                <NodeDetailWindow />
+              </div>
             </div>
           </div>
+          <CommandPalette />
+          <ShortcutHelp />
         </div>
-        <CommandPalette />
-        <ShortcutHelp />
-      </div>
+      </NDialogProvider>
     </NMessageProvider>
   </NConfigProvider>
 </template>

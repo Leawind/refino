@@ -14,13 +14,16 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { injectRequired } from "../context";
+import { notify } from "../feedback";
 import { isTextEntry, peekHide, peekMove } from "../peek";
+import { injectRequiredNodeOps } from "../nodeOps";
 import { storeKey } from "../store";
 import { workspaceKey } from "../workspace";
 import CanvasContextMenu from "./CanvasContextMenu.vue";
 
 const store = injectRequired(storeKey, "store");
 const workspace = injectRequired(workspaceKey, "workspace");
+const nodeOps = injectRequiredNodeOps();
 import { createLayoutSession } from "../graph/layout/registry";
 import { structureSignature } from "../graph/layout/structure";
 import type { LaidOutNode, LayoutSession } from "../graph/layout/types";
@@ -357,6 +360,25 @@ function selectionBox(): { minX: number; minY: number; maxX: number; maxY: numbe
   return Number.isFinite(minX) ? { minX, minY, maxX, maxY } : null;
 }
 
+/** The connect gesture: right drag from a node to a decision adds the
+ * source as that decision's ground, saving directly (ui DESIGN.md,
+ * "编辑功能"); the renderer draws the preview edge. */
+function onEdgeDrag(
+  frame: { fromId: string; targetId: string | null } | null,
+  phase: "start" | "move" | "end",
+): void {
+  if (phase !== "end" || frame === null || frame.targetId === null) return;
+  void commitGround(frame.targetId, frame.fromId);
+}
+
+async function commitGround(targetId: string, groundId: string): Promise<void> {
+  const outcome = await nodeOps.addGround(targetId, groundId);
+  if (outcome === "added") notify(t("canvas.groundAdded"), "success");
+  else if (outcome === "duplicate") notify(t("canvas.groundDuplicate"), "warning");
+  else if (outcome === "draft") notify(t("canvas.groundDraft"), "warning");
+  else notify(t("canvas.groundFailed"), "error");
+}
+
 function ensureRenderer(): void {
   const canvas = canvasEl.value;
   if (canvas === null || renderer !== null) return;
@@ -382,6 +404,7 @@ function ensureRenderer(): void {
   renderer.setTheme(readThemeColors());
   renderer.setNodeDragHandler(props.layoutMode === "layered" ? null : dragNode);
   renderer.setMarqueeHandler(onMarquee);
+  renderer.setEdgeDragHandler(onEdgeDrag);
   renderer.setScene(scene.value);
   // Viewport commands (zoom/fit) reach global shortcuts and the palette
   // through the bridge; cleared on unmount so stale handlers never fire.

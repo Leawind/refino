@@ -150,6 +150,13 @@ export default {
     showVirtualRoot: "显示虚拟根",
     rangeDisconnected: "两节点间未找到路径（无公共祖先或超出搜索预算），选择已替换为被点击的节点",
     glUnavailable: "当前环境不支持 WebGL 2，画布无法渲染",
+    refineThis: "以此细化",
+    groundAdded: "已添加依据",
+    groundDuplicate: "该节点已是其依据",
+    groundDraft: "已加入编辑器草稿，保存后生效",
+    groundFailed: "添加依据失败",
+    nodeDeleted: "节点已删除",
+    deleteFailed: "删除失败",
   },
   selection: {
     title: "已选择",

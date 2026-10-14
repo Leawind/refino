@@ -345,14 +345,22 @@ export function createStore(client: RefinoClient, workspace: Workspace) {
     collapseInline(): void {
       state.inlineId = null;
     },
-    startCreate(type: "premise" | "decision"): void {
+    /**
+     * Open the create editor for the given type. `prefill` seeds the form
+     * (e.g. a canvas "refine this decision" seeds the grounds); a premise
+     * defaults its confirmation time to now unless prefilled.
+     */
+    startCreate(type: "premise" | "decision", prefill?: Partial<DetailFormState>): void {
       state.creatingType = type;
       state.detailOpen = true;
       state.inlineId = null;
       setFormFrom(null);
-      // A new premise defaults its confirmation time to now (matches the CLI's
-      // --now); the value stays editable.
-      if (type === "premise") detailForm.confirmed = new Date().toISOString();
+      if (prefill !== undefined) Object.assign(detailForm, prefill);
+      // A new premise defaults its confirmation time to now (matches the
+      // CLI's --now); the value stays editable.
+      if (type === "premise" && prefill?.confirmed === undefined) {
+        detailForm.confirmed = new Date().toISOString();
+      }
     },
     cancelCreate(): void {
       state.creatingType = null;

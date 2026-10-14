@@ -6,6 +6,7 @@ import { computed, onBeforeUnmount, onMounted } from "vue";
 import { useI18n } from "vue-i18n";
 import { commands, commandLabel } from "../commands";
 import { injectRequired } from "../context";
+import { injectRequiredNodeOps } from "../nodeOps";
 import { closeHelp, helpState } from "../help";
 import { storeKey } from "../store";
 import { workspaceKey } from "../workspace";
@@ -13,9 +14,10 @@ import type { CommandContext } from "../commands";
 
 const store = injectRequired(storeKey, "store");
 const workspace = injectRequired(workspaceKey, "workspace");
+const nodeOps = injectRequiredNodeOps();
 const { t } = useI18n();
 
-const ctx: CommandContext = { store, workspace };
+const ctx: CommandContext = { store, workspace, nodeOps };
 
 const bound = computed(() => commands.filter((command) => command.bindings !== undefined));
 

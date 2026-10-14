@@ -1,5 +1,6 @@
 import type { Store } from "./store";
 import type { Workspace } from "./workspace";
+import type { NodeOps } from "./nodeOps";
 import { toggleHelp } from "./help";
 import { viewportBridge } from "./viewportBridge";
 
@@ -17,6 +18,7 @@ import { viewportBridge } from "./viewportBridge";
 export interface CommandContext {
   store: Store;
   workspace: Workspace;
+  nodeOps: NodeOps;
 }
 
 /** One keybinding. `key` matches event.key (case-insensitive); `code`
@@ -160,6 +162,16 @@ function createCommands(): Command[] {
       keys: "Shift+2",
       bindings: [{ code: "Digit2", shift: true }],
       run: () => viewportBridge.commands?.fitSelection(),
+    },
+    {
+      id: "node-delete",
+      labelKey: "node.delete",
+      keys: "Del",
+      bindings: [{ key: "Delete" }, { key: "Backspace" }],
+      run: ({ workspace, nodeOps }) => {
+        const id = workspace.state.focusId;
+        if (id !== null) void nodeOps.deleteNode(id);
+      },
     },
     {
       id: "help-shortcuts",

@@ -116,6 +116,15 @@ export type MarqueeFrame = {
   virtual: CameraBox;
 } | null;
 
+/** One connect-drag frame: the source node, the pointer in virtual space
+ * and the node under the pointer (null unless it may receive the ground —
+ * not the source itself). */
+export interface EdgeDragFrame {
+  fromId: string;
+  to: { x: number; y: number };
+  targetId: string | null;
+}
+
 const FIT_MARGIN = 24;
 /** Zoom factor per wheel notch unit; wheel zoom is multiplicative. */
 const ZOOM_WHEEL_FACTOR = 0.0015;
@@ -311,15 +320,23 @@ export class GraphRenderer {
    * mouseup). */
   #gesture: Gesture | null = null;
   /** Right-button gesture: right-drag pans (the drawio/Obsidian convention);
-   * a right press released in place opens the context menu. */
+   * a right press released in place opens the context menu; a right drag
+   * from a node connects (edge drag) when a handler is set. */
   #rightGesture: {
     startX: number;
     startY: number;
     lastX: number;
     lastY: number;
   } | null = null;
-  /** The most recent right drag actually panned; suppresses the menu. */
+  /** The most recent right press produced a gesture (pan or connect);
+   * suppresses the menu on release. */
   #rightConsumed = false;
+  /** Connect-drag state: dragging an edge from a node to its new ground. */
+  #edgeDrag: { fromId: string; targetId: string | null } | null = null;
+  #edgeDragHandler:
+    ((frame: EdgeDragFrame | null, phase: "start" | "move" | "end") => void) | null = null;
+  /** The live connect-drag preview edge (source border → pointer). */
+  #edgePreview: { fromId: string; to: { x: number; y: number } } | null = null;
   /** Space-held pan mode: left presses pan wherever they land. */
   #spacePan = false;
   #marqueeHandler: ((frame: MarqueeFrame, phase: "move" | "end") => void) | null = null;
@@ -678,15 +695,25 @@ export class GraphRenderer {
     this.#marqueeHandler = handler;
   }
 
+  /** Sets the connect-drag handler: a right drag from a node reports the
+   * drag frames here ("start"/"move" carry the pointer and target, "end"
+   * the final frame) instead of panning. Pass null to restore panning. */
+  setEdgeDragHandler(
+    handler: ((frame: EdgeDragFrame | null, phase: "start" | "move" | "end") => void) | null,
+  ): void {
+    this.#edgeDragHandler = handler;
+  }
+
   /** Space-held pan mode: while active, left presses pan wherever they
    * land and the following click is suppressed. */
   setSpacePan(active: boolean): void {
     this.#spacePan = active;
   }
 
-  /** Whether the most recent right press actually panned (vs. released in
-   * place); reads and clears the flag — the contextmenu handler calls this
-   * once to decide between menu and nothing. */
+  /** Whether the most recent right press produced a gesture (a pan or a
+   * connect drag) instead of releasing in place; reads and clears the flag
+   * — the contextmenu handler calls this once to decide between menu and
+   * nothing. */
   consumeRightGesture(): boolean {
     const consumed = this.#rightConsumed;
     this.#rightConsumed = false;
@@ -715,13 +742,30 @@ export class GraphRenderer {
     }
     if (event.button === 2) {
       event.preventDefault();
+      this.#rightConsumed = false;
+      // A right press on a node starts a connect drag (when a handler is
+      // set); anywhere else it starts the right-drag pan gesture.
+      if (this.#edgeDragHandler !== null) {
+        const rect = this.#canvas.getBoundingClientRect();
+        const hit = this.pick(event.clientX - rect.left, event.clientY - rect.top);
+        if (hit !== null) {
+          this.#edgeDrag = { fromId: hit, targetId: null };
+          this.#edgePreview = {
+            fromId: hit,
+            to: this.toVirtual(event.clientX - rect.left, event.clientY - rect.top),
+          };
+          this.#canvas.style.cursor = "crosshair";
+          this.#schedule();
+          this.#edgeDragHandler(this.#edgeDragFrame(), "start");
+          return;
+        }
+      }
       this.#rightGesture = {
         startX: event.clientX,
         startY: event.clientY,
         lastX: event.clientX,
         lastY: event.clientY,
       };
-      this.#rightConsumed = false;
       return;
     }
     if (event.button !== 0) return;
@@ -768,6 +812,12 @@ export class GraphRenderer {
     if (this.#spacePan) this.#clickSuppressed = true;
   };
 
+  /** The current connect-drag frame (source, pointer, hovered target). */
+  #edgeDragFrame(): EdgeDragFrame {
+    const drag = this.#edgeDrag!;
+    return { fromId: drag.fromId, to: this.#edgePreview!.to, targetId: drag.targetId };
+  }
+
   #onMouseMove = (event: MouseEvent): void => {
     const drag = this.#nodeDrag;
     if (drag !== null) {
@@ -781,6 +831,18 @@ export class GraphRenderer {
       const vx = (event.clientX - rect.left - this.#camera.tx) / this.#camera.scale;
       const vy = (event.clientY - rect.top - this.#camera.ty) / this.#camera.scale;
       this.#nodeDragHandler?.(drag.id, vx - drag.offsetX, vy - drag.offsetY, "drag");
+      return;
+    }
+    if (this.#edgeDrag !== null) {
+      const rect = this.#canvas.getBoundingClientRect();
+      const px = event.clientX - rect.left;
+      const py = event.clientY - rect.top;
+      const to = this.toVirtual(px, py);
+      const hit = this.pick(px, py);
+      this.#edgeDrag.targetId = hit !== null && hit !== this.#edgeDrag.fromId ? hit : null;
+      this.#edgePreview = { fromId: this.#edgeDrag.fromId, to };
+      this.#schedule();
+      this.#edgeDragHandler?.(this.#edgeDragFrame(), "move");
       return;
     }
     const right = this.#rightGesture;
@@ -855,6 +917,17 @@ export class GraphRenderer {
 
   #onMouseUp = (event: MouseEvent): void => {
     if (event.button === 2) {
+      if (this.#edgeDrag !== null) {
+        // A connect drag counts as a consumed gesture: no menu on release.
+        this.#rightConsumed = true;
+        const frame = this.#edgeDragFrame();
+        this.#edgeDrag = null;
+        this.#edgePreview = null;
+        this.#canvas.style.cursor = "default";
+        this.#schedule();
+        this.#edgeDragHandler?.(frame, "end");
+        return;
+      }
       this.#rightGesture = null;
       this.#canvas.style.cursor = "default";
       return;
@@ -894,9 +967,10 @@ export class GraphRenderer {
     return this.#clickSuppressed;
   }
 
-  /** True while a pan gesture of any button is in progress. */
+  /** True while a pan gesture of any button or a connect drag is in
+   * progress. */
   get dragging(): boolean {
-    return this.#gesture !== null || this.#rightGesture !== null;
+    return this.#gesture !== null || this.#rightGesture !== null || this.#edgeDrag !== null;
   }
 
   /** CSS point → virtual space under the current camera. */
@@ -1167,6 +1241,34 @@ export class GraphRenderer {
       this.#edgeData[base + 4] = width;
       this.#edgeData.set(color, base + 5);
       count++;
+    }
+    // The connect-drag preview: primary-colored emphasized shaft from the
+    // source node's border to the pointer, arrow at the pointer.
+    if (this.#edgePreview !== null) {
+      const from = this.#entries.get(this.#edgePreview.fromId);
+      if (from !== undefined && from.alpha >= 0.02) {
+        if ((count + 1) * 9 > this.#edgeData.length) this.#edgeData = grow(this.#edgeData);
+        const fx = from.node.x + from.node.width / 2;
+        const fy = from.node.y + from.node.height / 2;
+        const radius = from.node.premise ? from.node.height / 2 : CORNER_RADIUS;
+        const [x1, y1] = borderPoint(
+          fx,
+          fy,
+          this.#edgePreview.to.x,
+          this.#edgePreview.to.y,
+          from.node.width / 2,
+          from.node.height / 2,
+          radius,
+        );
+        const base = count * 9;
+        this.#edgeData[base] = x1;
+        this.#edgeData[base + 1] = y1;
+        this.#edgeData[base + 2] = this.#edgePreview.to.x;
+        this.#edgeData[base + 3] = this.#edgePreview.to.y;
+        this.#edgeData[base + 4] = EDGE_WIDTH_EMPHASIZED;
+        this.#edgeData.set(this.#theme.primary, base + 5);
+        count++;
+      }
     }
 
     const { program, uniform } = this.#edgeProgram;

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RefinoClient } from "../src/api";
 import { closeHelp, helpState } from "../src/help";
 import { closePalette, paletteState } from "../src/palette";
+import { createNodeOps } from "../src/nodeOps";
 import { installShortcuts } from "../src/shortcuts";
 import { createStore, type Store } from "../src/store";
 import { setViewportCommands } from "../src/viewportBridge";
@@ -61,8 +62,9 @@ beforeEach(() => {
   const client = fakeClient();
   workspace = createWorkspace(client);
   store = createStore(client, workspace);
+  const nodeOps = createNodeOps(client, store, workspace, (key) => key);
   document.body.replaceChildren();
-  removeShortcuts = installShortcuts({ store, workspace });
+  removeShortcuts = installShortcuts({ store, workspace, nodeOps });
 });
 
 afterEach(() => {

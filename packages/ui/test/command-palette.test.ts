@@ -4,6 +4,7 @@ import { mount } from "@vue/test-utils";
 import { clientKey } from "../src/api";
 import type { RefinoClient } from "../src/api";
 import { createRefinoI18n } from "../src/i18n";
+import { createNodeOps, nodeOpsKey } from "../src/nodeOps";
 import { closePalette, paletteState } from "../src/palette";
 import CommandPalette from "../src/components/CommandPalette.vue";
 import { storeKey, createStore } from "../src/store";
@@ -51,12 +52,14 @@ function mountPalette() {
   const client = fakeClient();
   const workspace = createWorkspace(client);
   const store = createStore(client, workspace);
+  const nodeOps = createNodeOps(client, store, workspace, (key) => key);
   const wrapper = mount(CommandPalette, {
     global: {
       provide: {
         [workspaceKey as symbol]: workspace,
         [storeKey as symbol]: store,
         [clientKey as symbol]: client,
+        [nodeOpsKey as symbol]: nodeOps,
       },
       plugins: [createRefinoI18n("zh")],
     },

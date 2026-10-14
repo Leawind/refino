@@ -7,6 +7,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { injectRequired } from "../context";
+import { injectRequiredNodeOps } from "../nodeOps";
 import { viewportBridge } from "../viewportBridge";
 import { storeKey } from "../store";
 import { workspaceKey } from "../workspace";
@@ -16,12 +17,14 @@ const emit = defineEmits<{ close: [] }>();
 
 const store = injectRequired(storeKey, "store");
 const workspace = injectRequired(workspaceKey, "workspace");
+const nodeOps = injectRequiredNodeOps();
 const { t } = useI18n();
 
 interface MenuItem {
   key: string;
   label: string;
   run(): void;
+  danger?: boolean;
 }
 
 const items = computed<MenuItem[]>(() => {
@@ -37,6 +40,19 @@ const items = computed<MenuItem[]>(() => {
           const lite = workspace.displayed.value.find((node) => node.id === id);
           if (lite !== undefined) workspace.toggle(lite);
         },
+      },
+      {
+        // Creation always runs through the full editor; the menu only
+        // stages it with this node pre-filled as the ground.
+        key: "refine",
+        label: t("canvas.refineThis"),
+        run: () => store.startCreate("decision", { grounds: [id] }),
+      },
+      {
+        key: "delete",
+        label: t("node.delete"),
+        danger: true,
+        run: () => void nodeOps.deleteNode(id),
       },
     ];
   }
@@ -110,7 +126,7 @@ onBeforeUnmount(() => {
         v-for="(item, index) in items"
         :key="item.key"
         class="item"
-        :class="{ active: index === active }"
+        :class="{ active: index === active, danger: item.danger }"
         role="menuitem"
         type="button"
         @click="runItem(item)"
@@ -151,5 +167,9 @@ onBeforeUnmount(() => {
 
 .item.active {
   background: rgba(24, 160, 88, 0.14);
+}
+
+.item.danger {
+  color: #d03050;
 }
 </style>

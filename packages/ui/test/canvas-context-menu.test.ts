@@ -5,9 +5,9 @@ import { clientKey } from "../src/api";
 import type { RefinoClient } from "../src/api";
 import CanvasContextMenu from "../src/components/CanvasContextMenu.vue";
 import { createRefinoI18n } from "../src/i18n";
+import { createNodeOps, nodeOpsKey, type NodeOps } from "../src/nodeOps";
 import { createStore, storeKey } from "../src/store";
 import { createWorkspace, workspaceKey } from "../src/workspace";
-import type { Store } from "../src/store";
 import type { Workspace } from "../src/workspace";
 
 /**
@@ -42,7 +42,8 @@ function fakeClient(): RefinoClient {
 }
 
 let workspace: Workspace;
-let store: Store;
+let store: ReturnType<typeof createStore>;
+let nodeOps: NodeOps;
 const wrappers: Array<ReturnType<typeof mount>> = [];
 
 function mountMenu(nodeId: string | null) {
@@ -52,6 +53,7 @@ function mountMenu(nodeId: string | null) {
       provide: {
         [workspaceKey as symbol]: workspace,
         [storeKey as symbol]: store,
+        [nodeOpsKey as symbol]: nodeOps,
         [clientKey as symbol]: fakeClient(),
       },
       plugins: [createRefinoI18n("zh")],
@@ -75,6 +77,7 @@ beforeEach(() => {
   const client = fakeClient();
   workspace = createWorkspace(client);
   store = createStore(client, workspace);
+  nodeOps = createNodeOps(client, store, workspace, (key) => key);
 });
 
 afterEach(() => {
@@ -88,10 +91,19 @@ describe("CanvasContextMenu", () => {
       "编辑",
       "定位（设为焦点）",
       "切换选中",
+      "以此细化",
+      "删除",
     ]);
     items()[0]!.click();
     expect(store.state.detailOpen).toBe(true);
     expect(wrapper.emitted("close")).toHaveLength(1);
+  });
+
+  it("stages a refine create with the node pre-filled as ground", () => {
+    mountMenu("A1B2C3D4");
+    items()[3]!.click();
+    expect(store.state.creatingType).toBe("decision");
+    expect(store.form.grounds).toEqual(["A1B2C3D4"]);
   });
 
   it("locates a node from the menu", () => {

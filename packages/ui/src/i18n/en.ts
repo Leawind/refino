@@ -152,6 +152,13 @@ export default {
     rangeDisconnected:
       "No path between the two nodes (no common ancestor or the search budget ran out); the selection is now just the clicked node",
     glUnavailable: "WebGL 2 is unavailable; the canvas cannot render",
+    refineThis: "Refine this decision",
+    groundAdded: "Ground added",
+    groundDuplicate: "Already a ground",
+    groundDraft: "Added to the editor draft; save to apply",
+    groundFailed: "Failed to add the ground",
+    nodeDeleted: "Node deleted",
+    deleteFailed: "Failed to delete",
   },
   selection: {
     title: "Selection",
