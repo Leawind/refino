@@ -101,6 +101,21 @@ export interface RenderInfo {
   target: { scale: number; tx: number; ty: number };
 }
 
+/** A marquee rectangle in canvas-local CSS pixels. */
+export interface MarqueeRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** A marquee drag frame: the overlay rectangle plus the same region in
+ * virtual coordinates for hit-testing. Null reports the gesture's end. */
+export type MarqueeFrame = {
+  css: MarqueeRect;
+  virtual: CameraBox;
+} | null;
+
 const FIT_MARGIN = 24;
 /** Zoom factor per wheel notch unit; wheel zoom is multiplicative. */
 const ZOOM_WHEEL_FACTOR = 0.0015;
@@ -246,6 +261,16 @@ function grow(source: Float32Array): Float32Array<ArrayBuffer> {
   return grown;
 }
 
+/** The active left/middle pointer gesture. */
+interface Gesture {
+  kind: "pan" | "marquee";
+  startX: number;
+  startY: number;
+  lastX: number;
+  lastY: number;
+  moved: boolean;
+}
+
 export class GraphRenderer {
   readonly #canvas: HTMLCanvasElement;
   readonly #gl: WebGL2RenderingContext;
@@ -280,15 +305,24 @@ export class GraphRenderer {
   #zoomAnchor: "cursor" | "center" = "cursor";
   #cssWidth = 0;
   #cssHeight = 0;
-  /** Active left-button gesture; `moved` says whether it left the click
-   * slop (and so suppresses the click that follows its mouseup). */
-  #gesture: {
+  /** Active left/middle gesture: "pan" moves the camera 1:1, "marquee"
+   * (shift+drag on empty space) rubber-band selects. `moved` says whether
+   * it left the click slop (and so suppresses the click that follows its
+   * mouseup). */
+  #gesture: Gesture | null = null;
+  /** Right-button gesture: right-drag pans (the drawio/Obsidian convention);
+   * a right press released in place opens the context menu. */
+  #rightGesture: {
     startX: number;
     startY: number;
     lastX: number;
     lastY: number;
-    moved: boolean;
   } | null = null;
+  /** The most recent right drag actually panned; suppresses the menu. */
+  #rightConsumed = false;
+  /** Space-held pan mode: left presses pan wherever they land. */
+  #spacePan = false;
+  #marqueeHandler: ((frame: MarqueeFrame, phase: "move" | "end") => void) | null = null;
   #clickSuppressed = false;
   #lastFocusId: string | null = null;
   /** Node-drag gesture (force layouts): non-null while a left press on a
@@ -376,6 +410,7 @@ export class GraphRenderer {
     // that follows a gesture beyond the click slop.
     canvas.addEventListener("wheel", this.#onWheel, { passive: false });
     canvas.addEventListener("mousedown", this.#onMouseDown);
+    canvas.addEventListener("contextmenu", this.#onContextMenuDefault);
     window.addEventListener("mousemove", this.#onMouseMove);
     window.addEventListener("mouseup", this.#onMouseUp);
     this.#resizeObserver = new ResizeObserver(() => this.#resize());
@@ -636,40 +671,32 @@ export class GraphRenderer {
     this.#schedule();
   };
 
-  #onMouseDown = (event: MouseEvent): void => {
-    if (event.button === 1) {
-      event.preventDefault(); // no middle-click autoscroll
-      return;
-    }
-    if (event.button !== 0) return;
-    event.preventDefault();
-    // A press on a node starts a node drag (force layouts); a press on
-    // empty space pans the viewport. The grab offset (pointer minus node
-    // corner, in virtual units) is remembered so the node keeps its exact
-    // position relative to the pointer for the whole gesture.
-    if (this.#nodeDragHandler !== null) {
-      const rect = this.#canvas.getBoundingClientRect();
-      const px = event.clientX - rect.left;
-      const py = event.clientY - rect.top;
-      const id = this.pick(px, py);
-      if (id !== null) {
-        const entry = this.#entries.get(id)!;
-        const vx = (px - this.#camera.tx) / this.#camera.scale;
-        const vy = (py - this.#camera.ty) / this.#camera.scale;
-        this.#nodeDrag = {
-          id,
-          startX: event.clientX,
-          startY: event.clientY,
-          offsetX: vx - entry.node.x,
-          offsetY: vy - entry.node.y,
-        };
-        this.#clickSuppressed = false;
-        this.#canvas.style.cursor = "grabbing";
-        return;
-      }
-    }
+  /** Sets the marquee handler: shift+drag on empty space reports the rubber
+   * band here (move frames while dragging, the final frame — or null for a
+   * click-without-drag — on end). Pass null to detach. */
+  setMarqueeHandler(handler: ((frame: MarqueeFrame, phase: "move" | "end") => void) | null): void {
+    this.#marqueeHandler = handler;
+  }
+
+  /** Space-held pan mode: while active, left presses pan wherever they
+   * land and the following click is suppressed. */
+  setSpacePan(active: boolean): void {
+    this.#spacePan = active;
+  }
+
+  /** Whether the most recent right press actually panned (vs. released in
+   * place); reads and clears the flag — the contextmenu handler calls this
+   * once to decide between menu and nothing. */
+  consumeRightGesture(): boolean {
+    const consumed = this.#rightConsumed;
+    this.#rightConsumed = false;
+    return consumed;
+  }
+
+  #startPan(event: MouseEvent): void {
     this.#clickSuppressed = false;
     this.#gesture = {
+      kind: "pan",
       startX: event.clientX,
       startY: event.clientY,
       lastX: event.clientX,
@@ -677,6 +704,68 @@ export class GraphRenderer {
       moved: false,
     };
     this.#canvas.style.cursor = "grabbing";
+  }
+
+  #onMouseDown = (event: MouseEvent): void => {
+    if (event.button === 1) {
+      // Middle button pans; preventDefault also disables autoscroll.
+      event.preventDefault();
+      this.#startPan(event);
+      return;
+    }
+    if (event.button === 2) {
+      event.preventDefault();
+      this.#rightGesture = {
+        startX: event.clientX,
+        startY: event.clientY,
+        lastX: event.clientX,
+        lastY: event.clientY,
+      };
+      this.#rightConsumed = false;
+      return;
+    }
+    if (event.button !== 0) return;
+    event.preventDefault();
+    // A press on a node starts a node drag (force layouts); a press on
+    // empty space pans the viewport — unless shift is held, which starts a
+    // marquee, or space, which pans wherever the press lands. The grab
+    // offset (pointer minus node corner, in virtual units) is remembered so
+    // the node keeps its exact position relative to the pointer for the
+    // whole gesture.
+    const rect = this.#canvas.getBoundingClientRect();
+    const px = event.clientX - rect.left;
+    const py = event.clientY - rect.top;
+    const hit = this.pick(px, py);
+    if (this.#nodeDragHandler !== null && !this.#spacePan && hit !== null) {
+      const entry = this.#entries.get(hit)!;
+      const vx = (px - this.#camera.tx) / this.#camera.scale;
+      const vy = (py - this.#camera.ty) / this.#camera.scale;
+      this.#nodeDrag = {
+        id: hit,
+        startX: event.clientX,
+        startY: event.clientY,
+        offsetX: vx - entry.node.x,
+        offsetY: vy - entry.node.y,
+      };
+      this.#clickSuppressed = false;
+      this.#canvas.style.cursor = "grabbing";
+      return;
+    }
+    if (event.shiftKey && hit === null && !this.#spacePan) {
+      this.#clickSuppressed = false;
+      this.#gesture = {
+        kind: "marquee",
+        startX: event.clientX,
+        startY: event.clientY,
+        lastX: event.clientX,
+        lastY: event.clientY,
+        moved: false,
+      };
+      this.#canvas.style.cursor = "crosshair";
+      return;
+    }
+    this.#startPan(event);
+    if (this.#spacePan) this.#clickSuppressed = true;
   };
 
   #onMouseMove = (event: MouseEvent): void => {
@@ -694,8 +783,42 @@ export class GraphRenderer {
       this.#nodeDragHandler?.(drag.id, vx - drag.offsetX, vy - drag.offsetY, "drag");
       return;
     }
+    const right = this.#rightGesture;
+    if (right !== null) {
+      const box = this.#contentBox();
+      if (box === null) return;
+      const dx = event.clientX - right.lastX;
+      const dy = event.clientY - right.lastY;
+      right.lastX = event.clientX;
+      right.lastY = event.clientY;
+      if (
+        !this.#rightConsumed &&
+        Math.hypot(event.clientX - right.startX, event.clientY - right.startY) > CLICK_SLOP_PX
+      ) {
+        this.#rightConsumed = true;
+        this.#canvas.style.cursor = "grabbing";
+      }
+      if (this.#rightConsumed) {
+        // Right-drag pans exactly like the left gesture (1:1, no smoothing).
+        this.#camera = panCamera(this.#camera, dx, dy, this.#viewport(), box);
+        this.#target = panCamera(this.#target, dx, dy, this.#viewport(), box);
+        this.#schedule();
+      }
+      return;
+    }
     const gesture = this.#gesture;
     if (gesture === null) return;
+    if (gesture.kind === "marquee") {
+      if (!gesture.moved) {
+        const total = Math.hypot(event.clientX - gesture.startX, event.clientY - gesture.startY);
+        if (total > CLICK_SLOP_PX) {
+          gesture.moved = true;
+          this.#clickSuppressed = true;
+        }
+      }
+      if (gesture.moved) this.#marqueeHandler?.(this.#marqueeFrame(gesture, event), "move");
+      return;
+    }
     const box = this.#contentBox();
     if (box === null) return;
     // Dragging is 1:1 (no smoothing lag): content follows the cursor.
@@ -716,8 +839,27 @@ export class GraphRenderer {
     this.#schedule();
   };
 
+  #marqueeFrame(gesture: Gesture, event: MouseEvent): MarqueeFrame {
+    const x = Math.min(gesture.startX, event.clientX);
+    const y = Math.min(gesture.startY, event.clientY);
+    const width = Math.abs(event.clientX - gesture.startX);
+    const height = Math.abs(event.clientY - gesture.startY);
+    const rect = this.#canvas.getBoundingClientRect();
+    const cornerA = this.toVirtual(x, y);
+    const cornerB = this.toVirtual(x + width, y + height);
+    return {
+      css: { x: x - rect.left, y: y - rect.top, width, height },
+      virtual: { minX: cornerA.x, minY: cornerA.y, maxX: cornerB.x, maxY: cornerB.y },
+    };
+  }
+
   #onMouseUp = (event: MouseEvent): void => {
-    if (event.button !== 0) return;
+    if (event.button === 2) {
+      this.#rightGesture = null;
+      this.#canvas.style.cursor = "default";
+      return;
+    }
+    if (event.button !== 0 && event.button !== 1) return;
     if (this.#nodeDrag !== null) {
       const drag = this.#nodeDrag;
       this.#nodeDrag = null;
@@ -730,9 +872,19 @@ export class GraphRenderer {
       }
       return;
     }
-    if (this.#gesture === null) return;
+    const gesture = this.#gesture;
+    if (gesture === null) return;
     this.#gesture = null;
     this.#canvas.style.cursor = "default";
+    if (gesture.kind === "marquee") {
+      this.#marqueeHandler?.(gesture.moved ? this.#marqueeFrame(gesture, event) : null, "end");
+    }
+  };
+
+  #onContextMenuDefault = (event: MouseEvent): void => {
+    // Right click belongs to the app (context menu) and right-drag panning;
+    // the browser menu never shows on the canvas.
+    event.preventDefault();
   };
 
   /** True when the left press that just ended moved beyond the click slop:
@@ -742,9 +894,36 @@ export class GraphRenderer {
     return this.#clickSuppressed;
   }
 
-  /** True while a left-button pan gesture is in progress. */
+  /** True while a pan gesture of any button is in progress. */
   get dragging(): boolean {
-    return this.#gesture !== null;
+    return this.#gesture !== null || this.#rightGesture !== null;
+  }
+
+  /** CSS point → virtual space under the current camera. */
+  toVirtual(cssX: number, cssY: number): { x: number; y: number } {
+    return {
+      x: (cssX - this.#camera.tx) / this.#camera.scale,
+      y: (cssY - this.#camera.ty) / this.#camera.scale,
+    };
+  }
+
+  /** Virtual-space ids of visible, budget-admitted nodes whose rect
+   * intersects the given box (marquee selection). */
+  pickRect(rect: CameraBox): string[] {
+    const ids: string[] = [];
+    for (const [id, entry] of this.#entries) {
+      if (entry.alpha < 0.1 || !this.#admitted.has(id) || entry.node.virtual === true) continue;
+      const node = entry.node;
+      if (
+        node.x < rect.maxX &&
+        node.x + node.width > rect.minX &&
+        node.y < rect.maxY &&
+        node.y + node.height > rect.minY
+      ) {
+        ids.push(id);
+      }
+    }
+    return ids;
   }
 
   setTheme(colors: ThemeColors): void {
@@ -778,6 +957,7 @@ export class GraphRenderer {
     this.#resizeObserver.disconnect();
     this.#canvas.removeEventListener("wheel", this.#onWheel);
     this.#canvas.removeEventListener("mousedown", this.#onMouseDown);
+    this.#canvas.removeEventListener("contextmenu", this.#onContextMenuDefault);
     window.removeEventListener("mousemove", this.#onMouseMove);
     window.removeEventListener("mouseup", this.#onMouseUp);
     this.#canvas.removeEventListener("webglcontextlost", this.#onContextLost);

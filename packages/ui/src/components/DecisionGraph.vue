@@ -1,20 +1,23 @@
 <script setup lang="ts">
 // Center canvas: the working set rendered by the WebGL2 batch renderer
 // (DESIGN.md, "画布"): nodes, edges and labels draw on the GPU with the render
-// budget culling over-budget parts; floating controls stay DOM. Clicking a
-// node selects it, shift+click range-selects (replacing the selection),
-// right-click toggles, double click opens the detail bar, hovering pulls in
-// the node's direct grounds.
+// budget culling over-budget parts; floating controls stay DOM. Left click
+// selects (Ctrl/Cmd toggles, shift range-selects), right click opens the
+// context menu (right-drag pans), double click opens the detail bar (or
+// starts a new decision on empty space), shift+drag rubber-band selects,
+// clicking empty space clears the selection, and hovering pulls in the
+// node's direct grounds. Space+drag, middle-drag and left-drag pan.
 // The layout is recomputed from scratch on every working-set change; the
 // camera keeps the focus node at a stable screen position — clicking a node
 // never displaces it — flying only for an off-screen or newly joining
 // focus, and re-fitting on direction flips.
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { injectRequired } from "../context";
-import { peekHide, peekMove } from "../peek";
+import { isTextEntry, peekHide, peekMove } from "../peek";
 import { storeKey } from "../store";
 import { workspaceKey } from "../workspace";
+import CanvasContextMenu from "./CanvasContextMenu.vue";
 
 const store = injectRequired(storeKey, "store");
 const workspace = injectRequired(workspaceKey, "workspace");
@@ -33,6 +36,7 @@ import {
 } from "../graph/render/budget";
 import type { AdaptiveBudget } from "../graph/render/budget";
 import { GraphRenderer, readThemeColors } from "../graph/render/renderer";
+import type { MarqueeFrame } from "../graph/render/renderer";
 import type { RenderEdgeInput, RenderNodeInput, SceneInput } from "../graph/render/renderer";
 import type { LayoutDirection } from "../types";
 
@@ -377,6 +381,7 @@ function ensureRenderer(): void {
   renderer.setNodeArea(workspace.state.config.nodeWidth * workspace.state.config.nodeHeight);
   renderer.setTheme(readThemeColors());
   renderer.setNodeDragHandler(props.layoutMode === "layered" ? null : dragNode);
+  renderer.setMarqueeHandler(onMarquee);
   renderer.setScene(scene.value);
   // Viewport commands (zoom/fit) reach global shortcuts and the palette
   // through the bridge; cleared on unmount so stale handlers never fire.
@@ -471,26 +476,95 @@ function onClick(event: MouseEvent): void {
   // A left press that moved beyond the click slop was a pan, not a click.
   if (renderer?.clickSuppressed === true) return;
   const id = pickAt(event);
-  if (id === null) return;
+  if (id === null) {
+    // Shift+click belongs to range selection; a plain click on empty space
+    // clears the selection without touching the accumulated canvas.
+    if (!event.shiftKey) workspace.clearSelection();
+    return;
+  }
   const lite = byId.value.get(id);
   if (lite === undefined) return;
   if (event.shiftKey) void workspace.rangeSelect(lite);
+  else if (event.ctrlKey || event.metaKey) workspace.toggle(lite);
   else workspace.select(lite);
 }
 
+/** The canvas context menu: right press released in place (a right drag
+ * panned instead). */
+const menu = reactive<{ open: boolean; x: number; y: number; nodeId: string | null }>({
+  open: false,
+  x: 0,
+  y: 0,
+  nodeId: null,
+});
+
 function onContextMenu(event: MouseEvent): void {
-  // Right click toggles the node's membership; the browser menu stays
-  // suppressed on the canvas (DESIGN.md, "交互").
   event.preventDefault();
-  const id = pickAt(event);
-  if (id === null) return;
-  const lite = byId.value.get(id);
-  if (lite !== undefined) workspace.toggle(lite);
+  if (renderer?.consumeRightGesture() === true) return;
+  menu.x = event.clientX;
+  menu.y = event.clientY;
+  menu.nodeId = pickAt(event);
+  menu.open = true;
 }
+
+/** Rubber-band selection: shift+drag on empty space (the renderer reports
+ * the frames; the overlay div draws them, the end frame selects). */
+const marquee = ref<{ x: number; y: number; width: number; height: number } | null>(null);
+
+function onMarquee(frame: MarqueeFrame, phase: "move" | "end"): void {
+  if (phase === "end") {
+    if (frame !== null && renderer !== null) {
+      const ids = renderer.pickRect(frame.virtual);
+      const lites = ids.map((id) => byId.value.get(id)).filter((lite) => lite !== undefined);
+      if (lites.length > 0) workspace.selectMany(lites, "additive");
+    }
+    marquee.value = null;
+    return;
+  }
+  if (frame !== null) marquee.value = frame.css;
+}
+
+/** Space-held pan: the renderer stays DOM-pure about keyboard state, so the
+ * component tracks the modifier and feeds it in. */
+function onSpaceKeydown(event: KeyboardEvent): void {
+  if (event.code !== "Space") return;
+  const target = event.target;
+  if (isTextEntry(target)) return;
+  if (target instanceof HTMLElement && (target.tagName === "BUTTON" || target.tagName === "A")) {
+    return;
+  }
+  event.preventDefault();
+  renderer?.setSpacePan(true);
+}
+
+function onSpaceKeyup(event: KeyboardEvent): void {
+  if (event.code !== "Space") return;
+  renderer?.setSpacePan(false);
+}
+
+function onWindowBlur(): void {
+  // Focus loss can swallow the keyup; never stick the pan mode on.
+  renderer?.setSpacePan(false);
+}
+
+onMounted(() => {
+  window.addEventListener("keydown", onSpaceKeydown);
+  window.addEventListener("keyup", onSpaceKeyup);
+  window.addEventListener("blur", onWindowBlur);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener("keydown", onSpaceKeydown);
+  window.removeEventListener("keyup", onSpaceKeyup);
+  window.removeEventListener("blur", onWindowBlur);
+});
 
 function onDoubleClick(event: MouseEvent): void {
   const id = pickAt(event);
   if (id !== null) store.openDetail(id);
+  // Double click on empty space is the canvas creation entry (ui
+  // DESIGN.md, "编辑功能": creation always runs through the full editor).
+  else store.startCreate("decision");
 }
 
 let hoveredNode: string | null = null;
@@ -535,6 +609,23 @@ function onMouseLeave(): void {
       @mousemove="onMouseMove"
       @mouseleave="onMouseLeave"
     />
+    <div
+      v-if="marquee !== null"
+      class="marquee"
+      :style="{
+        left: `${marquee.x}px`,
+        top: `${marquee.y}px`,
+        width: `${marquee.width}px`,
+        height: `${marquee.height}px`,
+      }"
+    />
+    <CanvasContextMenu
+      v-if="menu.open"
+      :x="menu.x"
+      :y="menu.y"
+      :node-id="menu.nodeId"
+      @close="menu.open = false"
+    />
     <p v-if="glFailed" class="empty">{{ t("canvas.glUnavailable") }}</p>
   </div>
 </template>
@@ -557,6 +648,14 @@ function onMouseLeave(): void {
   width: 100%;
   height: 100%;
   display: block;
+}
+
+/* Rubber-band selection rectangle (shift+drag on empty space). */
+.marquee {
+  position: absolute;
+  border: 1px solid var(--refino-primary, #18a058);
+  background: rgba(24, 160, 88, 0.12);
+  pointer-events: none;
 }
 
 .empty {

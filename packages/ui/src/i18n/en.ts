@@ -158,6 +158,7 @@ export default {
     clear: "Clear selection",
     remove: "Remove",
     locate: "Locate (make focus)",
+    toggle: "Toggle selection",
   },
   status: {
     decisions: "Decisions",

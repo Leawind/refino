@@ -445,6 +445,20 @@ export function createWorkspace(client: RefinoClient) {
     void refresh();
   }
 
+  /**
+   * Set the selection from a multi-node gesture (marquee). "replace" makes
+   * exactly these nodes the selection; "additive" unions them into it.
+   */
+  function selectMany(lites: readonly NodeLite[], mode: "replace" | "additive"): void {
+    for (const lite of lites) prime(lite);
+    const ids = lites.map((lite) => lite.id);
+    const next = mode === "replace" ? ids : dedupe([...state.selection, ...ids]);
+    if (sameSelection(state.selection, next)) return;
+    setSelection(next);
+    state.notice = null;
+    void refresh();
+  }
+
   /** Selection list "locate": move the node to the end, making it the focus. */
   function setFocus(id: string): void {
     if (!state.selection.includes(id)) return;
@@ -675,6 +689,7 @@ export function createWorkspace(client: RefinoClient) {
     select,
     rangeSelect,
     toggle,
+    selectMany,
     setFocus,
     locate,
     removeFromSelection,

@@ -415,6 +415,17 @@ describe("selection model", () => {
     await vi.waitFor(() => expect(workspace.state.selection).toEqual([C3]));
   });
 
+  it("selects many nodes replace- and additively (marquee)", async () => {
+    await select(C3);
+    workspace.selectMany([lite[C5]!, lite[C1]!], "additive");
+    await vi.waitFor(() => expect(workspace.state.selection).toEqual([C3, C5, C1]));
+    workspace.selectMany([lite[C6]!], "replace");
+    await vi.waitFor(() => expect(workspace.state.selection).toEqual([C6]));
+    // An empty replace is the marquee-on-empty outcome: clear the selection.
+    workspace.selectMany([], "replace");
+    await vi.waitFor(() => expect(workspace.state.selection).toEqual([]));
+  });
+
   it("locates by moving the node to the focus position", async () => {
     await select(C3);
     await workspace.rangeSelect(lite[C1]!);

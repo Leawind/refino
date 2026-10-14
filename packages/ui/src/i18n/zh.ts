@@ -156,6 +156,7 @@ export default {
     clear: "清空选择",
     remove: "移除",
     locate: "定位（设为焦点）",
+    toggle: "切换选中",
   },
   status: {
     decisions: "决策",
