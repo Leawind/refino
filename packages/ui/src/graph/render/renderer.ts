@@ -766,6 +766,9 @@ export class GraphRenderer {
   }
 
   #onMouseDown = (event: MouseEvent): void => {
+    // Any new non-right press dates the previous right gesture: its
+    // consumed flag must not suppress a later context menu.
+    if (event.button !== 2) this.#rightConsumed = false;
     if (event.button === 1) {
       // Middle button pans; preventDefault also disables autoscroll.
       event.preventDefault();
