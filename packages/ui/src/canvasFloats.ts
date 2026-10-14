@@ -1,9 +1,11 @@
 import type { Component } from "vue";
+import CanvasMinimap from "./components/CanvasMinimap.vue";
 import CanvasStyleSettings from "./components/CanvasStyleSettings.vue";
 import LayoutControls from "./components/LayoutControls.vue";
 import NodeSizeControl from "./components/NodeSizeControl.vue";
 import SelectionList from "./components/SelectionList.vue";
 import StatusPill from "./components/StatusPill.vue";
+import ZoomControls from "./components/ZoomControls.vue";
 import type { FloatPlacement } from "./types";
 
 /**
@@ -21,10 +23,12 @@ export interface CanvasFloat {
 }
 
 export const canvasFloats: CanvasFloat[] = [
+  { placement: "top-left", component: CanvasMinimap },
   { placement: "top-right", component: SelectionList },
   { placement: "bottom-right", component: CanvasStyleSettings },
   { placement: "bottom-right", component: NodeSizeControl },
   { placement: "bottom-right", component: LayoutControls },
+  { placement: "bottom-right", component: ZoomControls },
   { placement: "bottom-left", component: StatusPill },
 ];
 

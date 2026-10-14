@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { mount } from "@vue/test-utils";
 import { canvasFloats } from "../src/canvasFloats";
 import GraphFloats from "../src/components/GraphFloats.vue";
 import { createRefinoI18n } from "../src/i18n";
+import { setViewportCommands } from "../src/viewportBridge";
+import { createStore, storeKey } from "../src/store";
 import { createWorkspace, workspaceKey } from "../src/workspace";
 import type { RefinoClient } from "../src/api";
 
@@ -41,24 +43,41 @@ function fakeClient(): RefinoClient {
 }
 
 function mountFloats() {
-  const workspace = createWorkspace(fakeClient());
+  const client = fakeClient();
+  const workspace = createWorkspace(client);
+  const store = createStore(client, workspace);
   return mount(GraphFloats, {
     global: {
-      provide: { [workspaceKey as symbol]: workspace },
+      provide: {
+        [workspaceKey as symbol]: workspace,
+        [storeKey as symbol]: store,
+      },
       plugins: [createRefinoI18n("zh")],
     },
+    attachTo: document.body,
   });
 }
 
 beforeEach(() => {
   localStorage.clear();
+  // The zoom controls and the minimap render inert without a canvas.
+  setViewportCommands({
+    zoomBy: vi.fn(),
+    fitView: vi.fn(),
+    fitSelection: vi.fn(),
+    centerOn: vi.fn(),
+    getOverview: () => null,
+    onCameraChanged: () => () => {},
+  });
 });
 
 describe("canvas floats manifest", () => {
   it("registers one entry per edge control at its corner", () => {
-    expect(canvasFloats).toHaveLength(5);
+    expect(canvasFloats).toHaveLength(7);
     expect(canvasFloats.map((f) => f.placement)).toEqual([
+      "top-left",
       "top-right",
+      "bottom-right",
       "bottom-right",
       "bottom-right",
       "bottom-right",
@@ -71,13 +90,17 @@ describe("canvas floats manifest", () => {
 
   it("renders one float layer per corner with its controls in order", () => {
     const wrapper = mountFloats();
-    // Three corners in use; the top-left group is empty and renders none.
+    // All four corners in use now.
     const floats = wrapper.findAll(".graph-float");
-    expect(floats).toHaveLength(3);
-    // The selection list stays hidden while the selection is empty.
+    expect(floats).toHaveLength(4);
+    // The selection list stays hidden while the selection is empty; the
+    // minimap renders its map in the top-left (shown by default). Document
+    // queries: GraphFloats's root is a fragment, which VTU's scoped find
+    // does not descend into reliably.
     expect(wrapper.find(".graph-float.top-right").element.children).toHaveLength(0);
-    expect(wrapper.find(".graph-float.bottom-right").element.children).toHaveLength(3);
+    expect(document.querySelector(".graph-float.top-left .minimap .map")).not.toBeNull();
+    expect(document.querySelectorAll(".graph-float.bottom-right > *")).toHaveLength(4);
     // The bottom-left float carries the status pill.
-    expect(wrapper.find(".graph-float.bottom-left .status-pill").exists()).toBe(true);
+    expect(document.querySelector(".graph-float.bottom-left .status-pill")).not.toBeNull();
   });
 });

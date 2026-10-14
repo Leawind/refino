@@ -406,14 +406,24 @@ function ensureRenderer(): void {
   renderer.setMarqueeHandler(onMarquee);
   renderer.setEdgeDragHandler(onEdgeDrag);
   renderer.setScene(scene.value);
-  // Viewport commands (zoom/fit) reach global shortcuts and the palette
-  // through the bridge; cleared on unmount so stale handlers never fire.
+  // Viewport commands (zoom/fit/overview) reach global shortcuts, the
+  // palette and the floats through the bridge; cleared on unmount so stale
+  // handlers never fire.
   setViewportCommands({
     zoomBy: (factor) => renderer?.zoomBy(factor),
     fitView: () => renderer?.fitToContent(),
     fitSelection: () => {
       const box = selectionBox();
       if (box !== null) renderer?.fitToBox(box);
+    },
+    centerOn: (vx, vy) => renderer?.centerOn(vx, vy),
+    getOverview: () => renderer?.getOverview() ?? null,
+    onCameraChanged: (handler) => {
+      if (renderer === null) return () => {};
+      renderer.onCameraChanged = handler;
+      return () => {
+        if (renderer !== null) renderer.onCameraChanged = null;
+      };
     },
   });
 }

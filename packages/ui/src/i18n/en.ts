@@ -22,6 +22,7 @@ export default {
     peekHint: "Hold Alt and hover to peek a node",
     zoomIn: "Zoom in",
     zoomOut: "Zoom out",
+    zoomReset: "Reset zoom",
     fitView: "Fit view",
     fitSelection: "Fit selection",
     shortcuts: "Keyboard shortcuts",
@@ -149,6 +150,8 @@ export default {
     forceSpring: "Spring stiffness",
     virtualRoot: "Virtual root",
     showVirtualRoot: "Show virtual root",
+    minimap: "Minimap",
+    minimapClose: "Hide the minimap",
     rangeDisconnected:
       "No path between the two nodes (no common ancestor or the search budget ran out); the selection is now just the clicked node",
     glUnavailable: "WebGL 2 is unavailable; the canvas cannot render",

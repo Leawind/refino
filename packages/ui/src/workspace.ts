@@ -66,6 +66,8 @@ export interface CanvasConfig {
   /** Whether the force layout's virtual root renders (display-only, with
    * its edges to the real roots; force layout only). */
   showVirtualRoot: boolean;
+  /** Whether the canvas minimap overview floats in the top-left corner. */
+  showMinimap: boolean;
 }
 
 /** Bounds of the node card size, in virtual units. The minimum sits just
@@ -96,6 +98,7 @@ const DEFAULT_CONFIG: CanvasConfig = {
   forceRepulsion: FORCE_TUNING_DEFAULT.repulsion,
   forceSpring: FORCE_TUNING_DEFAULT.spring,
   showVirtualRoot: true,
+  showMinimap: true,
 };
 
 const CONFIG_KEYS: Record<keyof CanvasConfig, string> = {
@@ -119,6 +122,7 @@ const CONFIG_KEYS: Record<keyof CanvasConfig, string> = {
   forceRepulsion: "refino.canvas.forceRepulsion",
   forceSpring: "refino.canvas.forceSpring",
   showVirtualRoot: "refino.canvas.showVirtualRoot",
+  showMinimap: "refino.canvas.showMinimap",
 };
 
 /** Why the last range selection degraded to just the clicked node. */
@@ -223,6 +227,8 @@ function loadConfig(): CanvasConfig {
     showVirtualRoot:
       readPreference(CONFIG_KEYS.showVirtualRoot, String(DEFAULT_CONFIG.showVirtualRoot)) ===
       "true",
+    showMinimap:
+      readPreference(CONFIG_KEYS.showMinimap, String(DEFAULT_CONFIG.showMinimap)) === "true",
   };
 }
 
@@ -641,6 +647,7 @@ export function createWorkspace(client: RefinoClient) {
     "textScale",
     "zoomAnchor",
     "zoomMax",
+    "showMinimap",
   ]);
 
   function setConfig(patch: Partial<CanvasConfig>): void {

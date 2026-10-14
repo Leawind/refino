@@ -10,6 +10,7 @@ import {
   type CameraBox,
   type Viewport,
 } from "./camera";
+import type { OverviewSnapshot } from "./overview";
 import {
   COST_SHAPE_NODE,
   COST_TEXT_NODE,
@@ -371,12 +372,20 @@ export class GraphRenderer {
   #raf = 0;
   #lastRenderedAt = 0;
   #frameEnd: ((info: RenderInfo) => void) | null = null;
+  #cameraChanged: (() => void) | null = null;
   #resizeObserver: ResizeObserver;
   #lost = false;
 
   /** Called after every rendered frame. */
   set onFrameEnd(handler: ((info: RenderInfo) => void) | null) {
     this.#frameEnd = handler;
+  }
+
+  /** Called after every rendered frame whose draw may have moved the camera
+   * or the scene — the minimap's redraw signal. Frames render on damage
+   * only, so an idle canvas costs nothing. */
+  set onCameraChanged(handler: (() => void) | null) {
+    this.#cameraChanged = handler;
   }
 
   /** Sets the node-drag handler: when present, a left press on a node
@@ -627,6 +636,29 @@ export class GraphRenderer {
   /** The current camera scale (1 = 100%), for viewport readouts. */
   get scale(): number {
     return this.#camera.scale;
+  }
+
+  /** Overview snapshot for the minimap: visible scene node rects, the
+   * current camera and the viewport size. Null while empty. */
+  getOverview(): OverviewSnapshot | null {
+    const nodes: OverviewSnapshot["nodes"] = [];
+    for (const entry of this.#entries.values()) {
+      if (entry.alpha < 0.02 || entry.node.virtual === true) continue;
+      const node = entry.node;
+      nodes.push({
+        x: node.x,
+        y: node.y,
+        width: node.width,
+        height: node.height,
+        premise: node.premise,
+      });
+    }
+    if (nodes.length === 0) return null;
+    return {
+      nodes,
+      camera: { ...this.#camera },
+      viewport: { width: this.#cssWidth, height: this.#cssHeight },
+    };
   }
 
   setZoomAnchor(anchor: "cursor" | "center"): void {
@@ -1101,6 +1133,7 @@ export class GraphRenderer {
     const settling = this.#tweenAlphas(now);
     const animating = this.#animateCamera(now) || settling;
     this.#cullAndDraw();
+    this.#cameraChanged?.();
     if (animating) this.#schedule();
   }
 
