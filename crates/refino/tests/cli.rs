@@ -1289,3 +1289,118 @@ fn new_summary_stores_explicit_summary() {
     remove_refino(&root);
     assert!(list.contains("Short summary."), "{list}");
 }
+
+/// Fixture: two root decisions (one grounds-empty, one grounded only on a
+/// premise), one downstream decision, two premises — exercising the canvas
+/// root notion (`--roots`) and search matching.
+fn search_fixture() -> Vec<(String, String)> {
+    vec![
+        premise_body("1A2B3C4D", "PostgreSQL 版本约束。"),
+        premise_body("9Z8Y7X6W", "部署环境为内网。"),
+        file(
+            "nodes/A1/B2C3D4-decision.md",
+            &decision_body("A1B2C3D4", &[], "所有业务数据存储在 PostgreSQL。"),
+        ),
+        file(
+            "nodes/C3/D4E5F6-decision.md",
+            &decision_body("C3D4E5F6", &["1A2B3C4D"], "不使用 extension X。"),
+        ),
+        file(
+            "nodes/D4/E5F6G7-decision.md",
+            &decision_body(
+                "D4E5F6G7",
+                &["A1B2C3D4"],
+                "数据访问必须通过 Repository 层。",
+            ),
+        ),
+    ]
+}
+
+#[test]
+fn search_matches_id_prefix_and_summary_substring() {
+    let files = search_fixture();
+    let root = create_refino(&files);
+    let r = root_arg(&root);
+    // id prefix, case-insensitive
+    let (code, out, _) = run(&["--root", r.as_str(), "search", "a1b2"]);
+    // summary substring
+    let (code2, out2, _) = run(&["--root", r.as_str(), "search", "repository"]);
+    // no match
+    let (code3, out3, _) = run(&["--root", r.as_str(), "search", "nonexistent"]);
+    // empty query matches everything
+    let (code4, out4, _) = run(&["--root", r.as_str(), "search"]);
+    remove_refino(&root);
+    assert_eq!(code, 0);
+    assert!(out.contains("A1B2C3D4"), "{out}");
+    assert!(!out.contains("C3D4E5F6"), "{out}");
+    assert_eq!(code2, 0);
+    assert!(out2.contains("D4E5F6G7"), "{out2}");
+    assert_eq!(code3, 0);
+    assert!(out3.contains("(no matches)"), "{out3}");
+    assert_eq!(code4, 0);
+    assert!(
+        out4.contains("1A2B3C4D") && out4.contains("D4E5F6G7"),
+        "{out4}"
+    );
+}
+
+#[test]
+fn search_honors_type_limit_and_cursor() {
+    let files = search_fixture();
+    let root = create_refino(&files);
+    let r = root_arg(&root);
+    let (_, out, _) = run(&["--root", r.as_str(), "search", "--type", "decision"]);
+    let (code, limited, _) = run(&["--root", r.as_str(), "search", "--limit", "2"]);
+    let (_, page2, _) = run(&[
+        "--root",
+        r.as_str(),
+        "search",
+        "--limit",
+        "2",
+        "--cursor",
+        "A1B2C3D4",
+    ]);
+    remove_refino(&root);
+    assert!(
+        out.contains("A1B2C3D4") && !out.contains("1A2B3C4D"),
+        "{out}"
+    );
+    assert_eq!(code, 0);
+    // ids sort ascending: digits before letters, so page 1 ends at 9Z8Y7X6W.
+    assert!(
+        limited.contains("(more results; continue with --cursor 9Z8Y7X6W"),
+        "{limited}"
+    );
+    // strictly after the cursor
+    assert!(!page2.contains("A1B2C3D4"), "{page2}");
+    assert!(page2.contains("C3D4E5F6"), "{page2}");
+}
+
+#[test]
+fn list_roots_uses_canvas_scope_and_limit_caps() {
+    let files = search_fixture();
+    let root = create_refino(&files);
+    let r = root_arg(&root);
+    // C3D4E5F6 grounds on a premise only → still a canvas root.
+    let (_, out, _) = run(&["--root", r.as_str(), "list", "--roots"]);
+    let (code, capped, _) = run(&["--root", r.as_str(), "list", "--limit", "2"]);
+    let (code2, _, err) = run(&["--root", r.as_str(), "list", "--roots", "--type", "premise"]);
+    let (code3, _, err2) = run(&["--root", r.as_str(), "list", "--roots", "--unreferenced"]);
+    let (code4, _, err3) = run(&["--root", r.as_str(), "list", "--limit", "0"]);
+    remove_refino(&root);
+    assert!(out.contains("A1B2C3D4"), "{out}");
+    assert!(out.contains("C3D4E5F6"), "{out}");
+    assert!(!out.contains("D4E5F6G7"), "{out}");
+    assert!(!out.contains("1A2B3C4D"), "{out}");
+    assert_eq!(code, 0);
+    assert!(
+        capped.contains("(truncated at 2; more nodes remain)"),
+        "{capped}"
+    );
+    assert_eq!(code2, 1);
+    assert!(err.contains("--roots only applies to decisions"), "{err}");
+    assert_eq!(code3, 1);
+    assert!(err2.contains("mutually exclusive"), "{err2}");
+    assert_eq!(code4, 1);
+    assert!(err3.contains("--limit must be at least 1"), "{err3}");
+}

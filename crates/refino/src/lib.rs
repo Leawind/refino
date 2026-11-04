@@ -99,9 +99,31 @@ enum Command_ {
         /// list only premises that no decision grounds on
         #[arg(long)]
         unreferenced: bool,
+        /// list only top-level decisions: none of their direct grounds is a
+        /// decision (grounds may be empty or premises only)
+        #[arg(long)]
+        roots: bool,
+        /// cap the number of listed nodes
+        #[arg(long)]
+        limit: Option<usize>,
     },
     /// print the full record of one or more nodes
     Show { ids: Vec<String> },
+    /// search nodes by id prefix or summary substring (case-insensitive;
+    /// bodies are not searched)
+    Search {
+        /// id prefix or summary substring to match (empty: match all)
+        q: Option<String>,
+        /// only match nodes of this type
+        #[arg(long = "type")]
+        node_type: Option<TypeArg>,
+        /// page size (default 50, clamped to [1, 500])
+        #[arg(long)]
+        limit: Option<usize>,
+        /// resume strictly after this id (keyset pagination)
+        #[arg(long)]
+        cursor: Option<String>,
+    },
     /// direct grounds of one or more nodes
     Grounds { ids: Vec<String> },
     /// all nodes reachable by recursively following grounds
@@ -268,8 +290,30 @@ fn dispatch(cli: Cli, io: &mut dyn CliSink) -> i32 {
         Command_::List {
             node_type,
             unreferenced,
-        } => query::cmd_list(io, &opts, node_type.map(NodeType::from), unreferenced),
+            roots,
+            limit,
+        } => query::cmd_list(
+            io,
+            &opts,
+            node_type.map(NodeType::from),
+            unreferenced,
+            roots,
+            limit,
+        ),
         Command_::Show { ids } => query::cmd_show(io, &opts, &ids),
+        Command_::Search {
+            q,
+            node_type,
+            limit,
+            cursor,
+        } => query::cmd_search(
+            io,
+            &opts,
+            q.as_deref(),
+            node_type.map(NodeType::from),
+            limit,
+            cursor.as_deref(),
+        ),
         Command_::Grounds { ids } => {
             query::cmd_graph_query(io, &opts, &ids, query::GraphQuery::Grounds)
         }

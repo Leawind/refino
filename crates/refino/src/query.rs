@@ -14,9 +14,23 @@ pub fn cmd_list(
     opts: &GlobalOptions,
     type_filter: Option<NodeType>,
     unreferenced: bool,
+    roots: bool,
+    limit: Option<usize>,
 ) -> i32 {
     if unreferenced && type_filter == Some(NodeType::Decision) {
         io.err("error: --unreferenced only applies to premises\n");
+        return 1;
+    }
+    if roots && unreferenced {
+        io.err("error: --roots and --unreferenced are mutually exclusive\n");
+        return 1;
+    }
+    if roots && type_filter == Some(NodeType::Premise) {
+        io.err("error: --roots only applies to decisions\n");
+        return 1;
+    }
+    if limit == Some(0) {
+        io.err("error: --limit must be at least 1\n");
         return 1;
     }
     let outcome = with_store(opts, |store| {
@@ -24,6 +38,20 @@ pub fn cmd_list(
         let mut nodes: Vec<RefinoNode> = sort_nodes(graph);
         if let Some(filter) = type_filter {
             nodes.retain(|n| n.node_type() == filter);
+        }
+        // Top-level decisions in the canvas sense (docs/design.md, "画布按需
+        // 查询"): no direct ground is a decision, so decisions grounded only
+        // on premises still count — every graph has at least one entry point.
+        if roots {
+            nodes.retain(|n| match n.as_decision() {
+                Some(d) => !d.grounds.iter().any(|g| {
+                    graph
+                        .nodes
+                        .get(g)
+                        .is_some_and(|gn| gn.node_type() == NodeType::Decision)
+                }),
+                None => false,
+            });
         }
         if unreferenced {
             let referenced: std::collections::HashSet<String> = graph
@@ -33,6 +61,12 @@ pub fn cmd_list(
                 .flat_map(|d| d.grounds.iter().cloned())
                 .collect();
             nodes.retain(|n| n.node_type() == NodeType::Premise && !referenced.contains(n.id()));
+        }
+        // The cap keeps the most upstream nodes: sort_nodes orders upstream
+        // → downstream, which is the orientation a cold-start list wants.
+        let total = nodes.len();
+        if let Some(cap) = limit {
+            nodes.truncate(cap);
         }
         if nodes.is_empty() {
             io.out("(no nodes)\n");
@@ -51,6 +85,87 @@ pub fn cmd_list(
                 })
                 .collect();
             io.out(&format!("{}\n", render_node_table(&rows)));
+            if limit.is_some_and(|cap| total > cap) {
+                io.out(&format!(
+                    "(truncated at {}; more nodes remain)\n",
+                    rows.len()
+                ));
+            }
+        }
+        Ok(0)
+    });
+    finish(io, outcome)
+}
+
+/// `search` — the CLI face of the shared node-search contract (the harness
+/// `search` tool and the web `/api/search` endpoint use the same matching):
+/// a query matches id prefixes and summary substrings, both case-insensitively
+/// (ids are Crockford base32); empty queries match everything. Results come
+/// in ascending id order, keyset-paginated by cursor. Bodies are paged
+/// content and deliberately not searched.
+pub fn cmd_search(
+    io: &mut dyn CliSink,
+    opts: &GlobalOptions,
+    q: Option<&str>,
+    type_filter: Option<NodeType>,
+    limit: Option<usize>,
+    cursor: Option<&str>,
+) -> i32 {
+    const DEFAULT_LIMIT: usize = 50;
+    const MAX_LIMIT: usize = 500;
+    let outcome = with_store(opts, |store| {
+        let graph = store.graph();
+        let limit = limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
+        let q = q.unwrap_or("").trim();
+        let q_upper = q.to_uppercase();
+        let q_lower = q_upper.to_lowercase();
+        // Keyset cursor: resume strictly after the given id; unknown cursors
+        // degrade to "the next id in order", mirroring the harness contract.
+        let start: std::collections::Bound<&str> = match cursor {
+            Some(id) => std::collections::Bound::Excluded(id),
+            None => std::collections::Bound::Unbounded,
+        };
+        let range: (std::collections::Bound<&str>, std::collections::Bound<&str>) =
+            (start, std::collections::Bound::Unbounded);
+        let mut matched: Vec<(&String, &refino_core::GraphNode)> = Vec::new();
+        let mut more = false;
+        for (id, entry) in graph.nodes.range::<str, _>(range) {
+            if type_filter.is_some_and(|t| entry.node_type() != t) {
+                continue;
+            }
+            if !q_upper.is_empty()
+                && !id.to_uppercase().starts_with(&q_upper)
+                && !entry.summary().to_lowercase().contains(&q_lower)
+            {
+                continue;
+            }
+            if matched.len() == limit {
+                more = true;
+                break;
+            }
+            matched.push((id, entry));
+        }
+        if matched.is_empty() {
+            io.out("(no matches)\n");
+        } else {
+            let rows: Vec<TableRow> = matched
+                .iter()
+                .map(|(id, entry)| TableRow {
+                    id: (*id).clone(),
+                    node_type: type_name(&entry.node).to_string(),
+                    summary: entry.summary().to_string(),
+                    depth: None,
+                    exploring: Some(
+                        entry.node_type() == NodeType::Decision
+                            && effective_exploring(graph, id).unwrap_or(false),
+                    ),
+                })
+                .collect();
+            io.out(&format!("{}\n", render_node_table(&rows)));
+            if more {
+                let last = matched.last().map(|(id, _)| id.as_str()).unwrap_or("");
+                io.out(&format!("(more results; continue with --cursor {last})\n"));
+            }
         }
         Ok(0)
     });
