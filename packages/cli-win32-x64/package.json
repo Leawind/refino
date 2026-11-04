@@ -1,0 +1,20 @@
+{
+  "name": "@refino/cli-win32-x64",
+  "version": "0.0.2",
+  "private": false,
+  "description": "refino native binary for win32-x64. Installed automatically as an optional dependency of @refino/cli; do not depend on it directly.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Leawind/refino.git"
+  },
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "bin"
+  ]
+}

@@ -13,7 +13,7 @@
   },
   "scripts": {
     "build": "pnpm -r build",
-    "cli": "node packages/cli/dist/index.js",
+    "cli": "node packages/cli/bin/refino.js",
     "typecheck": "pnpm -r build && pnpm -r typecheck",
     "test": "vitest run",
     "format": "prettier --write .",

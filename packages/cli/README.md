@@ -1,36 +1,34 @@
 # @refino/cli
 
-`refino` 引擎的命令行接口：对 Decision Lineage Graph 的查询、校验与节点读写、本地 Web 界面服务（`refino web`），以及面向 agent 的自文档（`refino guide`）。
+npm 渠道的 `refino` 命令：一个分发壳，负责把平台原生二进制安装到你的机器上并转发命令。命令本身由 Rust 实现（[crates/refino](../../crates/refino)），对 Decision Lineage Graph（DLG）做查询、校验、节点读写与本地 Web 界面服务。
 
-```txt
-Usage: refino [options] [command]
-
-Parse, validate and query a Decision Lineage Graph stored in .refino/.
-
-Options:
-  -V, --version              output the version number
-  --root <dir>               project root directory containing .refino/ (default: current working directory)
-  -h, --help                 display help for command
-
-Commands:
-  validate                   build the graph and report all validation issues
-  list [options]             list all nodes (id, type, summary)
-  show <ids...>              print the full record of one or more nodes
-  grounds <ids...>           direct grounds of one or more nodes
-  ancestors <ids...>         all nodes reachable by recursively following grounds
-  dependents <ids...>        decisions potentially affected if these nodes change
-  new                        create a new node file in .refino/
-  update [options] <id>      update fields of an existing node; unspecified fields keep their current value
-  delete [options] <ids...>  delete one or more nodes; refuses while other nodes ground on the target
-  web [options]              start the web UI server
-  init                       create the .refino/ directory skeleton (pure scaffolding)
-  guide                      print the agent-facing usage guide (concepts, conventions, caveats)
-  help [command]             display help for command
+```sh
+npm install -g @refino/cli
+refino --help
 ```
 
-Run `refino guide` for the agent-facing usage guide (concepts, conventions, caveats).
+具体用法与概念的权威是命令自身：`refino --help` 与 `refino guide`（面向 agent 的使用指南）。
+
+## 工作方式
+
+安装时，npm 依据本机的平台从 `optionalDependencies` 中自动选择一个平台包（内含预编译的 `refino` 二进制）：
+
+| 平台包                     | 系统    | 架构  | libc  |
+| -------------------------- | ------- | ----- | ----- |
+| `@refino/cli-win32-x64`    | Windows | x64   | —     |
+| `@refino/cli-darwin-x64`   | macOS   | x64   | —     |
+| `@refino/cli-darwin-arm64` | macOS   | arm64 | —     |
+| `@refino/cli-linux-x64`    | Linux   | x64   | glibc |
+| `@refino/cli-linux-arm64`  | Linux   | arm64 | glibc |
+
+运行时，`bin/refino.js` 解析已安装的平台包并以其身份执行二进制：stdio 原样继承、退出码原样透传。平台包与壳的版本严格一致。
+
+- **没有装上二进制？** 常见于 `--omit=optional` / `--no-optional` 安装，或 `node_modules` 被跨机器复制。重新安装即可；错误信息会列出期望的平台包。
+- **musl 系统（Alpine 等）**：暂未发布 musl 构建，请 `cargo install refino`（crates.io 渠道）或自行编译。
+- **`REFINO_BINARY_PATH`**：设为二进制路径可跳过解析（开发与 CI 场景），同 esbuild 的 `ESBUILD_BINARY_PATH`。
+- **`refino web` 的界面资产**：壳依赖 `@refino/ui`，装在本机 `node_modules` 时 `refino web` 自动找到构建产物；也可用 `REFINO_UI_DIR` 显式指定。
 
 ## 了解更多
 
 - 包内设计细节：[DESIGN.md](./DESIGN.md)
-- Web 界面与 API 契约：[docs/design.md](../../docs/design.md)
+- 项目整体设计：[docs/design.md](../../docs/design.md)

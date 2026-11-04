@@ -47,31 +47,35 @@ importers:
 
   packages/cli:
     dependencies:
-      '@hono/node-server':
-        specifier: ^2.1.1
-        version: 2.1.1(hono@4.13.5)
-      '@refino/harness':
-        specifier: workspace:^
-        version: link:../harness
-      '@refino/storage':
-        specifier: workspace:^
-        version: link:../storage
       '@refino/ui':
         specifier: workspace:^
         version: link:../ui
-      commander:
-        specifier: ^15.0.0
-        version: 15.0.0
-      hono:
-        specifier: ^4.13.5
-        version: 4.13.5
-      refino:
-        specifier: workspace:^
-        version: link:../refino
-    devDependencies:
-      '@refino/testkit':
+    optionalDependencies:
+      '@refino/cli-darwin-arm64':
         specifier: workspace:*
-        version: link:../testkit
+        version: link:../cli-darwin-arm64
+      '@refino/cli-darwin-x64':
+        specifier: workspace:*
+        version: link:../cli-darwin-x64
+      '@refino/cli-linux-arm64':
+        specifier: workspace:*
+        version: link:../cli-linux-arm64
+      '@refino/cli-linux-x64':
+        specifier: workspace:*
+        version: link:../cli-linux-x64
+      '@refino/cli-win32-x64':
+        specifier: workspace:*
+        version: link:../cli-win32-x64
+
+  packages/cli-darwin-arm64: {}
+
+  packages/cli-darwin-x64: {}
+
+  packages/cli-linux-arm64: {}
+
+  packages/cli-linux-x64: {}
+
+  packages/cli-win32-x64: {}
 
   packages/cordis-plugin-refino:
     dependencies:
@@ -747,12 +751,6 @@ packages:
     peerDependenciesMeta:
       '@noble/hashes':
         optional: true
-
-  '@hono/node-server@2.1.1':
-    resolution: {integrity: sha512-ELuehkj5VCBdgEw9zs+ivkKwyzzUCSQuE96YmiPvn1ECBoZCczbFXJLeEGMTYjphP6gydh4pHMqEYPVMYUVgQg==}
-    engines: {node: '>=20'}
-    peerDependencies:
-      hono: ^4
 
   '@humanfs/core@0.19.2':
     resolution: {integrity: sha512-UhXNm+CFMWcbChXywFwkmhqjs3PRCmcSa/hfBgLIb7oQ5HNb1wS0icWsGtSAUNgefHeI+eBrA8I1fxmbHsGdvA==}
@@ -1778,10 +1776,6 @@ packages:
   highlight.js@11.12.0:
     resolution: {integrity: sha512-nbfWpyRMcMrPMmDwJB+dhX/eiaPKtc2RB+0QZskqJ3WjRA/FDS0e9hZrx8EC/lbEv8gXy98FcDbNa/dspAaJMg==}
     engines: {node: '>=12.0.0'}
-
-  hono@4.13.5:
-    resolution: {integrity: sha512-O6+/eCYRkzzzy0rPWwKLiGBR1nFuUPZynnwjxN1MBA62NNqbT0wQEzQyK2gSO5yDIDB336sXQleAhOHrzlYyKw==}
-    engines: {node: '>=16.9.0'}
 
   hookable@5.5.3:
     resolution: {integrity: sha512-Yc+BQe8SvoXH1643Qez1zqLRmbA5rCL+sSmk6TVos0LWVfNIB7PGncdlId77WzLGSIB5KaWgTaNTs2lNVEI6VQ==}
@@ -2972,10 +2966,6 @@ snapshots:
 
   '@exodus/bytes@1.15.1': {}
 
-  '@hono/node-server@2.1.1(hono@4.13.5)':
-    dependencies:
-      hono: 4.13.5
-
   '@humanfs/core@0.19.2':
     dependencies:
       '@humanfs/types': 0.15.0
@@ -4069,8 +4059,6 @@ snapshots:
   hachure-fill@0.5.2: {}
 
   highlight.js@11.12.0: {}
-
-  hono@4.13.5: {}
 
   hookable@5.5.3: {}
 

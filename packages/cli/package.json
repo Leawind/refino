@@ -2,41 +2,32 @@
   "name": "@refino/cli",
   "version": "0.0.2",
   "private": false,
-  "description": "Command line interface for querying Decision Lineage Graphs (DLG).",
-  "type": "module",
+  "description": "refino command: query, validate and edit Decision Lineage Graphs (DLG); ships the native binary via platform packages.",
+  "bin": {
+    "refino": "bin/refino.js"
+  },
+  "files": [
+    "bin"
+  ],
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Leawind/refino.git"
   },
-  "bin": {
-    "refino": "./dist/index.js"
-  },
-  "files": [
-    "dist"
-  ],
-  "license": "MIT",
-  "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "clean": "node -e \"fs.rmSync('dist',{recursive:true,force:true})\"",
-    "prepublishOnly": "pnpm run build"
-  },
   "engines": {
     "node": ">=20"
   },
-  "publishConfig": {
-    "access": "public"
+  "optionalDependencies": {
+    "@refino/cli-darwin-arm64": "workspace:*",
+    "@refino/cli-darwin-x64": "workspace:*",
+    "@refino/cli-linux-arm64": "workspace:*",
+    "@refino/cli-linux-x64": "workspace:*",
+    "@refino/cli-win32-x64": "workspace:*"
   },
   "dependencies": {
-    "@hono/node-server": "^2.1.1",
-    "@refino/harness": "workspace:^",
-    "@refino/storage": "workspace:^",
-    "@refino/ui": "workspace:^",
-    "commander": "^15.0.0",
-    "hono": "^4.13.5",
-    "refino": "workspace:^"
+    "@refino/ui": "workspace:^"
   },
-  "devDependencies": {
-    "@refino/testkit": "workspace:*"
+  "publishConfig": {
+    "access": "public"
   }
 }

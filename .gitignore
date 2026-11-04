@@ -42,3 +42,6 @@ target/
 .obsidian/
 
 .refino/
+
+# native binaries are assembled into platform packages by CI
+packages/cli-*/bin/
