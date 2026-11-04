@@ -474,8 +474,9 @@ fn update_rejects_missing_nodes_and_empty_edits() {
     assert_eq!(code, 1);
     assert!(err.contains("at least one field"), "{err}");
 
-    // Misplaced options are silently ignored (docs/design.md, "存储格式容错").
-    let (code, _, _) = run(&[
+    // Misplaced options are rejected so the caller never believes an
+    // inapplicable change took effect.
+    let (code, _, err) = run(&[
         "--root",
         r.as_str(),
         "update",
@@ -483,7 +484,11 @@ fn update_rejects_missing_nodes_and_empty_edits() {
         "--rationale",
         "x",
     ]);
-    assert_eq!(code, 0);
+    assert_eq!(code, 1);
+    assert!(
+        err.contains("--rationale only applies to decisions"),
+        "{err}"
+    );
 
     let (code, _, err) = run(&[
         "--root",
@@ -508,8 +513,9 @@ fn update_rejects_missing_nodes_and_empty_edits() {
         "--grounds",
         "1A2B3C4D",
     ]);
-    let (code, _, _) = run(&["--root", r.as_str(), "update", "D4E5F6G7", "--now"]);
-    assert_eq!(code, 0);
+    let (code, _, err) = run(&["--root", r.as_str(), "update", "D4E5F6G7", "--now"]);
+    assert_eq!(code, 1);
+    assert!(err.contains("--now only applies to premises"), "{err}");
 
     let (code, _, err) = run(&[
         "--root",
@@ -1669,4 +1675,68 @@ fn content_channels_reject_conflicts_and_missing_files() {
         err3.contains("--rationale and --rationale-file are mutually exclusive"),
         "{err3}"
     );
+}
+
+#[test]
+fn update_rejects_options_that_do_not_apply_to_the_node_type() {
+    let root = create_refino(&[
+        premise_body("1A2B3C4D", "前提。"),
+        file(
+            "nodes/A1/B2C3D4-decision.md",
+            &decision_body("A1B2C3D4", &[], "决策。"),
+        ),
+    ]);
+    let r = root_arg(&root);
+    let before = run(&["--root", r.as_str(), "show", "1A2B3C4D"]).1;
+    let (code, _, err) = run(&[
+        "--root",
+        r.as_str(),
+        "update",
+        "1A2B3C4D",
+        "--rationale",
+        "why",
+    ]);
+    let (code2, _, err2) = run(&[
+        "--root",
+        r.as_str(),
+        "update",
+        "1A2B3C4D",
+        "--grounds",
+        "A1B2C3D4",
+    ]);
+    let (code3, _, err3) = run(&["--root", r.as_str(), "update", "A1B2C3D4", "--now"]);
+    let (code4, _, err4) = run(&[
+        "--root",
+        r.as_str(),
+        "update",
+        "A1B2C3D4",
+        "--confirmed",
+        "2026-01-01T00:00:00Z",
+    ]);
+    let (code5, _, err5) = run(&["--root", r.as_str(), "update", "1A2B3C4D", "--no-exploring"]);
+    let after = run(&["--root", r.as_str(), "show", "1A2B3C4D"]).1;
+    remove_refino(&root);
+    assert_eq!(code, 1);
+    assert!(
+        err.contains("--rationale only applies to decisions"),
+        "{err}"
+    );
+    assert_eq!(code2, 1);
+    assert!(
+        err2.contains("--grounds only applies to decisions"),
+        "{err2}"
+    );
+    assert_eq!(code3, 1);
+    assert!(err3.contains("--now only applies to premises"), "{err3}");
+    assert_eq!(code4, 1);
+    assert!(
+        err4.contains("--confirmed only applies to premises"),
+        "{err4}"
+    );
+    assert_eq!(code5, 1);
+    assert!(
+        err5.contains("--no-exploring only applies to decisions"),
+        "{err5}"
+    );
+    assert_eq!(before, after, "rejected updates must not touch the file");
 }

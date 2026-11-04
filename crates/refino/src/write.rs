@@ -240,11 +240,43 @@ pub fn cmd_update(io: &mut dyn CliSink, opts: &GlobalOptions, args: UpdateArgs) 
         let node = entry.node.node.clone();
         let content = store.content(&id)?.unwrap_or_default();
 
+        // Misplaced options are rejected, not ignored: an option for the
+        // other node's type is explicit user intent, and silently dropping
+        // it (exit 0, "updated") would leave the caller believing it took
+        // effect. The storage-format tolerance for unknown fields covers
+        // file frontmatter, not typed CLI flags.
+        let mut violations: Vec<&str> = Vec::new();
+        if matches!(node, RefinoNode::Premise(_)) {
+            if rationale.is_some() {
+                violations.push("--rationale only applies to decisions");
+            }
+            if grounds.is_some() {
+                violations.push("--grounds only applies to decisions");
+            }
+            if exploring {
+                violations.push("--exploring only applies to decisions");
+            }
+            if no_exploring {
+                violations.push("--no-exploring only applies to decisions");
+            }
+        } else {
+            if confirmed.is_some() {
+                violations.push("--confirmed only applies to premises");
+            }
+            if now {
+                violations.push("--now only applies to premises");
+            }
+        }
+        if !violations.is_empty() {
+            for violation in violations {
+                io.err(&format!("error: {violation}\n"));
+            }
+            return Ok(1);
+        }
+
         // Partial update: unspecified fields keep their current value. A
         // summary that was derived from the body stays derived (not passed),
-        // so updating the body keeps the fallback in sync. Options that do
-        // not apply to the node's type are misplaced attributes and silently
-        // ignored (docs/design.md, "存储格式容错").
+        // so updating the body keeps the fallback in sync.
         let summary = summary.or_else(|| {
             if entry.summary_explicit {
                 Some(node.summary().to_string())
