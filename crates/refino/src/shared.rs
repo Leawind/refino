@@ -131,3 +131,30 @@ pub fn report_write_failure(io: &mut dyn crate::format::CliSink, failure: WriteF
         }
     }
 }
+
+/// Complete a read command: render its outcome or failure, return the exit code.
+pub fn finish(io: &mut dyn crate::format::CliSink, outcome: Result<i32, QueryFailure>) -> i32 {
+    match outcome {
+        Ok(code) => code,
+        Err(failure) => report_query_failure(io, failure),
+    }
+}
+
+/// Complete a write command: render its outcome or failure, return the exit code.
+pub fn finish_write(
+    io: &mut dyn crate::format::CliSink,
+    outcome: Result<i32, WriteFailure>,
+) -> i32 {
+    match outcome {
+        Ok(code) => code,
+        Err(failure) => report_write_failure(io, failure),
+    }
+}
+
+/// Display type name of a node ("premise" / "decision").
+pub fn type_name(node: &refino_core::RefinoNode) -> &'static str {
+    match node.node_type() {
+        refino_core::NodeType::Premise => "premise",
+        refino_core::NodeType::Decision => "decision",
+    }
+}
