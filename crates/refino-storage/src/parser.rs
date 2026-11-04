@@ -23,11 +23,12 @@ pub fn confirmed_to_rfc3339(ms: i64) -> Result<String, refino_core::RefinoError>
 
 /// Paged node content: everything that lives in the file but not in the
 /// engine's resident memory model.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct NodeContent {
     /// Full body text (trimmed).
     pub body: String,
     /// Why the decision was made; independent and optional, decisions only.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub rationale: Option<String>,
 }
 

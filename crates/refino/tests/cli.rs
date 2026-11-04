@@ -1740,3 +1740,74 @@ fn update_rejects_options_that_do_not_apply_to_the_node_type() {
     );
     assert_eq!(before, after, "rejected updates must not touch the file");
 }
+
+#[test]
+fn json_output_covers_validate_list_search_and_show() {
+    let files = search_fixture();
+    let root = create_refino(&files);
+    let r = root_arg(&root);
+
+    let (code, out, _) = run(&["--root", r.as_str(), "validate", "--json"]);
+    let (_, list, _) = run(&["--root", r.as_str(), "list", "--json"]);
+    let (_, list_roots, _) = run(&["--root", r.as_str(), "list", "--roots", "--json"]);
+    let (_, search, _) = run(&["--root", r.as_str(), "search", "repository", "--json"]);
+    let (_, search_page, _) = run(&["--root", r.as_str(), "search", "--limit", "2", "--json"]);
+    let (_, show, _) = run(&["--root", r.as_str(), "show", "D4E5F6G7", "--json"]);
+    let (code_missing, show_missing, _) =
+        run(&["--root", r.as_str(), "show", "D4E5F6G7", "NOPE12", "--json"]);
+    remove_refino(&root);
+
+    assert_eq!(code, 0);
+    assert!(
+        out.contains("\"valid\":true")
+            && out.contains("\"decisions\":3")
+            && out.contains("\"premises\":2")
+            && out.contains("\"issues\":[]"),
+        "{out}"
+    );
+    // list rows carry the resident fields plus the effective status
+    assert!(list.contains("\"grounds\":[\"A1B2C3D4\"]"), "{list}");
+    assert!(list.contains("\"exploring_effective\":false"), "{list}");
+    // roots: the two canvas-scope decisions, not the downstream one
+    assert!(
+        list_roots.contains("A1B2C3D4") && list_roots.contains("C3D4E5F6"),
+        "{list_roots}"
+    );
+    assert!(!list_roots.contains("D4E5F6G7"), "{list_roots}");
+    // search page mirrors the harness contract
+    assert!(search.contains("\"query\":\"repository\""), "{search}");
+    assert!(
+        search.contains("\"id\":\"D4E5F6G7\"") && search.contains("\"type\":\"decision\""),
+        "{search}"
+    );
+    assert!(!search.contains("next_cursor"), "{search}");
+    assert!(
+        search_page.contains("\"next_cursor\":\"9Z8Y7X6W\""),
+        "{search_page}"
+    );
+    // show: full record with paged content; missing ids stay per-id errors
+    assert!(
+        show.contains("\"grounds\":[\"A1B2C3D4\"]") && show.contains("\"body\""),
+        "{show}"
+    );
+    assert!(show.contains("\"exploring_effective\":false"), "{show}");
+    assert_eq!(code_missing, 1);
+    assert!(
+        show_missing.contains("\"error\"") && show_missing.contains("NOPE12"),
+        "{show_missing}"
+    );
+}
+
+#[test]
+fn json_validate_reports_issues_and_exit_1() {
+    let root = create_refino(&[file(
+        "nodes/A1/B2C3D4-decision.md",
+        &decision_body("A1B2C3D4", &["NOPE12"], "悬空依据。"),
+    )]);
+    let r = root_arg(&root);
+    let (code, out, _) = run(&["--root", r.as_str(), "validate", "--json"]);
+    remove_refino(&root);
+    assert_eq!(code, 1);
+    assert!(out.contains("\"valid\":false"), "{out}");
+    assert!(out.contains("UNKNOWN_GROUND"), "{out}");
+}

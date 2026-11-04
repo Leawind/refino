@@ -17,4 +17,5 @@ refino-fs = { workspace = true }
 refino-server = { workspace = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal"] }
 clap = { version = "4", features = ["derive", "string"] }
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"

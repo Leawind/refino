@@ -12,9 +12,9 @@ pub mod shared;
 pub mod write;
 
 use clap::{Parser, Subcommand, error::ContextKind, error::ContextValue, error::ErrorKind};
-use format::CliSink;
+use format::{CliSink, render_issues};
 use refino_core::NodeType;
-use shared::{GlobalOptions, finish, global_options, refino_dir, with_store};
+use shared::{GlobalOptions, global_options, open_store, refino_dir, report_query_failure};
 use write::NewKindArgs;
 
 /// Parse arguments (skipping the program name) and run; returns the exit code.
@@ -90,7 +90,11 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command_ {
     /// build the graph and report all validation issues
-    Validate,
+    Validate {
+        /// emit machine-readable JSON (counts and issues in one shape)
+        #[arg(long)]
+        json: bool,
+    },
     /// list all nodes (id, type, summary)
     List {
         /// only list nodes of this type
@@ -106,9 +110,17 @@ enum Command_ {
         /// cap the number of listed nodes
         #[arg(long)]
         limit: Option<usize>,
+        /// emit machine-readable JSON
+        #[arg(long)]
+        json: bool,
     },
     /// print the full record of one or more nodes
-    Show { ids: Vec<String> },
+    Show {
+        ids: Vec<String>,
+        /// emit machine-readable JSON (partial success per queried id)
+        #[arg(long)]
+        json: bool,
+    },
     /// search nodes by id prefix or summary substring (case-insensitive;
     /// bodies are not searched)
     Search {
@@ -123,6 +135,9 @@ enum Command_ {
         /// resume strictly after this id (keyset pagination)
         #[arg(long)]
         cursor: Option<String>,
+        /// emit machine-readable JSON (next_cursor for continuation)
+        #[arg(long)]
+        json: bool,
     },
     /// direct grounds of one or more nodes
     Grounds { ids: Vec<String> },
@@ -320,12 +335,13 @@ impl From<TypeArg> for NodeType {
 fn dispatch(cli: Cli, io: &mut dyn CliSink) -> i32 {
     let opts = global_options(&cli.root);
     match cli.command {
-        Command_::Validate => cmd_validate(io, &opts),
+        Command_::Validate { json } => cmd_validate(io, &opts, json),
         Command_::List {
             node_type,
             unreferenced,
             roots,
             limit,
+            json,
         } => query::cmd_list(
             io,
             &opts,
@@ -333,13 +349,15 @@ fn dispatch(cli: Cli, io: &mut dyn CliSink) -> i32 {
             unreferenced,
             roots,
             limit,
+            json,
         ),
-        Command_::Show { ids } => query::cmd_show(io, &opts, &ids),
+        Command_::Show { ids, json } => query::cmd_show(io, &opts, &ids, json),
         Command_::Search {
             q,
             node_type,
             limit,
             cursor,
+            json,
         } => query::cmd_search(
             io,
             &opts,
@@ -347,6 +365,7 @@ fn dispatch(cli: Cli, io: &mut dyn CliSink) -> i32 {
             node_type.map(NodeType::from),
             limit,
             cursor.as_deref(),
+            json,
         ),
         Command_::Grounds { ids } => {
             query::cmd_graph_query(io, &opts, &ids, query::GraphQuery::Grounds)
@@ -479,20 +498,47 @@ fn cmd_new(io: &mut dyn CliSink, opts: &GlobalOptions, kind: NewKind) -> i32 {
     write::cmd_new(io, opts, args)
 }
 
-fn cmd_validate(io: &mut dyn CliSink, opts: &GlobalOptions) -> i32 {
-    // The blocking-issues path (render + exit 1) is with_store's own: graph
-    // issues make query results ambiguous.
-    let outcome = with_store(opts, |store| {
-        let counts = count_nodes(store.graph());
+#[derive(serde::Serialize)]
+struct JsonValidateReport {
+    valid: bool,
+    decisions: usize,
+    premises: usize,
+    issues: Vec<refino_storage::StoreIssue>,
+}
+
+fn cmd_validate(io: &mut dyn CliSink, opts: &GlobalOptions, json: bool) -> i32 {
+    // validate is the one read that must run while issues exist — it is the
+    // command that reports them — so it opens the store directly instead of
+    // going through with_store's refuse-on-issues gate.
+    let store = match open_store(opts) {
+        Ok(store) => store,
+        Err(failure) => return report_query_failure(io, failure),
+    };
+    let issues = store.issues();
+    let counts = count_nodes(store.graph());
+    let valid = issues.is_empty();
+    if json {
+        let report = JsonValidateReport {
+            valid,
+            decisions: counts.decisions,
+            premises: counts.premises,
+            issues,
+        };
+        io.out(&format!(
+            "{}\n",
+            serde_json::to_string(&report).unwrap_or_default()
+        ));
+    } else if valid {
         io.out(&format!(
             "valid: {} decisions, {} premises ({})\n",
             counts.decisions,
             counts.premises,
             refino_dir(opts).display()
         ));
-        Ok(0)
-    });
-    finish(io, outcome)
+    } else {
+        io.out(&format!("{}\n", render_issues(&issues)));
+    }
+    if valid { 0 } else { 1 }
 }
 
 struct Counts {

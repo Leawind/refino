@@ -34,23 +34,27 @@ pub enum QueryFailure {
     Other(String),
 }
 
+/// Open the store for reading: refuses unadopted repositories, returns the
+/// ready store with its issues intact (callers decide whether issues block
+/// them — queries do, `validate` reports them).
+pub fn open_store(opts: &GlobalOptions) -> Result<RefinoStore<FsIo>, QueryFailure> {
+    let mut store = RefinoStore::new(FsIo, OsRandom, refino_dir(opts));
+    store.ready().map_err(classify_refino_error)?;
+    Ok(store)
+}
+
 /// Open the store and run a query against it. Graph issues make query results
 /// ambiguous, so the query closure only runs while no issues exist.
 pub fn with_store<R>(
     opts: &GlobalOptions,
     query: impl FnOnce(&mut RefinoStore<FsIo>) -> Result<R, refino_core::RefinoError>,
 ) -> Result<R, QueryFailure> {
-    let mut store = RefinoStore::new(FsIo, OsRandom, refino_dir(opts));
-    match store.ready() {
-        Err(error) => Err(classify_refino_error(error)),
-        Ok(()) => {
-            let issues = store.issues();
-            if !issues.is_empty() {
-                return Err(QueryFailure::Blocking(issues));
-            }
-            query(&mut store).map_err(|e| QueryFailure::Other(e.message))
-        }
+    let mut store = open_store(opts)?;
+    let issues = store.issues();
+    if !issues.is_empty() {
+        return Err(QueryFailure::Blocking(issues));
     }
+    query(&mut store).map_err(|e| QueryFailure::Other(e.message))
 }
 
 /// Why a write command did not complete.
