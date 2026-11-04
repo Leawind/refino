@@ -54,6 +54,24 @@ fn run(argv: &[&str]) -> (i32, String, String) {
     (code, sink.out, sink.err)
 }
 
+/// Run the CLI in-process with preset stdin text (for `-` content sources).
+fn run_with_stdin(argv: &[&str], stdin: &str) -> (i32, String, String) {
+    let args: Vec<String> = argv.iter().map(|s| s.to_string()).collect();
+    let mut sink = CaptureSink {
+        stdin: stdin.to_string(),
+        ..Default::default()
+    };
+    let code = refino::run(&args, &mut sink);
+    (code, sink.out, sink.err)
+}
+
+/// Write a scratch file next to the fixture root for `--body-file` tests.
+fn scratch(root: &Path, name: &str, content: &str) -> String {
+    let path = root.join(name);
+    std::fs::write(&path, content).unwrap();
+    path.to_string_lossy().to_string()
+}
+
 fn root_arg(root: &Path) -> String {
     root.to_string_lossy().to_string()
 }
@@ -1403,4 +1421,252 @@ fn list_roots_uses_canvas_scope_and_limit_caps() {
     assert!(err2.contains("mutually exclusive"), "{err2}");
     assert_eq!(code4, 1);
     assert!(err3.contains("--limit must be at least 1"), "{err3}");
+}
+
+#[test]
+fn edit_replaces_body_by_exact_match_and_reports_affected() {
+    let root = create_refino(&[
+        premise_body("1A2B3C4D", "前提。"),
+        file(
+            "nodes/A1/B2C3D4-decision.md",
+            &decision_body(
+                "A1B2C3D4",
+                &["1A2B3C4D"],
+                "统一使用 PostgreSQL；日志也写入 PostgreSQL。",
+            ),
+        ),
+        file(
+            "nodes/D4/E5F6G7-decision.md",
+            &decision_body("D4E5F6G7", &["A1B2C3D4"], "通过 Repository 层访问。"),
+        ),
+    ]);
+    let r = root_arg(&root);
+    // ambiguity refuses without side effects
+    let (code2, _, err2) = run(&[
+        "--root",
+        r.as_str(),
+        "edit",
+        "A1B2C3D4",
+        "--old",
+        "PostgreSQL",
+        "--new",
+        "X",
+    ]);
+    // not found / empty / identical
+    let (code3, _, err3) = run(&[
+        "--root",
+        r.as_str(),
+        "edit",
+        "A1B2C3D4",
+        "--old",
+        "nope",
+        "--new",
+        "x",
+    ]);
+    let (code4, _, err4) = run(&[
+        "--root",
+        r.as_str(),
+        "edit",
+        "A1B2C3D4",
+        "--old",
+        "",
+        "--new",
+        "x",
+    ]);
+    let (code5, _, err5) = run(&[
+        "--root",
+        r.as_str(),
+        "edit",
+        "A1B2C3D4",
+        "--old",
+        "PostgreSQL",
+        "--new",
+        "PostgreSQL",
+    ]);
+    // replace-all hits both occurrences
+    let (code6, out6, _) = run(&[
+        "--root",
+        r.as_str(),
+        "edit",
+        "A1B2C3D4",
+        "--old",
+        "PostgreSQL",
+        "--new",
+        "DB",
+        "--replace-all",
+    ]);
+    // a unique span replaces once and reports affected downstream
+    let (code, out, _) = run(&[
+        "--root",
+        r.as_str(),
+        "edit",
+        "A1B2C3D4",
+        "--old",
+        "日志也写入 DB",
+        "--new",
+        "日志也写入 MySQL",
+    ]);
+    let (_, shown, _) = run(&["--root", r.as_str(), "show", "A1B2C3D4"]);
+    remove_refino(&root);
+    assert_eq!(code2, 1);
+    assert!(err2.contains("--old matches 2 times"), "{err2}");
+    assert_eq!(code3, 1);
+    assert!(err3.contains("--old not found"), "{err3}");
+    assert_eq!(code4, 1);
+    assert!(err4.contains("--old must not be empty"), "{err4}");
+    assert_eq!(code5, 1);
+    assert!(err5.contains("nothing to replace"), "{err5}");
+    assert_eq!(code6, 0);
+    assert!(out6.contains("replaced 2"), "{out6}");
+    assert_eq!(code, 0);
+    assert!(
+        out.contains("edited A1B2C3D4 (.refino/nodes/A1/B2C3D4-decision.md) replaced 1"),
+        "{out}"
+    );
+    assert!(out.contains("下游受影响，建议复核：D4E5F6G7"), "{out}");
+    assert!(shown.contains("统一使用 DB；日志也写入 MySQL。"), "{shown}");
+}
+
+#[test]
+fn edit_keeps_derived_summary_in_sync() {
+    let root = create_refino(&[file(
+        "nodes/A1/B2C3D4-decision.md",
+        &decision_body("A1B2C3D4", &[], "旧正文首段。"),
+    )]);
+    let r = root_arg(&root);
+    let (code, _, _) = run(&[
+        "--root",
+        r.as_str(),
+        "edit",
+        "A1B2C3D4",
+        "--old",
+        "旧正文首段。",
+        "--new",
+        "新正文首段。",
+    ]);
+    let (_, list, _) = run(&["--root", r.as_str(), "list"]);
+    remove_refino(&root);
+    assert_eq!(code, 0);
+    // no explicit summary in frontmatter: the fallback re-derives from the body
+    assert!(list.contains("新正文首段。"), "{list}");
+    assert!(!list.contains("旧正文首段。"), "{list}");
+}
+
+#[test]
+fn content_channels_accept_files_and_stdin() {
+    let root = create_refino(&[]);
+    let r = root_arg(&root);
+    run(&["--root", r.as_str(), "init"]);
+    let body_path = scratch(&root, "body.md", "来自文件的正文。\n\n第二段。");
+    let (code, _, _) = run(&[
+        "--root",
+        r.as_str(),
+        "new",
+        "decision",
+        "--id",
+        "A1B2C3D4",
+        "--body-file",
+        body_path.as_str(),
+        "--grounds",
+        "",
+    ]);
+    let (_, shown, _) = run(&["--root", r.as_str(), "show", "A1B2C3D4"]);
+    // stdin channel
+    let (code2, _, _) = run_with_stdin(
+        &[
+            "--root",
+            r.as_str(),
+            "new",
+            "premise",
+            "--id",
+            "9Z8Y7X6W",
+            "--body-file",
+            "-",
+        ],
+        "来自 stdin 的事实。",
+    );
+    let (_, shown2, _) = run(&["--root", r.as_str(), "show", "9Z8Y7X6W"]);
+    // update via file
+    let body2 = scratch(&root, "body2.md", "替换后的正文。");
+    let (code3, _, _) = run(&[
+        "--root",
+        r.as_str(),
+        "update",
+        "A1B2C3D4",
+        "--body-file",
+        body2.as_str(),
+    ]);
+    let (_, shown3, _) = run(&["--root", r.as_str(), "show", "A1B2C3D4"]);
+    // rationale via stdin
+    let (code4, _, _) = run_with_stdin(
+        &[
+            "--root",
+            r.as_str(),
+            "update",
+            "A1B2C3D4",
+            "--rationale-file",
+            "-",
+        ],
+        "因为事实如此。",
+    );
+    let (_, shown4, _) = run(&["--root", r.as_str(), "show", "A1B2C3D4"]);
+    remove_refino(&root);
+    assert_eq!(code, 0);
+    assert!(
+        shown.contains("来自文件的正文。") && shown.contains("第二段。"),
+        "{shown}"
+    );
+    assert_eq!(code2, 0);
+    assert!(shown2.contains("来自 stdin 的事实。"), "{shown2}");
+    assert_eq!(code3, 0);
+    assert!(shown3.contains("替换后的正文。"), "{shown3}");
+    assert_eq!(code4, 0);
+    assert!(shown4.contains("rationale: 因为事实如此。"), "{shown4}");
+}
+
+#[test]
+fn content_channels_reject_conflicts_and_missing_files() {
+    let root = create_refino(&[premise_body("1A2B3C4D", "前提。")]);
+    let r = root_arg(&root);
+    let (code, _, err) = run(&[
+        "--root",
+        r.as_str(),
+        "update",
+        "1A2B3C4D",
+        "--body",
+        "x",
+        "--body-file",
+        "-",
+    ]);
+    let (code2, _, err2) = run(&[
+        "--root",
+        r.as_str(),
+        "update",
+        "1A2B3C4D",
+        "--body-file",
+        "no-such-file.md",
+    ]);
+    let (code3, _, err3) = run(&[
+        "--root",
+        r.as_str(),
+        "update",
+        "1A2B3C4D",
+        "--rationale",
+        "x",
+        "--rationale-file",
+        "-",
+    ]);
+    remove_refino(&root);
+    assert_eq!(code, 1);
+    assert!(
+        err.contains("--body and --body-file are mutually exclusive"),
+        "{err}"
+    );
+    assert_eq!(code2, 1);
+    assert!(err2.contains("cannot read --body-file"), "{err2}");
+    assert_eq!(code3, 1);
+    assert!(
+        err3.contains("--rationale and --rationale-file are mutually exclusive"),
+        "{err3}"
+    );
 }

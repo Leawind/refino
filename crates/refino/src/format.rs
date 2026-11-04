@@ -5,6 +5,9 @@
 pub trait CliSink {
     fn out(&mut self, text: &str);
     fn err(&mut self, text: &str);
+    /// Full stdin text, consumed by `-` content sources (`--body-file -`).
+    /// Real streams read stdin; tests preset the text.
+    fn input(&mut self) -> std::io::Result<String>;
 }
 
 /// Real process streams.
@@ -26,6 +29,13 @@ impl CliSink for ProcessSink {
         let _ = lock.write_all(text.as_bytes());
         let _ = lock.flush();
     }
+
+    fn input(&mut self) -> std::io::Result<String> {
+        use std::io::Read;
+        let mut text = String::new();
+        std::io::stdin().read_to_string(&mut text)?;
+        Ok(text)
+    }
 }
 
 /// In-process capture (the `capture()` helper of the TS tests).
@@ -33,6 +43,8 @@ impl CliSink for ProcessSink {
 pub struct CaptureSink {
     pub out: String,
     pub err: String,
+    /// Text that `input()` serves instead of the real stdin.
+    pub stdin: String,
 }
 
 impl CliSink for CaptureSink {
@@ -42,6 +54,10 @@ impl CliSink for CaptureSink {
 
     fn err(&mut self, text: &str) {
         self.err.push_str(text);
+    }
+
+    fn input(&mut self) -> std::io::Result<String> {
+        Ok(self.stdin.clone())
     }
 }
 

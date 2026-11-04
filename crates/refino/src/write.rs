@@ -1,21 +1,97 @@
-//! Write commands: new, update and delete. Writes never require a clean
-//! graph — pre-existing issues elsewhere must not block them; the store's
-//! write methods validate each change itself and reject it before anything
-//! touches the disk.
+//! Write commands: new, update, edit and delete. Writes never require a
+//! clean graph — pre-existing issues elsewhere must not block them; the
+//! store's write methods validate each change itself and reject it before
+//! anything touches the disk.
 
 use crate::format::CliSink;
 use crate::shared::{GlobalOptions, finish_write, type_name, with_store_for_write};
 use refino_core::{NodeType, RefinoNode, is_valid_id};
 use refino_storage::{
-    CreateDecisionOptions, CreateOptions, CreatePremiseOptions, UpdateDecisionOptions,
+    CreateDecisionOptions, CreateOptions, CreatePremiseOptions, StoreError, UpdateDecisionOptions,
     UpdateOptions, UpdatePremiseOptions, confirmed_to_ms, is_valid_confirmed, node_relative_file,
 };
+
+/// Per-type argument bundle for `new`, decoupled from the clap enum.
+pub enum NewKindArgs {
+    Premise {
+        id: Option<String>,
+        body: Option<String>,
+        body_file: Option<String>,
+        summary: Option<String>,
+        confirmed: Option<String>,
+        now: bool,
+    },
+    Decision {
+        id: Option<String>,
+        body: Option<String>,
+        body_file: Option<String>,
+        grounds: Option<String>,
+        rationale: Option<String>,
+        rationale_file: Option<String>,
+        summary: Option<String>,
+        exploring: bool,
+    },
+}
+
+/// Field bundle for `update`, decoupled from the clap enum.
+pub struct UpdateArgs {
+    pub id: String,
+    pub body: Option<String>,
+    pub body_file: Option<String>,
+    pub summary: Option<String>,
+    pub rationale: Option<String>,
+    pub rationale_file: Option<String>,
+    pub grounds: Option<String>,
+    pub confirmed: Option<String>,
+    pub now: bool,
+    pub exploring: bool,
+    pub no_exploring: bool,
+}
+
+/// Resolve a content option pair (`--x` text or `--x-file` path) to its
+/// text; a path of `-` reads stdin. Long bodies and rationales go through
+/// files or pipes: argv passing hits shell escaping and the ~32k Windows
+/// command-line limit on exactly the content agents write.
+fn resolve_content(
+    io: &mut dyn CliSink,
+    name: &str,
+    arg: &Option<String>,
+    file: &Option<String>,
+) -> Result<Option<String>, i32> {
+    match (arg, file) {
+        (Some(_), Some(_)) => {
+            io.err(&format!(
+                "error: --{name} and --{name}-file are mutually exclusive\n"
+            ));
+            Err(1)
+        }
+        (None, None) => Ok(None),
+        (Some(text), None) => Ok(Some(text.clone())),
+        (None, Some(path)) => {
+            let read = if path == "-" {
+                io.input()
+                    .map_err(|e| format!("error: cannot read stdin: {e}\n"))
+            } else {
+                std::fs::read_to_string(path)
+                    .map_err(|e| format!("error: cannot read --{name}-file \"{path}\": {e}\n"))
+            };
+            match read {
+                Ok(text) => Ok(Some(text)),
+                Err(message) => {
+                    io.err(&message);
+                    Err(1)
+                }
+            }
+        }
+    }
+}
 
 pub fn cmd_new(io: &mut dyn CliSink, opts: &GlobalOptions, kind: NewKindArgs) -> i32 {
     match kind {
         NewKindArgs::Premise {
             id,
             body,
+            body_file,
             summary,
             confirmed,
             now,
@@ -32,6 +108,10 @@ pub fn cmd_new(io: &mut dyn CliSink, opts: &GlobalOptions, kind: NewKindArgs) ->
                     ));
                 return 1;
             }
+            let body = match resolve_content(io, "body", &body, &body_file) {
+                Ok(resolved) => resolved,
+                Err(code) => return code,
+            };
             let outcome = with_store_for_write(opts, |store| {
                 let outcome = store.create_premise(&CreatePremiseOptions {
                     base: CreateOptions {
@@ -51,8 +131,10 @@ pub fn cmd_new(io: &mut dyn CliSink, opts: &GlobalOptions, kind: NewKindArgs) ->
         NewKindArgs::Decision {
             id,
             body,
+            body_file,
             grounds,
             rationale,
+            rationale_file,
             summary,
             exploring,
         } => {
@@ -63,6 +145,14 @@ pub fn cmd_new(io: &mut dyn CliSink, opts: &GlobalOptions, kind: NewKindArgs) ->
                 ));
                 return 1;
             }
+            let body = match resolve_content(io, "body", &body, &body_file) {
+                Ok(resolved) => resolved,
+                Err(code) => return code,
+            };
+            let rationale = match resolve_content(io, "rationale", &rationale, &rationale_file) {
+                Ok(resolved) => resolved,
+                Err(code) => return code,
+            };
             let outcome = with_store_for_write(opts, |store| {
                 // Grounds validation runs inside the store's write method;
                 // pre-existing parse issues elsewhere do not block creation.
@@ -88,45 +178,34 @@ pub fn cmd_new(io: &mut dyn CliSink, opts: &GlobalOptions, kind: NewKindArgs) ->
     }
 }
 
-/// Per-type argument bundle for `new`, decoupled from the clap enum.
-pub enum NewKindArgs {
-    Premise {
-        id: Option<String>,
-        body: Option<String>,
-        summary: Option<String>,
-        confirmed: Option<String>,
-        now: bool,
-    },
-    Decision {
-        id: Option<String>,
-        body: Option<String>,
-        grounds: Option<String>,
-        rationale: Option<String>,
-        summary: Option<String>,
-        exploring: bool,
-    },
-}
-
-#[allow(clippy::too_many_arguments)]
-pub fn cmd_update(
-    io: &mut dyn CliSink,
-    opts: &GlobalOptions,
-    id: &str,
-    body: Option<String>,
-    summary: Option<String>,
-    rationale: Option<String>,
-    grounds: Option<String>,
-    confirmed: Option<String>,
-    now: bool,
-    exploring: bool,
-    no_exploring: bool,
-) -> i32 {
+pub fn cmd_update(io: &mut dyn CliSink, opts: &GlobalOptions, args: UpdateArgs) -> i32 {
+    let UpdateArgs {
+        id,
+        body,
+        body_file,
+        summary,
+        rationale,
+        rationale_file,
+        grounds,
+        confirmed,
+        now,
+        exploring,
+        no_exploring,
+    } = args;
     let exploring_set: Option<bool> = if exploring {
         Some(true)
     } else if no_exploring {
         Some(false)
     } else {
         None
+    };
+    let body = match resolve_content(io, "body", &body, &body_file) {
+        Ok(resolved) => resolved,
+        Err(code) => return code,
+    };
+    let rationale = match resolve_content(io, "rationale", &rationale, &rationale_file) {
+        Ok(resolved) => resolved,
+        Err(code) => return code,
     };
     let touched = body.is_some()
         || summary.is_some()
@@ -151,12 +230,12 @@ pub fn cmd_update(
             ));
         return 1;
     }
-    let id = id.to_string();
     let outcome = with_store_for_write(opts, |store| {
         let Some(entry) = store.entry(&id).cloned() else {
-            return Err(refino_storage::StoreError::Other(
-                refino_core::RefinoError::new("NODE_NOT_FOUND", format!("node \"{id}\" not found")),
-            ));
+            return Err(StoreError::Other(refino_core::RefinoError::new(
+                "NODE_NOT_FOUND",
+                format!("node \"{id}\" not found"),
+            )));
         };
         let node = entry.node.node.clone();
         let content = store.content(&id)?.unwrap_or_default();
@@ -229,6 +308,91 @@ pub fn cmd_update(
     finish_write(io, outcome)
 }
 
+/// `edit` — the harness file-editor pattern (the same contract as
+/// agent-memory's memory_edit): the caller cites the exact span to change
+/// instead of restating the whole body, so a one-word fix on a long body
+/// costs tokens for the span only and the untouched parts cannot drift.
+/// Matching is byte-exact; ambiguity fails without side effects.
+pub fn cmd_edit(
+    io: &mut dyn CliSink,
+    opts: &GlobalOptions,
+    id: &str,
+    old: &str,
+    new: &str,
+    replace_all: bool,
+) -> i32 {
+    if old.is_empty() {
+        io.err("error: --old must not be empty (an empty match is ambiguous; to rewrite the whole body use --body or --body-file)\n");
+        return 1;
+    }
+    if old == new {
+        io.err("error: --old and --new are identical: nothing to replace\n");
+        return 1;
+    }
+    let id = id.to_string();
+    let old = old.to_string();
+    let new = new.to_string();
+    let outcome = with_store_for_write(opts, |store| {
+        let Some(entry) = store.entry(&id).cloned() else {
+            return Err(StoreError::Other(refino_core::RefinoError::new(
+                "NODE_NOT_FOUND",
+                format!("node \"{id}\" not found"),
+            )));
+        };
+        let node = entry.node.node.clone();
+        let content = store.content(&id)?.unwrap_or_default();
+        let count = content.body.matches(&old).count();
+        if count == 0 {
+            io.err(&format!(
+                "error: --old not found in \"{id}\" (matching is byte-exact: case-sensitive, whitespace-significant); run \"refino show {id}\" to re-read the current body\n"
+            ));
+            return Ok(1);
+        }
+        if count > 1 && !replace_all {
+            io.err(&format!(
+                "error: --old matches {count} times in \"{id}\": add surrounding text to make the match unique, or pass --replace-all\n"
+            ));
+            return Ok(1);
+        }
+        let body = if replace_all {
+            content.body.replace(&old, &new)
+        } else {
+            content.body.replacen(&old, &new, 1)
+        };
+        // Everything but the body stays as it is; the summary discipline
+        // mirrors update: a derived summary stays derived so it re-derives
+        // from the edited body, an explicit one is passed through unchanged.
+        let summary = if entry.summary_explicit {
+            Some(node.summary().to_string())
+        } else {
+            None
+        };
+        let outcome = match &node {
+            RefinoNode::Premise(premise) => store.update_premise(
+                &id,
+                &UpdatePremiseOptions {
+                    base: UpdateOptions { body, summary },
+                    confirmed: premise.confirmed,
+                },
+            )?,
+            RefinoNode::Decision(decision) => store.update_decision(
+                &id,
+                &UpdateDecisionOptions {
+                    base: UpdateOptions { body, summary },
+                    grounds: Some(decision.grounds.clone()),
+                    rationale: content.rationale.clone(),
+                    exploring: decision.exploring == Some(true),
+                },
+            )?,
+        };
+        let affected = outcome.change.map(|c| c.affected).unwrap_or_default();
+        let replaced = if replace_all { count } else { 1 };
+        emit_edited(io, &id, type_name(&node), replaced, Some(&affected));
+        Ok(0)
+    });
+    finish_write(io, outcome)
+}
+
 pub fn cmd_delete(io: &mut dyn CliSink, opts: &GlobalOptions, ids: &[String], force: bool) -> i32 {
     let ids = ids.to_vec();
     let outcome = with_store_for_write(opts, |store| {
@@ -279,14 +443,39 @@ fn emit_written(
     verb: &str,
     affected: Option<&[String]>,
 ) {
-    // Display keeps the canonical forward-slash form.
+    let line = format!("{} {}\n", verb, node_file_label(id, node_type));
+    io.out(&line);
+    emit_affected(io, affected);
+}
+
+fn emit_edited(
+    io: &mut dyn CliSink,
+    id: &str,
+    node_type: &str,
+    replaced: usize,
+    affected: Option<&[String]>,
+) {
+    let line = format!(
+        "edited {} replaced {replaced}\n",
+        node_file_label(id, node_type)
+    );
+    io.out(&line);
+    emit_affected(io, affected);
+}
+
+/// Canonical one-line identity, e.g. `D4E5F6G7 (.refino/nodes/D4/E5F6G7-decision.md)`;
+/// display keeps the forward-slash form across platforms.
+fn node_file_label(id: &str, node_type: &str) -> String {
     let resolved_type = if node_type == "premise" {
         NodeType::Premise
     } else {
         NodeType::Decision
     };
     let file = node_relative_file(resolved_type, id);
-    io.out(&format!("{verb} {id} (.refino/{file})\n"));
+    format!("{id} (.refino/{file})")
+}
+
+fn emit_affected(io: &mut dyn CliSink, affected: Option<&[String]>) {
     if let Some(affected) = affected
         && !affected.is_empty()
     {

@@ -141,12 +141,20 @@ enum Command_ {
         /// new content (markdown body)
         #[arg(long)]
         body: Option<String>,
+        /// read the body from a file (`-` reads stdin); mutually exclusive
+        /// with --body — the channel for long content
+        #[arg(long)]
+        body_file: Option<String>,
         /// short summary for relevance checks (stored in frontmatter)
         #[arg(long)]
         summary: Option<String>,
         /// why the decision was made (decisions only)
         #[arg(long)]
         rationale: Option<String>,
+        /// read the rationale from a file (`-` reads stdin); mutually
+        /// exclusive with --rationale (decisions only)
+        #[arg(long)]
+        rationale_file: Option<String>,
         /// comma-separated ground node ids, replacing the whole list (decisions only)
         #[arg(long)]
         grounds: Option<String>,
@@ -162,6 +170,20 @@ enum Command_ {
         /// settle the decision (remove the trial mark)
         #[arg(long)]
         no_exploring: bool,
+    },
+    /// edit a node's body by exact string replacement (--old must match
+    /// exactly once unless --replace-all)
+    Edit {
+        id: String,
+        /// the exact body span to replace (byte-exact match)
+        #[arg(long)]
+        old: String,
+        /// the replacement text
+        #[arg(long)]
+        new: String,
+        /// replace every occurrence instead of refusing on ambiguity
+        #[arg(long)]
+        replace_all: bool,
     },
     /// delete one or more nodes; refuses while other nodes ground on the target
     Delete {
@@ -235,6 +257,10 @@ enum NewKind {
         /// fact content (markdown body); may be empty
         #[arg(long)]
         body: Option<String>,
+        /// read the body from a file (`-` reads stdin); mutually exclusive
+        /// with --body — the channel for long content
+        #[arg(long)]
+        body_file: Option<String>,
         /// short summary for relevance checks (stored in frontmatter)
         #[arg(long)]
         summary: Option<String>,
@@ -253,12 +279,20 @@ enum NewKind {
         /// decision content (markdown body); may be empty
         #[arg(long)]
         body: Option<String>,
+        /// read the body from a file (`-` reads stdin); mutually exclusive
+        /// with --body — the channel for long content
+        #[arg(long)]
+        body_file: Option<String>,
         /// comma-separated ground node ids
         #[arg(long)]
         grounds: Option<String>,
         /// why the decision was made
         #[arg(long)]
         rationale: Option<String>,
+        /// read the rationale from a file (`-` reads stdin); mutually
+        /// exclusive with --rationale
+        #[arg(long)]
+        rationale_file: Option<String>,
         /// short summary for relevance checks (stored in frontmatter)
         #[arg(long)]
         summary: Option<String>,
@@ -327,8 +361,10 @@ fn dispatch(cli: Cli, io: &mut dyn CliSink) -> i32 {
         Command_::Update {
             id,
             body,
+            body_file,
             summary,
             rationale,
+            rationale_file,
             grounds,
             confirmed,
             now,
@@ -337,16 +373,26 @@ fn dispatch(cli: Cli, io: &mut dyn CliSink) -> i32 {
         } => write::cmd_update(
             io,
             &opts,
-            &id,
-            body,
-            summary,
-            rationale,
-            grounds,
-            confirmed,
-            now,
-            exploring,
-            no_exploring,
+            write::UpdateArgs {
+                id,
+                body,
+                body_file,
+                summary,
+                rationale,
+                rationale_file,
+                grounds,
+                confirmed,
+                now,
+                exploring,
+                no_exploring,
+            },
         ),
+        Command_::Edit {
+            id,
+            old,
+            new,
+            replace_all,
+        } => write::cmd_edit(io, &opts, &id, &old, &new, replace_all),
         Command_::Delete { ids, force } => write::cmd_delete(io, &opts, &ids, force),
         Command_::Init => cmd_init(io, &opts),
         Command_::Guide => {
@@ -398,12 +444,14 @@ fn cmd_new(io: &mut dyn CliSink, opts: &GlobalOptions, kind: NewKind) -> i32 {
         NewKind::Premise {
             id,
             body,
+            body_file,
             summary,
             confirmed,
             now,
         } => NewKindArgs::Premise {
             id,
             body,
+            body_file,
             summary,
             confirmed,
             now,
@@ -411,15 +459,19 @@ fn cmd_new(io: &mut dyn CliSink, opts: &GlobalOptions, kind: NewKind) -> i32 {
         NewKind::Decision {
             id,
             body,
+            body_file,
             grounds,
             rationale,
+            rationale_file,
             summary,
             exploring,
         } => NewKindArgs::Decision {
             id,
             body,
+            body_file,
             grounds,
             rationale,
+            rationale_file,
             summary,
             exploring,
         },
