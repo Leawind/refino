@@ -10,7 +10,63 @@ permissions:
   id-token: write
 
 jobs:
+  # Build the native refino binary per platform. Artifacts feed the publish
+  # job, which assembles them into the npm platform packages
+  # (@refino/cli-<platform>-<arch>, packages/cli-*/).
+  build-binaries:
+    runs-on: ${{ matrix.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - triple: win32-x64
+            runs-on: windows-latest
+            target: x86_64-pc-windows-msvc
+          - triple: darwin-x64
+            runs-on: macos-latest
+            target: x86_64-apple-darwin
+          - triple: darwin-arm64
+            runs-on: macos-latest
+            target: aarch64-apple-darwin
+          - triple: linux-x64
+            runs-on: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - triple: linux-arm64
+            runs-on: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: cargo build --release --target ${{ matrix.target }} -p refino
+
+      - name: Strip the binary
+        if: runner.os != 'Windows'
+        run: strip target/${{ matrix.target }}/release/refino
+
+      # Every artifact stages its binary under one shared name shape,
+      # refino-<triple>, so the publish job can place it without per-OS logic
+      # beyond the .exe rename.
+      - name: Stage artifact
+        shell: bash
+        run: |
+          set -e
+          binary=target/${{ matrix.target }}/release/refino
+          [ -f "$binary.exe" ] && binary="$binary.exe"
+          cp "$binary" "refino-${{ matrix.triple }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cli-${{ matrix.triple }}
+          path: refino-${{ matrix.triple }}
+
   publish:
+    needs: build-binaries
     runs-on: ubuntu-latest
     env:
       NPM_CONFIG_PROVENANCE: true
@@ -26,19 +82,40 @@ jobs:
           cache: pnpm
           registry-url: https://registry.npmjs.org
 
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: cli-*
+          path: dist-binaries
+
       - run: pnpm install --frozen-lockfile
 
       - run: pnpm check
 
-      # Publish via npm trusted publishing (OIDC): no NPM_TOKEN needed.
-      # Requires each package to have a "Trusted Publisher" configured on
-      # npmjs.com pointing to this repo and this workflow file.
       - name: Build packages
         run: pnpm -r build
 
-      # pnpm -r publish walks the workspace in topological (dependency) order,
-      # skips private packages and versions already on npm, and replaces
-      # workspace:^ deps with real version ranges. New packages are picked up
-      # without workflow changes.
+      - name: Assemble platform packages
+        shell: bash
+        run: |
+          set -e
+          for dir in packages/cli-*/; do
+            triple=${dir#packages/cli-}; triple=${triple%/}
+            mkdir -p "$dir/bin"
+            if [ "${triple%%-*}" = "win32" ]; then
+              cp "dist-binaries/cli-$triple/refino-$triple" "$dir/bin/refino.exe"
+            else
+              cp "dist-binaries/cli-$triple/refino-$triple" "$dir/bin/refino"
+              chmod +x "$dir/bin/refino"
+            fi
+          done
+
+      # Publish via npm trusted publishing (OIDC): no NPM_TOKEN needed.
+      # Requires each package — the platform packages included — to have a
+      # "Trusted Publisher" configured on npmjs.com pointing to this repo
+      # and this workflow file. pnpm -r publish walks the workspace in
+      # topological (dependency) order, skips private packages and versions
+      # already on npm, and replaces workspace:^ / workspace:* deps with
+      # real version ranges, so the platform packages ship before the shell
+      # that pins them.
       - name: Publish packages
         run: pnpm -r publish --access public --provenance --no-git-checks
