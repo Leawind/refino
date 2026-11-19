@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -73,7 +73,15 @@ describe("isMusl", () => {
 
   it("is true when process.report lacks a glibc runtime version", () => {
     expect(isMusl("linux", { header: {} })).toBe(true);
-    expect(isMusl("linux", undefined)).toBe(true);
+  });
+
+  // With no report passed the live process.report is read, so the answer is
+  // the host's own musl-ness: glibc runners say false, musl hosts and hosts
+  // without a usable report say true.
+  it("falls back to the live process report when none is passed", () => {
+    const live = process.report?.getReport?.();
+    const liveIsMusl = live === undefined || live.header?.glibcVersionRuntime === undefined;
+    expect(isMusl("linux", undefined)).toBe(liveIsMusl);
   });
 });
 
