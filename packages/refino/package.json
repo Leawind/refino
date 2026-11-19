@@ -1,6 +1,6 @@
 {
   "name": "refino",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "private": false,
   "description": "Pure engine for parsing, validating, querying and serializing Decision Lineage Graphs (DLG).",
   "type": "module",

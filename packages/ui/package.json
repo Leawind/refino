@@ -1,6 +1,6 @@
 {
   "name": "@refino/ui",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "private": false,
   "description": "Vue 3 visualization and editing components for Decision Lineage Graphs (DLG), plus an embeddable editor application shell.",
   "type": "module",
