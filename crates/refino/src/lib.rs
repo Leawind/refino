@@ -140,11 +140,45 @@ enum Command_ {
         json: bool,
     },
     /// direct grounds of one or more nodes
-    Grounds { ids: Vec<String> },
+    Grounds {
+        ids: Vec<String>,
+        /// emit machine-readable JSON (partial success per queried id)
+        #[arg(long)]
+        json: bool,
+    },
     /// all nodes reachable by recursively following grounds
-    Ancestors { ids: Vec<String> },
+    Ancestors {
+        ids: Vec<String>,
+        /// maximum traversal depth: 1 only direct grounds, 0 nothing;
+        /// default unbounded
+        #[arg(long)]
+        max_depth: Option<usize>,
+        /// emit machine-readable JSON (partial success per queried id)
+        #[arg(long)]
+        json: bool,
+    },
     /// decisions potentially affected if these nodes change
-    Dependents { ids: Vec<String> },
+    Dependents {
+        ids: Vec<String>,
+        /// maximum traversal depth: 1 only direct dependents, 0 nothing;
+        /// default unbounded
+        #[arg(long)]
+        max_depth: Option<usize>,
+        /// emit machine-readable JSON (partial success per queried id)
+        #[arg(long)]
+        json: bool,
+    },
+    /// decisions sharing at least one direct ground with the given node
+    /// (strong siblings, ranked by shared-ground count)
+    Siblings {
+        ids: Vec<String>,
+        /// cap the siblings per queried id (default: all)
+        #[arg(long)]
+        limit: Option<usize>,
+        /// emit machine-readable JSON (partial success per queried id)
+        #[arg(long)]
+        json: bool,
+    },
     /// create a new node file in .refino/
     New {
         #[command(subcommand)]
@@ -192,10 +226,18 @@ enum Command_ {
         id: String,
         /// the exact body span to replace (byte-exact match)
         #[arg(long)]
-        old: String,
+        old: Option<String>,
+        /// read the span to replace from a file (`-` reads stdin); mutually
+        /// exclusive with --old — the channel for long spans
+        #[arg(long)]
+        old_file: Option<String>,
         /// the replacement text
         #[arg(long)]
-        new: String,
+        new: Option<String>,
+        /// read the replacement from a file (`-` reads stdin); mutually
+        /// exclusive with --new — the channel for long replacements
+        #[arg(long)]
+        new_file: Option<String>,
         /// replace every occurrence instead of refusing on ambiguity
         #[arg(long)]
         replace_all: bool,
@@ -367,14 +409,33 @@ fn dispatch(cli: Cli, io: &mut dyn CliSink) -> i32 {
             cursor.as_deref(),
             json,
         ),
-        Command_::Grounds { ids } => {
-            query::cmd_graph_query(io, &opts, &ids, query::GraphQuery::Grounds)
+        Command_::Grounds { ids, json } => {
+            query::cmd_graph_query(io, &opts, &ids, query::GraphQuery::Grounds, json)
         }
-        Command_::Ancestors { ids } => {
-            query::cmd_graph_query(io, &opts, &ids, query::GraphQuery::Ancestors)
-        }
-        Command_::Dependents { ids } => {
-            query::cmd_graph_query(io, &opts, &ids, query::GraphQuery::Dependents)
+        Command_::Ancestors {
+            ids,
+            max_depth,
+            json,
+        } => query::cmd_graph_query(
+            io,
+            &opts,
+            &ids,
+            query::GraphQuery::Ancestors { max_depth },
+            json,
+        ),
+        Command_::Dependents {
+            ids,
+            max_depth,
+            json,
+        } => query::cmd_graph_query(
+            io,
+            &opts,
+            &ids,
+            query::GraphQuery::Dependents { max_depth },
+            json,
+        ),
+        Command_::Siblings { ids, limit, json } => {
+            query::cmd_graph_query(io, &opts, &ids, query::GraphQuery::Siblings { limit }, json)
         }
         Command_::New { kind } => cmd_new(io, &opts, kind),
         Command_::Update {
@@ -409,9 +470,22 @@ fn dispatch(cli: Cli, io: &mut dyn CliSink) -> i32 {
         Command_::Edit {
             id,
             old,
+            old_file,
             new,
+            new_file,
             replace_all,
-        } => write::cmd_edit(io, &opts, &id, &old, &new, replace_all),
+        } => write::cmd_edit(
+            io,
+            &opts,
+            write::EditArgs {
+                id,
+                old,
+                old_file,
+                new,
+                new_file,
+                replace_all,
+            },
+        ),
         Command_::Delete { ids, force } => write::cmd_delete(io, &opts, &ids, force),
         Command_::Init => cmd_init(io, &opts),
         Command_::Guide => {

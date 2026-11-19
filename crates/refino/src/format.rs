@@ -81,12 +81,15 @@ pub fn truncate(text: &str, max_length: usize) -> String {
     }
 }
 
-/// One row of a node table: `id  type  [depth]  summary`, columns aligned
-/// across the batch. The depth column appears only when at least one row
-/// carries a depth. A row marked `exploring` (the derived effective status,
-/// never the stored mark alone) prefixes the summary with `[探索]`.
+/// One row of a node table: `id  type  [depth]  [overlap]  summary`, columns
+/// aligned across the batch. The depth column appears only when at least one
+/// row carries a depth (traversal queries); the overlap column only when at
+/// least one row carries an overlap (the siblings query). A row marked
+/// `exploring` (the derived effective status, never the stored mark alone)
+/// prefixes the summary with `[探索]`.
 pub fn render_node_table(rows: &[TableRow]) -> String {
     let with_depth = rows.iter().any(|r| r.depth.is_some());
+    let with_overlap = rows.iter().any(|r| r.overlap.is_some());
     let id_width = rows
         .iter()
         .map(|r| r.id.chars().count())
@@ -108,6 +111,15 @@ pub fn render_node_table(rows: &[TableRow]) -> String {
         .max()
         .unwrap_or(2)
         .max(2);
+    let overlap_width = rows
+        .iter()
+        .map(|r| match r.overlap {
+            Some(o) => o.to_string().chars().count(),
+            None => 0,
+        })
+        .max()
+        .unwrap_or(2)
+        .max(2);
     rows.iter()
         .map(|r| {
             let head = format!(
@@ -121,12 +133,21 @@ pub fn render_node_table(rows: &[TableRow]) -> String {
             } else {
                 String::new()
             };
+            let overlap_col = if with_overlap {
+                let text = r.overlap.map(|o| o.to_string()).unwrap_or_default();
+                format!("{}  ", pad_end(&text, overlap_width))
+            } else {
+                String::new()
+            };
             let mark = if r.exploring == Some(true) {
                 "[探索] "
             } else {
                 ""
             };
-            format!("{head}{depth_col}{mark}{}", truncate(&r.summary, 80))
+            format!(
+                "{head}{depth_col}{overlap_col}{mark}{}",
+                truncate(&r.summary, 80)
+            )
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -138,6 +159,7 @@ pub struct TableRow {
     pub node_type: String,
     pub summary: String,
     pub depth: Option<usize>,
+    pub overlap: Option<usize>,
     pub exploring: Option<bool>,
 }
 
@@ -154,11 +176,16 @@ pub fn render_issues(issues: &[StoreIssue]) -> String {
         .join("\n")
 }
 
-/// Compact single-line identity, e.g. `decisions(id=E5F6G7H8, grounds=[...])`.
-pub fn render_node_heading(node: &RefinoNode) -> String {
+/// Compact single-line identity, e.g. `decisions(id=E5F6G7H8, grounds=[...],
+/// children=[...])`. Grounds are the decision's declared upstream; children
+/// are the derived direct dependents, shown only when non-empty.
+pub fn render_node_heading(node: &RefinoNode, children: &[String]) -> String {
     let mut parts = vec![format!("id={}", node.id())];
     if let Some(decision) = node.as_decision() {
         parts.push(format!("grounds=[{}]", decision.grounds.join(", ")));
+    }
+    if !children.is_empty() {
+        parts.push(format!("children=[{}]", children.join(", ")));
     }
     let type_name = match node.node_type() {
         refino_core::NodeType::Premise => "premise",
@@ -167,19 +194,21 @@ pub fn render_node_heading(node: &RefinoNode) -> String {
     format!("{type_name}s({})", parts.join(", "))
 }
 
-/// Full human-readable record: heading line, labeled attributes, then the
-/// body. Optional attributes (rationale, confirmed, exploring) only occupy a
-/// line when present, mirroring the JSON shape. Confirmed is stored as epoch
-/// milliseconds and rendered in its RFC 3339 (UTC) form. The exploring line
-/// shows the stored trial mark, or the derived effective status (no stored
-/// mark but an exploring ground) when `effective` says so.
+/// Full human-readable record: heading line (identity, grounds and direct
+/// dependents), labeled attributes, then the body. Optional attributes
+/// (rationale, confirmed, exploring) only occupy a line when present,
+/// mirroring the JSON shape. Confirmed is stored as epoch milliseconds and
+/// rendered in its RFC 3339 (UTC) form. The exploring line shows the stored
+/// trial mark, or the derived effective status (no stored mark but an
+/// exploring ground) when `effective` says so.
 pub fn render_full_record(
     node: &RefinoNode,
     content: Option<&refino_storage::NodeContent>,
     effective: bool,
+    children: &[String],
 ) -> String {
     let mut lines = vec![
-        render_node_heading(node),
+        render_node_heading(node, children),
         format!("summary: {}", node.summary()),
     ];
     if let Some(rationale) = content.and_then(|c| c.rationale.clone()) {

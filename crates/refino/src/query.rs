@@ -6,7 +6,8 @@ use crate::format::{CliSink, TableRow, render_full_record, render_node_table};
 use crate::shared::{GlobalOptions, finish, type_name, with_store};
 use refino_core::{
     LayerNode, NodeLite, NodeType, QueryGroup, RefinoNode, TraversalOptions, assign_layers,
-    effective_exploring, get_ancestors, get_dependents, get_grounds, query_groups, require_node,
+    effective_exploring, get_ancestors, get_dependents, get_grounds, get_siblings, query_groups,
+    require_node,
 };
 
 /// One `list --json` row: the resident fields plus the derived effective
@@ -25,6 +26,9 @@ pub struct JsonShowRow {
     node: RefinoNode,
     content: refino_storage::NodeContent,
     exploring_effective: bool,
+    /// Ids of decisions that directly ground on this node (derived
+    /// back-references; empty for leaves).
+    children: Vec<String>,
 }
 
 /// `search --json` page: mirrors the harness SearchPage contract.
@@ -129,6 +133,7 @@ pub fn cmd_list(
                     node_type: type_name(n).to_string(),
                     summary: n.summary().to_string(),
                     depth: None,
+                    overlap: None,
                     exploring: Some(
                         n.node_type() == NodeType::Decision
                             && effective_exploring(graph, n.id()).unwrap_or(false),
@@ -249,6 +254,7 @@ pub fn cmd_search(
                     node_type: type_name(&entry.node).to_string(),
                     summary: entry.summary().to_string(),
                     depth: None,
+                    overlap: None,
                     exploring: Some(
                         entry.node_type() == NodeType::Decision
                             && effective_exploring(graph, id).unwrap_or(false),
@@ -271,8 +277,10 @@ pub fn cmd_show(io: &mut dyn CliSink, opts: &GlobalOptions, ids: &[String], json
     let outcome = with_store(opts, |store| {
         let graph = store.graph();
         // select only runs for ids that exist, so require_node cannot fail.
+        // The whole GraphNode is taken so the derived children
+        // back-references ride along with the record.
         let groups = query_groups(graph, &ids, |g, id| {
-            vec![require_node(g, id).expect("id checked").node.clone()]
+            vec![require_node(g, id).expect("id checked").clone()]
         });
         let missing = groups.iter().any(|g| matches!(g, QueryGroup::Error { .. }));
         if json {
@@ -288,15 +296,16 @@ pub fn cmd_show(io: &mut dyn CliSink, opts: &GlobalOptions, ids: &[String], json
                         });
                     }
                     QueryGroup::Results { id, results } => {
-                        let node = &results[0];
+                        let entry = &results[0];
                         let content = store.content(id)?.unwrap_or_default();
                         let effective = effective_exploring(store.graph(), id).unwrap_or(false);
                         payload.push(QueryGroup::Results {
                             id: id.clone(),
                             results: vec![JsonShowRow {
-                                node: node.clone(),
+                                node: entry.node.clone(),
                                 content,
                                 exploring_effective: effective,
+                                children: entry.children.clone(),
                             }],
                         });
                     }
@@ -313,10 +322,18 @@ pub fn cmd_show(io: &mut dyn CliSink, opts: &GlobalOptions, ids: &[String], json
             match group {
                 QueryGroup::Error { error, .. } => parts.push(format!("error: {error}")),
                 QueryGroup::Results { id, results } => {
-                    let node = &results[0];
+                    let entry = &results[0];
                     let content = store.content(id)?;
                     let effective = effective_exploring(store.graph(), id).unwrap_or(false);
-                    parts.push(render_full_record(node, content.as_ref(), effective).to_string());
+                    parts.push(
+                        render_full_record(
+                            &entry.node,
+                            content.as_ref(),
+                            effective,
+                            &entry.children,
+                        )
+                        .to_string(),
+                    );
                 }
             }
         }
@@ -326,11 +343,67 @@ pub fn cmd_show(io: &mut dyn CliSink, opts: &GlobalOptions, ids: &[String], json
     finish(io, outcome)
 }
 
+/// The batch graph queries sharing one output machinery: per-id sections in
+/// text, per-id entries in JSON (the harness query-entry contract).
 #[derive(Clone, Copy)]
 pub enum GraphQuery {
+    /// Direct grounds of each id.
     Grounds,
-    Ancestors,
-    Dependents,
+    /// All ancestors along grounds, optionally depth-capped.
+    Ancestors {
+        /// See `TraversalOptions::max_depth`.
+        max_depth: Option<usize>,
+    },
+    /// All dependents along children, optionally depth-capped.
+    Dependents {
+        /// See `TraversalOptions::max_depth`.
+        max_depth: Option<usize>,
+    },
+    /// Strong siblings of each id, optionally capped per id.
+    Siblings {
+        /// Cap on siblings per queried id; `None` is unbounded.
+        limit: Option<usize>,
+    },
+}
+
+/// One result row of a batch graph query: the node plus the query-specific
+/// annotation (traversal depth, or the shared-ground count for siblings).
+struct GraphRow {
+    node: RefinoNode,
+    depth: Option<usize>,
+    overlap: Option<usize>,
+}
+
+/// One node row of a batch graph query's `--json` output: the resident
+/// identity plus the query-specific annotation. `exploring` appears only
+/// when the effective status holds, mirroring the harness NodeLite.
+#[derive(serde::Serialize)]
+struct JsonGraphRow {
+    id: String,
+    #[serde(rename = "type")]
+    node_type: NodeType,
+    summary: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    depth: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    overlap: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    exploring: Option<bool>,
+}
+
+/// One `--json` entry of a batch graph query: per-id results or per-id
+/// error, mirroring the harness query-entry contract.
+#[derive(serde::Serialize)]
+#[serde(untagged)]
+enum JsonQueryGroup {
+    Results {
+        id: String,
+        nodes: Vec<JsonGraphRow>,
+    },
+    Error {
+        id: String,
+        error: String,
+    },
 }
 
 pub fn cmd_graph_query(
@@ -338,55 +411,135 @@ pub fn cmd_graph_query(
     opts: &GlobalOptions,
     ids: &[String],
     query: GraphQuery,
+    json: bool,
 ) -> i32 {
+    if let GraphQuery::Siblings { limit: Some(0) } = query {
+        io.err("error: --limit must be at least 1\n");
+        return 1;
+    }
     let ids = ids.to_vec();
     let outcome = with_store(opts, |store| {
         let graph = store.graph();
-        let select = |g: &refino_core::Graph, id: &str| -> Vec<(RefinoNode, Option<usize>)> {
+        let select = |g: &refino_core::Graph, id: &str| -> Vec<GraphRow> {
             match query {
                 GraphQuery::Grounds => get_grounds(g, id)
-                    .map(|ns| ns.into_iter().map(|n| (n.node.clone(), None)).collect())
-                    .unwrap_or_default(),
-                GraphQuery::Ancestors => get_ancestors(g, id, TraversalOptions::default())
                     .map(|ns| {
                         ns.into_iter()
-                            .map(|n| (n.node.node.clone(), Some(n.depth)))
+                            .map(|n| GraphRow {
+                                node: n.node,
+                                depth: None,
+                                overlap: None,
+                            })
                             .collect()
                     })
                     .unwrap_or_default(),
-                GraphQuery::Dependents => get_dependents(g, id, TraversalOptions::default())
+                GraphQuery::Ancestors { max_depth } => {
+                    get_ancestors(g, id, TraversalOptions { max_depth })
+                        .map(|ns| {
+                            ns.into_iter()
+                                .map(|n| GraphRow {
+                                    node: n.node.node,
+                                    depth: Some(n.depth),
+                                    overlap: None,
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default()
+                }
+                GraphQuery::Dependents { max_depth } => {
+                    get_dependents(g, id, TraversalOptions { max_depth })
+                        .map(|ns| {
+                            ns.into_iter()
+                                .map(|n| GraphRow {
+                                    node: n.node.node,
+                                    depth: Some(n.depth),
+                                    overlap: None,
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default()
+                }
+                GraphQuery::Siblings { limit } => get_siblings(g, id)
                     .map(|ns| {
-                        ns.into_iter()
-                            .map(|n| (n.node.node.clone(), Some(n.depth)))
-                            .collect()
+                        let mut rows: Vec<GraphRow> = ns
+                            .into_iter()
+                            .map(|n| GraphRow {
+                                node: n.node.node,
+                                depth: None,
+                                overlap: Some(n.overlap),
+                            })
+                            .collect();
+                        if let Some(cap) = limit {
+                            rows.truncate(cap);
+                        }
+                        rows
                     })
                     .unwrap_or_default(),
             }
         };
         let groups = query_groups(graph, &ids, select);
-        if groups.len() == 1 {
-            emit_group(io, graph, &groups[0]);
-        } else {
-            for group in &groups {
-                let id = match group {
-                    QueryGroup::Results { id, .. } => id,
-                    QueryGroup::Error { id, .. } => id,
-                };
-                io.out(&format!("{id}:\n"));
-                emit_group(io, graph, group);
-            }
-        }
+        emit_graph_rows(io, graph, &groups, json);
         let missing = groups.iter().any(|g| matches!(g, QueryGroup::Error { .. }));
         Ok(if missing { 1 } else { 0 })
     });
     finish(io, outcome)
 }
 
-fn emit_group(
+/// Emit batch graph-query groups as JSON (one entry per id) or as text
+/// sections (one `{id}:` header per id when the batch has several ids).
+fn emit_graph_rows(
     io: &mut dyn CliSink,
     graph: &refino_core::Graph,
-    group: &QueryGroup<(RefinoNode, Option<usize>)>,
+    groups: &[QueryGroup<GraphRow>],
+    json: bool,
 ) {
+    if json {
+        let payload: Vec<JsonQueryGroup> = groups
+            .iter()
+            .map(|group| match group {
+                QueryGroup::Error { id, error } => JsonQueryGroup::Error {
+                    id: id.clone(),
+                    error: error.clone(),
+                },
+                QueryGroup::Results { id, results } => JsonQueryGroup::Results {
+                    id: id.clone(),
+                    nodes: results
+                        .iter()
+                        .map(|row| JsonGraphRow {
+                            id: row.node.id().to_string(),
+                            node_type: row.node.node_type(),
+                            summary: row.node.summary().to_string(),
+                            depth: row.depth,
+                            overlap: row.overlap,
+                            exploring: effective_exploring(graph, row.node.id())
+                                .ok()
+                                .filter(|&e| e),
+                        })
+                        .collect(),
+                },
+            })
+            .collect();
+        io.out(&format!(
+            "{}\n",
+            serde_json::to_string(&payload).unwrap_or_default()
+        ));
+        return;
+    }
+    if groups.len() == 1 {
+        emit_group(io, graph, &groups[0]);
+    } else {
+        for group in groups {
+            let id = match group {
+                QueryGroup::Results { id, .. } => id,
+                QueryGroup::Error { id, .. } => id,
+            };
+            io.out(&format!("{id}:\n"));
+            emit_group(io, graph, group);
+        }
+    }
+}
+
+fn emit_group(io: &mut dyn CliSink, graph: &refino_core::Graph, group: &QueryGroup<GraphRow>) {
     match group {
         QueryGroup::Error { error, .. } => io.out(&format!("error: {error}\n")),
         QueryGroup::Results { results, .. } => {
@@ -395,14 +548,15 @@ fn emit_group(
             } else {
                 let rows: Vec<TableRow> = results
                     .iter()
-                    .map(|(node, depth)| TableRow {
-                        id: node.id().to_string(),
-                        node_type: type_name(node).to_string(),
-                        summary: node.summary().to_string(),
-                        depth: *depth,
+                    .map(|row| TableRow {
+                        id: row.node.id().to_string(),
+                        node_type: type_name(&row.node).to_string(),
+                        summary: row.node.summary().to_string(),
+                        depth: row.depth,
+                        overlap: row.overlap,
                         exploring: Some(
-                            node.node_type() == NodeType::Decision
-                                && effective_exploring(graph, node.id()).unwrap_or(false),
+                            row.node.node_type() == NodeType::Decision
+                                && effective_exploring(graph, row.node.id()).unwrap_or(false),
                         ),
                     })
                     .collect();

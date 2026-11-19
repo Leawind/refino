@@ -340,19 +340,39 @@ pub fn cmd_update(io: &mut dyn CliSink, opts: &GlobalOptions, args: UpdateArgs) 
     finish_write(io, outcome)
 }
 
+/// Field bundle for `edit`, decoupled from the clap enum.
+pub struct EditArgs {
+    pub id: String,
+    pub old: Option<String>,
+    pub old_file: Option<String>,
+    pub new: Option<String>,
+    pub new_file: Option<String>,
+    pub replace_all: bool,
+}
+
 /// `edit` — the harness file-editor pattern (the same contract as
 /// agent-memory's memory_edit): the caller cites the exact span to change
 /// instead of restating the whole body, so a one-word fix on a long body
 /// costs tokens for the span only and the untouched parts cannot drift.
-/// Matching is byte-exact; ambiguity fails without side effects.
-pub fn cmd_edit(
-    io: &mut dyn CliSink,
-    opts: &GlobalOptions,
-    id: &str,
-    old: &str,
-    new: &str,
-    replace_all: bool,
-) -> i32 {
+/// Matching is byte-exact; ambiguity fails without side effects. The span
+/// and the replacement take the same file/stdin channels as body content.
+pub fn cmd_edit(io: &mut dyn CliSink, opts: &GlobalOptions, args: EditArgs) -> i32 {
+    let old = match resolve_content(io, "old", &args.old, &args.old_file) {
+        Ok(resolved) => resolved,
+        Err(code) => return code,
+    };
+    let new = match resolve_content(io, "new", &args.new, &args.new_file) {
+        Ok(resolved) => resolved,
+        Err(code) => return code,
+    };
+    let Some(old) = old else {
+        io.err("error: specify --old or --old-file with the exact span to replace\n");
+        return 1;
+    };
+    let Some(new) = new else {
+        io.err("error: specify --new or --new-file with the replacement text\n");
+        return 1;
+    };
     if old.is_empty() {
         io.err("error: --old must not be empty (an empty match is ambiguous; to rewrite the whole body use --body or --body-file)\n");
         return 1;
@@ -361,9 +381,8 @@ pub fn cmd_edit(
         io.err("error: --old and --new are identical: nothing to replace\n");
         return 1;
     }
-    let id = id.to_string();
-    let old = old.to_string();
-    let new = new.to_string();
+    let id = args.id;
+    let replace_all = args.replace_all;
     let outcome = with_store_for_write(opts, |store| {
         let Some(entry) = store.entry(&id).cloned() else {
             return Err(StoreError::Other(refino_core::RefinoError::new(

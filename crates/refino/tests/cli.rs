@@ -241,7 +241,10 @@ fn show_prints_the_full_record() {
 
     let (_, out, _) = run(&["--root", r.as_str(), "show", "1A2B3C4D"]);
     remove_refino(&root);
-    assert!(out.contains("premises(id=1A2B3C4D)"), "{out}");
+    assert!(
+        out.contains("premises(id=1A2B3C4D, children=[E5F6G7H8])"),
+        "{out}"
+    );
 }
 
 #[test]
@@ -1810,4 +1813,353 @@ fn json_validate_reports_issues_and_exit_1() {
     assert_eq!(code, 1);
     assert!(out.contains("\"valid\":false"), "{out}");
     assert!(out.contains("UNKNOWN_GROUND"), "{out}");
+}
+
+#[test]
+fn graph_queries_emit_json_with_partial_success() {
+    let root = create_refino(&[
+        premise_body("1A2B3C4D", "Fact."),
+        file(
+            "nodes/A1/B2C3D4-decision.md",
+            &decision_body("A1B2C3D4", &[], "D1."),
+        ),
+        file(
+            "nodes/D4/E5F6G7-decision.md",
+            &decision_body("D4E5F6G7", &["A1B2C3D4"], "D2."),
+        ),
+        file(
+            "nodes/E5/F6G7H8-decision.md",
+            &decision_body("E5F6G7H8", &["1A2B3C4D", "D4E5F6G7"], "D3."),
+        ),
+    ]);
+    let r = root_arg(&root);
+    let (code, grounds, _) = run(&["--root", r.as_str(), "grounds", "E5F6G7H8", "--json"]);
+    let (_, ancestors, _) = run(&["--root", r.as_str(), "ancestors", "E5F6G7H8", "--json"]);
+    let (code_missing, dependents, _) = run(&[
+        "--root",
+        r.as_str(),
+        "dependents",
+        "A1B2C3D4",
+        "NOPE12",
+        "--json",
+    ]);
+    remove_refino(&root);
+
+    assert_eq!(code, 0);
+    // grounds: declared order, identity rows without depth annotation
+    assert!(grounds.contains("\"id\":\"E5F6G7H8\""), "{grounds}");
+    assert!(
+        grounds.contains(
+            "\"nodes\":[{\"id\":\"1A2B3C4D\",\"type\":\"premise\",\"summary\":\"Fact.\"}"
+        ),
+        "{grounds}"
+    );
+    assert!(
+        grounds.find("\"1A2B3C4D\"").unwrap() < grounds.find("\"D4E5F6G7\"").unwrap(),
+        "{grounds}"
+    );
+    assert!(
+        !grounds.contains("depth") && !grounds.contains("overlap"),
+        "{grounds}"
+    );
+    // ancestors: relative depths ride along
+    assert!(ancestors.contains("\"depth\":1"), "{ancestors}");
+    assert!(ancestors.contains("\"depth\":2"), "{ancestors}");
+    // missing ids stay per-id errors, existing ids keep their results
+    assert_eq!(code_missing, 1);
+    assert!(dependents.contains("NOPE12"), "{dependents}");
+    assert!(dependents.contains("\"error\""), "{dependents}");
+    assert!(dependents.contains("D4E5F6G7"), "{dependents}");
+}
+
+#[test]
+fn max_depth_bounds_traversal_queries() {
+    let root = create_refino(&[
+        premise_body("1A2B3C4D", "Fact."),
+        file(
+            "nodes/A1/B2C3D4-decision.md",
+            &decision_body("A1B2C3D4", &[], "D1."),
+        ),
+        file(
+            "nodes/D4/E5F6G7-decision.md",
+            &decision_body("D4E5F6G7", &["A1B2C3D4"], "D2."),
+        ),
+        file(
+            "nodes/E5/F6G7H8-decision.md",
+            &decision_body("E5F6G7H8", &["D4E5F6G7"], "D3."),
+        ),
+    ]);
+    let r = root_arg(&root);
+    let (code, direct, _) = run(&[
+        "--root",
+        r.as_str(),
+        "dependents",
+        "A1B2C3D4",
+        "--max-depth",
+        "1",
+    ]);
+    let (_, none, _) = run(&[
+        "--root",
+        r.as_str(),
+        "dependents",
+        "A1B2C3D4",
+        "--max-depth",
+        "0",
+    ]);
+    let (_, up_direct, _) = run(&[
+        "--root",
+        r.as_str(),
+        "ancestors",
+        "E5F6G7H8",
+        "--max-depth",
+        "1",
+    ]);
+    let (_, json, _) = run(&[
+        "--root",
+        r.as_str(),
+        "dependents",
+        "A1B2C3D4",
+        "--max-depth",
+        "1",
+        "--json",
+    ]);
+    remove_refino(&root);
+
+    assert_eq!(code, 0);
+    assert!(direct.contains("D4E5F6G7"), "{direct}");
+    assert!(!direct.contains("E5F6G7H8"), "{direct}");
+    assert!(none.contains("(empty)"), "{none}");
+    assert!(up_direct.contains("D4E5F6G7"), "{up_direct}");
+    assert!(!up_direct.contains("A1B2C3D4"), "{up_direct}");
+    assert!(json.contains("\"depth\":1"), "{json}");
+    assert!(!json.contains("\"depth\":2"), "{json}");
+}
+
+#[test]
+fn siblings_rank_by_shared_grounds_and_cap_per_id() {
+    let root = create_refino(&[
+        premise_body("1A2B3C4D", "Fact."),
+        file(
+            "nodes/A1/B2C3D4-decision.md",
+            &decision_body("A1B2C3D4", &[], "D1."),
+        ),
+        file(
+            "nodes/D4/E5F6G7-decision.md",
+            &decision_body("D4E5F6G7", &["A1B2C3D4"], "D2."),
+        ),
+        file(
+            "nodes/E5/F6G7H8-decision.md",
+            &decision_body("E5F6G7H8", &["1A2B3C4D", "D4E5F6G7"], "D3."),
+        ),
+        file(
+            "nodes/F6/G7H8J-decision.md",
+            &decision_body("F6G7H8J", &["1A2B3C4D", "A1B2C3D4", "D4E5F6G7"], "D4."),
+        ),
+    ]);
+    let r = root_arg(&root);
+    let (code, out, _) = run(&["--root", r.as_str(), "siblings", "F6G7H8J"]);
+    let (_, capped, _) = run(&["--root", r.as_str(), "siblings", "F6G7H8J", "--limit", "1"]);
+    let (_, premise, _) = run(&["--root", r.as_str(), "siblings", "1A2B3C4D"]);
+    let (code_missing, batch, _) = run(&["--root", r.as_str(), "siblings", "F6G7H8J", "NOPE12"]);
+    let (code_zero, _, err_zero) =
+        run(&["--root", r.as_str(), "siblings", "F6G7H8J", "--limit", "0"]);
+    remove_refino(&root);
+
+    assert_eq!(code, 0);
+    // overlap-descending: the sibling sharing two grounds comes first
+    assert!(out.contains("E5F6G7H8  decision  2"), "{out}");
+    assert!(out.contains("D4E5F6G7  decision  1"), "{out}");
+    assert_eq!(capped.lines().count(), 1, "{capped}");
+    assert!(
+        capped.contains("E5F6G7H8") && !capped.contains("D4E5F6G7"),
+        "{capped}"
+    );
+    // premises have no grounds and thus no siblings
+    assert!(premise.contains("(empty)"), "{premise}");
+    assert_eq!(code_missing, 1);
+    assert!(batch.contains("F6G7H8J:"), "{batch}");
+    assert!(
+        batch.contains("error: Node \"NOPE12\" not found"),
+        "{batch}"
+    );
+    assert_eq!(code_zero, 1);
+    assert!(
+        err_zero.contains("--limit must be at least 1"),
+        "{err_zero}"
+    );
+}
+
+#[test]
+fn siblings_json_ranks_by_overlap() {
+    let root = create_refino(&[
+        premise_body("1A2B3C4D", "Fact."),
+        file(
+            "nodes/A1/B2C3D4-decision.md",
+            &decision_body("A1B2C3D4", &[], "D1."),
+        ),
+        file(
+            "nodes/D4/E5F6G7-decision.md",
+            &decision_body("D4E5F6G7", &["A1B2C3D4"], "D2."),
+        ),
+        file(
+            "nodes/E5/F6G7H8-decision.md",
+            &decision_body("E5F6G7H8", &["1A2B3C4D", "D4E5F6G7"], "D3."),
+        ),
+        file(
+            "nodes/F6/G7H8J-decision.md",
+            &decision_body("F6G7H8J", &["1A2B3C4D", "A1B2C3D4", "D4E5F6G7"], "D4."),
+        ),
+    ]);
+    let r = root_arg(&root);
+    let (code, out, _) = run(&["--root", r.as_str(), "siblings", "F6G7H8J", "--json"]);
+    remove_refino(&root);
+
+    assert_eq!(code, 0);
+    assert!(out.contains("\"overlap\":2"), "{out}");
+    assert!(out.contains("\"overlap\":1"), "{out}");
+    assert!(
+        out.find("\"id\":\"E5F6G7H8\"").unwrap() < out.find("\"id\":\"D4E5F6G7\"").unwrap(),
+        "{out}"
+    );
+    assert!(!out.contains("depth"), "{out}");
+}
+
+#[test]
+fn edit_channels_accept_files_and_stdin() {
+    let root = create_refino(&[premise_body("1A2B3C4D", "第一段。\n第二段。\n第三段。")]);
+    let r = root_arg(&root);
+    let old_path = scratch(&root, "old.txt", "第一段。");
+    let new_path = scratch(&root, "new.txt", "首段。");
+    let (code, out, _) = run(&[
+        "--root",
+        r.as_str(),
+        "edit",
+        "1A2B3C4D",
+        "--old-file",
+        old_path.as_str(),
+        "--new-file",
+        new_path.as_str(),
+    ]);
+    assert_eq!(code, 0, "{out}");
+    let (_, shown, _) = run(&["--root", r.as_str(), "show", "1A2B3C4D"]);
+    assert!(shown.contains("首段。\n第二段。"), "{shown}");
+
+    let (code2, out2, _) = run_with_stdin(
+        &[
+            "--root",
+            r.as_str(),
+            "edit",
+            "1A2B3C4D",
+            "--old-file",
+            "-",
+            "--new",
+            "终段。",
+        ],
+        "首段。",
+    );
+    assert_eq!(code2, 0, "{out2}");
+    let (_, shown2, _) = run(&["--root", r.as_str(), "show", "1A2B3C4D"]);
+    assert!(shown2.contains("终段。\n第二段。"), "{shown2}");
+
+    let (code3, out3, _) = run_with_stdin(
+        &[
+            "--root",
+            r.as_str(),
+            "edit",
+            "1A2B3C4D",
+            "--old",
+            "终段。",
+            "--new-file",
+            "-",
+        ],
+        "末段。",
+    );
+    assert_eq!(code3, 0, "{out3}");
+    let (_, shown3, _) = run(&["--root", r.as_str(), "show", "1A2B3C4D"]);
+    assert!(shown3.contains("末段。"), "{shown3}");
+    remove_refino(&root);
+}
+
+#[test]
+fn edit_channels_reject_conflicts_and_missing_args() {
+    let root = create_refino(&[premise_body("1A2B3C4D", "前提。")]);
+    let r = root_arg(&root);
+    let (code, _, err) = run(&[
+        "--root",
+        r.as_str(),
+        "edit",
+        "1A2B3C4D",
+        "--old",
+        "x",
+        "--old-file",
+        "-",
+    ]);
+    let (code2, _, err2) = run(&[
+        "--root",
+        r.as_str(),
+        "edit",
+        "1A2B3C4D",
+        "--old-file",
+        "no-such-old.md",
+        "--new",
+        "y",
+    ]);
+    let (code3, _, err3) = run(&["--root", r.as_str(), "edit", "1A2B3C4D", "--new", "y"]);
+    let (code4, _, err4) = run(&["--root", r.as_str(), "edit", "1A2B3C4D", "--old", "前提。"]);
+    remove_refino(&root);
+
+    assert_eq!(code, 1);
+    assert!(
+        err.contains("--old and --old-file are mutually exclusive"),
+        "{err}"
+    );
+    assert_eq!(code2, 1);
+    assert!(err2.contains("cannot read --old-file"), "{err2}");
+    assert_eq!(code3, 1);
+    assert!(err3.contains("--old or --old-file"), "{err3}");
+    assert_eq!(code4, 1);
+    assert!(err4.contains("--new or --new-file"), "{err4}");
+}
+
+#[test]
+fn show_reports_direct_dependents_as_children() {
+    let root = create_refino(&[
+        premise_body("1A2B3C4D", "Fact."),
+        file(
+            "nodes/A1/B2C3D4-decision.md",
+            &decision_body("A1B2C3D4", &[], "D1."),
+        ),
+        file(
+            "nodes/D4/E5F6G7-decision.md",
+            &decision_body("D4E5F6G7", &["A1B2C3D4"], "D2."),
+        ),
+        file(
+            "nodes/E5/F6G7H8-decision.md",
+            &decision_body("E5F6G7H8", &["1A2B3C4D", "D4E5F6G7"], "D3."),
+        ),
+    ]);
+    let r = root_arg(&root);
+    let (_, decision, _) = run(&["--root", r.as_str(), "show", "A1B2C3D4"]);
+    let (_, leaf, _) = run(&["--root", r.as_str(), "show", "E5F6G7H8"]);
+    let (_, premise, _) = run(&["--root", r.as_str(), "show", "1A2B3C4D"]);
+    let (_, json, _) = run(&["--root", r.as_str(), "show", "A1B2C3D4", "--json"]);
+    let (_, leaf_json, _) = run(&["--root", r.as_str(), "show", "E5F6G7H8", "--json"]);
+    remove_refino(&root);
+
+    assert!(
+        decision.contains("decisions(id=A1B2C3D4, grounds=[], children=[D4E5F6G7])"),
+        "{decision}"
+    );
+    // leaves keep the bare heading
+    assert!(
+        leaf.contains("decisions(id=E5F6G7H8, grounds=[1A2B3C4D, D4E5F6G7])"),
+        "{leaf}"
+    );
+    // premises carry children too
+    assert!(
+        premise.contains("premises(id=1A2B3C4D, children=[E5F6G7H8])"),
+        "{premise}"
+    );
+    assert!(json.contains("\"children\":[\"D4E5F6G7\"]"), "{json}");
+    assert!(leaf_json.contains("\"children\":[]"), "{leaf_json}");
 }
