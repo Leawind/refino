@@ -18,8 +18,10 @@ import { apply } from "../src/index.js";
  * selection per session source, watcher-driven coalesced deltas, and the
  * approval-surface fallback on a context that lacks the service.
  *
- * The `agent/session-start` flow is fire-and-forget inside the plugin, so
- * assertions poll with `vi.waitFor` instead of awaiting a handle.
+ * Most tests drive the flow through `ctx.emit`, which does not await
+ * listeners, so assertions poll with `vi.waitFor` instead of awaiting a
+ * handle; the ordering test below uses `ctx.serial` to model dsh's awaited
+ * dispatch.
  */
 
 /** watcher debounce (500ms) + delta coalescing (2s) — the longest quiet path. */
@@ -85,7 +87,7 @@ function mount(approval?: { request: () => Promise<ApprovalOutcome> }): Context 
 function startSession(ctx: Context, cwd: string, source: SessionStartSource): FakeAgent {
   const fake = fakeAgent(cwd);
   mounted.at(-1)!.agents.push(fake);
-  ctx.emit("agent/session-start", { agent: fake.agent, source });
+  ctx.emit("agent/created", { agent: fake.agent, source });
   return fake;
 }
 
@@ -106,6 +108,21 @@ function registeredTool(fake: FakeAgent, name: string): ToolDefinition {
 }
 
 describe("plugin mounting on a real Cordis context", () => {
+  it("finishes initialization within the awaited agent/created phase", async () => {
+    // `agent/created` is serial and awaited before the session's first step:
+    // an eager first turn must already see the tools and the initial context.
+    // Polling here would hide exactly that race.
+    const root = await fixtureWorkspace();
+    const ctx = mount();
+    const fake = fakeAgent(root);
+    mounted.at(-1)!.agents.push(fake);
+
+    await ctx.serial("agent/created", { agent: fake.agent, source: "startup" });
+
+    expect(fake.tools).toHaveLength(14);
+    expect(fake.injected.join("\n")).toContain("根决策");
+  });
+
   it("registers the full toolset and injects the initial context on startup", async () => {
     const root = await fixtureWorkspace();
     const ctx = mount();

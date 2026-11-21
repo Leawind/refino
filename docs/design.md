@@ -8,23 +8,23 @@
 
 仓库为 pnpm + Cargo 混合 workspace：`crates/` 为 Cargo workspace（Rust 核心），`packages/` 为 pnpm workspace（TS 门面与消费方）。
 
-| 包                             | 职责                                                                                           | 状态           |
-| ------------------------------ | ---------------------------------------------------------------------------------------------- | -------------- |
-| `refino-core`（crate）         | 纯引擎：图数据模型、变更原语、校验、查询、分层、ID；wasm-clean                                 | 已有           |
-| `refino-storage`（crate）      | 存储格式与存储核心：常驻投影 Store、内容分页、原子写、变更监听；文件系统与时钟经 Io trait 注入 | 已有           |
-| `refino-fs`（crate）           | Io trait 的原生实现（std::fs + notify），供命令行与服务端使用                                  | 已有           |
-| `refino`（crate）              | 命令行二进制；crates.io 渠道                                                                   | 已有           |
-| `refino-server`（crate）       | 本地 HTTP 服务：Web API 与 SSE 变更流，托管 `@refino/ui` 构建产物                              | 已有           |
-| `refino-wasm`（crate）         | wasm-bindgen 门面：向 JS 导出引擎与存储核心                                                    | 已有           |
-| `@refino/wasm`                 | wasm 产物与双宿主（浏览器、Node）胶水及 TS 门面                                                | 已有           |
-| `@refino/wire`                 | wire 类型单一来源：由 Rust 结构体生成 TS 定义，产物入库                                        | 已有           |
-| `@refino/cli`                  | npm 渠道的 `refino` 命令：分发壳依平台解析二进制                                               | 已有           |
-| `@refino/harness`              | 任务界定层与工具插件公共逻辑；图与存储访问经 `@refino/wasm`                                    | 已有           |
-| `@refino/ui`                   | DLG 可视化编辑组件库（Vue 3）                                                                  | 已有           |
-| `@refino/cordis-plugin-refino` | 以 Cordis 插件形式接入 DeepSeek Harness，bundle 形式分发                                       | 已有（未验证） |
-| `@refino/testkit`              | 各包测试共用的夹具与工具函数                                                                   | 已有           |
-| `@refino/desktop`              | 桌面应用                                                                                       | 未来           |
-| `@refino/vscode`               | VSCode 插件                                                                                    | 未来           |
+| 包                             | 职责                                                                                           | 状态 |
+| ------------------------------ | ---------------------------------------------------------------------------------------------- | ---- |
+| `refino-core`（crate）         | 纯引擎：图数据模型、变更原语、校验、查询、分层、ID；wasm-clean                                 | 已有 |
+| `refino-storage`（crate）      | 存储格式与存储核心：常驻投影 Store、内容分页、原子写、变更监听；文件系统与时钟经 Io trait 注入 | 已有 |
+| `refino-fs`（crate）           | Io trait 的原生实现（std::fs + notify），供命令行与服务端使用                                  | 已有 |
+| `refino`（crate）              | 命令行二进制；crates.io 渠道                                                                   | 已有 |
+| `refino-server`（crate）       | 本地 HTTP 服务：Web API 与 SSE 变更流，托管 `@refino/ui` 构建产物                              | 已有 |
+| `refino-wasm`（crate）         | wasm-bindgen 门面：向 JS 导出引擎与存储核心                                                    | 已有 |
+| `@refino/wasm`                 | wasm 产物与双宿主（浏览器、Node）胶水及 TS 门面                                                | 已有 |
+| `@refino/wire`                 | wire 类型单一来源：由 Rust 结构体生成 TS 定义，产物入库                                        | 已有 |
+| `@refino/cli`                  | npm 渠道的 `refino` 命令：分发壳依平台解析二进制                                               | 已有 |
+| `@refino/harness`              | 任务界定层与工具插件公共逻辑；图与存储访问经 `@refino/wasm`                                    | 已有 |
+| `@refino/ui`                   | DLG 可视化编辑组件库（Vue 3）                                                                  | 已有 |
+| `@refino/cordis-plugin-refino` | 以 Cordis 插件形式接入 DeepSeek Harness，bundle 形式分发                                       | 已有 |
+| `@refino/testkit`              | 各包测试共用的夹具与工具函数                                                                   | 已有 |
+| `@refino/desktop`              | 桌面应用                                                                                       | 未来 |
+| `@refino/vscode`               | VSCode 插件                                                                                    | 未来 |
 
 ## 技术形态与边界
 

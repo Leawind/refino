@@ -11,6 +11,8 @@ refino 的 [DeepSeek Harness（dsh）](https://github.com/deepseek-ai/deepseek-h
 
 ## 安装
 
+本插件与 dsh 精确版本对应：当前锁定 0.2.2-rc.5（见 `package.json` 的 `peerDependencies`），宿主升级时须同步升级插件。
+
 从 npm 安装：
 
 ```sh

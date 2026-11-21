@@ -219,16 +219,6 @@ describe("external change against the open editor", () => {
     disk.set(ID, { ...disk.get(ID)!, body: "外部正文", summary: "外部摘要" });
     serverRevision = 4;
     await emit({ revision: 4, changed: [ID], deleted: [] });
-    console.log(
-      "DBG3",
-      JSON.stringify({
-        conflict: store.state.detail.conflict,
-        base: store.state.detail.base,
-        formBody: store.form.body,
-        nodeBody: store.state.detail.node?.body,
-        deletedWithEdits: store.state.detail.deletedWithEdits,
-      }),
-    );
 
     expect(store.state.detail.conflict).not.toBeNull();
     expect(store.state.detail.conflict!.fields).toEqual(["body"]);
@@ -274,17 +264,6 @@ describe("external deletion", () => {
     disk.delete(ID);
     serverRevision = 5;
     await emit({ revision: 5, changed: [], deleted: [ID] });
-    console.log(
-      "DBG-DEL",
-      JSON.stringify({
-        deletedWithEdits: store.state.detail.deletedWithEdits,
-        detailId: store.state.detail.id,
-        loading: store.state.detail.loading,
-        formBody: store.form.body,
-        baseBody: store.state.detail.base?.body ?? null,
-        open: store.state.detailOpen,
-      }),
-    );
 
     expect(store.state.detail.deletedWithEdits).toBe(true);
 

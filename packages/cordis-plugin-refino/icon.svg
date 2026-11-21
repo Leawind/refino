@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36" role="img" aria-labelledby="title desc">
+  <title id="title">Decision lineage graph</title>
+  <desc id="desc">One filled decision node above two hollow descendant decisions, joined by downward edges.</desc>
+  <path d="M16.1 12.5 11.2 21.3M19.9 12.5l4.9 8.8" fill="none" stroke="#7C8AA8" stroke-width="1.8" stroke-linecap="round"/>
+  <circle cx="18" cy="9" r="4" fill="#5B7CD6"/>
+  <circle cx="9.5" cy="24.5" r="3.6" fill="none" stroke="#7C8AA8" stroke-width="1.8"/>
+  <circle cx="26.5" cy="24.5" r="3.6" fill="none" stroke="#7C8AA8" stroke-width="1.8"/>
+</svg>

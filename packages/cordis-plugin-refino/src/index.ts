@@ -40,17 +40,33 @@ const EXTERNAL_SYNC_INTERVAL_MS = 2000;
 /** dsh tool names (`refino_show`); injected texts cite the same names. */
 const TOOLS = toolRefs("refino_");
 
-/** Stable plugin identity used as the message source for every injection. */
-const REFINO_PLUGIN_SOURCE = { kind: "plugin", plugin: "refino" } as const;
+/**
+ * The plugin's own injected-message source kind. dsh has no catch-all plugin
+ * source: every producer declares its kind through module augmentation.
+ */
+declare module "@deepseek-ai/dsh-llm" {
+  interface MessageSourceMap {
+    refino: { kind: "refino" };
+  }
+}
+
+/** Stable source stamped on every injected message. */
+const REFINO_PLUGIN_SOURCE = { kind: "refino" } as const;
 
 export function apply(ctx: Context): void {
   const workspaces = new WeakMap<Agent, RefinoWorkspace>();
   const coalescers = new WeakMap<Agent, DeltaCoalescer>();
 
-  ctx.on("agent/session-start", ({ agent, source }) => {
-    void startSession(ctx, agent, source, workspaces, coalescers).catch((error: unknown) => {
+  // `agent/created` is a serial, awaited phase: finish loading the DLG and
+  // registering its tools before the session's first step can run, otherwise
+  // an eager first turn races the async workspace open and sees no tools.
+  ctx.on("agent/created", async ({ agent, source }) => {
+    try {
+      await startSession(ctx, agent, source, workspaces, coalescers);
+    } catch (error) {
       ctx.logger.warn("refino: session initialization failed: %o", error);
-    });
+    }
+    return undefined;
   });
 
   ctx.on("agent/disposed", ({ agent }) => {
