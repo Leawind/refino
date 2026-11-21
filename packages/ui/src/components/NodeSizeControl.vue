@@ -6,7 +6,8 @@
 // config like every other setting.
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { NButton } from "naive-ui";
+import { NButton, NIcon } from "naive-ui";
+import { ResizeOutline } from "@vicons/ionicons5";
 import { injectRequired } from "../context";
 import { NODE_SIZE_DEFAULT, NODE_SIZE_MAX, NODE_SIZE_MIN, workspaceKey } from "../workspace";
 import { useDismissable } from "../useDismissable";
@@ -104,7 +105,7 @@ useDismissable(open, root, onResizeUp);
       :style="open ? { visibility: 'hidden' } : undefined"
       @click="open = true"
     >
-      ⤢
+      <NIcon :component="ResizeOutline" />
     </NButton>
     <div v-if="open" class="popup">
       <div

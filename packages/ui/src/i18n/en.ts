@@ -44,8 +44,6 @@ export default {
     title: "Command palette",
     placeholder: "Search nodes or commands…",
     noResults: "No matching nodes or commands",
-    action: "Action",
-    node: "Node",
     navigate: "Navigate",
     execute: "Run",
   },

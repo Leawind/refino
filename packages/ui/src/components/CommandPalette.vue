@@ -1,8 +1,10 @@
 <script setup lang="ts">
-// Command palette (DESIGN.md, "布局"): Ctrl/Cmd+K opens the single entry point
-// for node search and every global action. Results combine the paginated
-// node search with the shared command registry; arrows move, Enter
-// executes, Esc closes.
+// Command palette (DESIGN.md, "布局"): the single entry point for node
+// search and every global action. The registry's Ctrl/Cmd+K command opens
+// it, so text-entry and detail-editor stand-downs apply like any other
+// global shortcut; this component owns the keyboard while it is open.
+// Results combine the paginated node search with the registry; arrows
+// move, Enter executes, Esc closes.
 import { computed, onBeforeUnmount, onMounted, ref, watch, type Component } from "vue";
 import { useI18n } from "vue-i18n";
 import { NIcon } from "naive-ui";
@@ -18,7 +20,7 @@ import { clientKey } from "../api";
 import { commands, commandLabel, type Command } from "../commands";
 import { injectRequired } from "../context";
 import { injectRequiredNodeOps } from "../nodeOps";
-import { closePalette, paletteState, togglePalette } from "../palette";
+import { closePalette, paletteState } from "../palette";
 import { storeKey } from "../store";
 import { workspaceKey } from "../workspace";
 import type { SearchNode } from "../types";
@@ -49,14 +51,19 @@ function iconOf(command: Command): Component | undefined {
   return ICONS[command.id];
 }
 
+// The palette's own command opens this surface; listing it here would
+// only offer a no-op as the first row. The registry still carries it for
+// the shortcut help overlay.
 const actions = computed(() =>
-  commands.map((command) => ({
-    key: command.id,
-    label: commandLabel(command, ctx, t),
-    keys: command.keys,
-    icon: iconOf(command),
-    run: () => command.run(ctx),
-  })),
+  commands
+    .filter((command) => command.id !== "command-palette")
+    .map((command) => ({
+      key: command.id,
+      label: commandLabel(command, ctx, t),
+      keys: command.keys,
+      icon: iconOf(command),
+      run: () => command.run(ctx),
+    })),
 );
 
 const q = computed(() => query.value.trim().toLowerCase());
@@ -69,6 +76,8 @@ interface Item {
   key: string;
   kind: "action" | "node";
   label: string;
+  /** Row tag; only node rows carry one (their type). */
+  kindLabel?: string;
   keys?: string;
   icon?: Component;
   run(): void;
@@ -87,6 +96,9 @@ const items = computed<Item[]>(() => [
     key: `node:${node.id}`,
     kind: "node" as const,
     label: node.summary === "" ? t("node.untitled") : node.summary,
+    // The type distinguishes hits that only differ by kind; actions need no
+    // tag — the surface itself is the command list.
+    kindLabel: t(node.type === "decision" ? "node.decision" : "node.premise"),
     run: () => workspace.select(node),
   })),
 ]);
@@ -123,12 +135,17 @@ watch(
 );
 
 function onKeydown(event: KeyboardEvent): void {
+  // Closed, the registry's binding opens the palette; open, this surface
+  // owns the keyboard, including Ctrl/Cmd+K to close.
+  if (!paletteState.open) return;
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
     event.preventDefault();
-    togglePalette();
+    // The registry dispatcher is a later document listener; stop it from
+    // reopening the palette in the same keypress.
+    event.stopImmediatePropagation();
+    closePalette();
     return;
   }
-  if (!paletteState.open) return;
   if (event.key === "Escape") {
     closePalette();
     // The app shell's Esc handler (clear selection) also sits on document:
@@ -186,9 +203,7 @@ onBeforeUnmount(() => {
               <NIcon v-if="item.icon !== undefined" :component="item.icon" class="icon" />
               <span class="label">{{ item.label }}</span>
               <kbd v-if="item.keys !== undefined" class="keys">{{ item.keys }}</kbd>
-              <span class="kind">{{
-                item.kind === "action" ? t("palette.action") : t("palette.node")
-              }}</span>
+              <span v-if="item.kindLabel !== undefined" class="kind">{{ item.kindLabel }}</span>
             </li>
             <li v-if="items.length === 0" class="empty">{{ t("palette.noResults") }}</li>
           </ul>

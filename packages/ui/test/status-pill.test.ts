@@ -80,10 +80,12 @@ describe("StatusPill", () => {
     await vi.waitFor(() => expect(wrapper.text()).not.toContain("渲染已按预算裁剪"));
   });
 
-  it("shows the focus id from the workspace selection", async () => {
+  it("shows the focus summary from the workspace selection", async () => {
     const { wrapper, workspace } = mountPill();
     workspace.toggle({ id: "A1B2C3D4", type: "decision", summary: "决策一" });
-    await vi.waitFor(() => expect(wrapper.text()).toContain("选中: A1B2C3D4"));
+    await vi.waitFor(() => expect(wrapper.text()).toContain("选中: 决策一"));
+    // Ids never surface in list-like readouts (ui DESIGN.md, 显示规则与样式).
+    expect(wrapper.text()).not.toContain("A1B2C3D4");
   });
 
   it("expands the issue list and locates a node from it", async () => {

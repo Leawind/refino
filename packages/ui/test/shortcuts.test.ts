@@ -109,6 +109,13 @@ describe("shortcut dispatch", () => {
     expect(helpState.open).toBe(false);
   });
 
+  it("opens the command palette with Ctrl/Cmd+K", () => {
+    const event = key("k", { metaKey: true });
+    expect(event.defaultPrevented).toBe(true);
+    expect(paletteState.open).toBe(true);
+    closePalette();
+  });
+
   it("stands down while the palette is open", () => {
     paletteState.open = true;
     key("?");
@@ -120,6 +127,9 @@ describe("shortcut dispatch", () => {
     store.startCreate("decision");
     key("?");
     expect(helpState.open).toBe(false);
+    // The palette shortcut yields to the editor too (ui DESIGN.md, 交互).
+    key("k", { ctrlKey: true });
+    expect(paletteState.open).toBe(false);
     store.cancelCreate();
   });
 
@@ -137,6 +147,16 @@ describe("shortcut dispatch", () => {
     });
     input.dispatchEvent(event);
     expect(zoomBy).not.toHaveBeenCalled();
+    // Text entry also keeps the palette shortcut from firing.
+    input.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "k",
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    expect(paletteState.open).toBe(false);
     input.remove();
   });
 });

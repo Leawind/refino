@@ -4,9 +4,20 @@
 // config entries, written through workspace.setConfig like every other
 // setting. The panel holds the common layer gap plus the force-directed
 // tuning coefficients (the force section only shows in force mode).
-import { computed, ref } from "vue";
+import { computed, ref, type Component } from "vue";
 import { useI18n } from "vue-i18n";
-import { NButton, NCheckbox, NPopselect, NSlider } from "naive-ui";
+import { NButton, NCheckbox, NIcon, NPopselect, NSlider } from "naive-ui";
+import {
+  ArrowBackOutline,
+  ArrowDownOutline,
+  ArrowForwardOutline,
+  ArrowUpOutline,
+  GitNetworkOutline,
+  LayersOutline,
+  NuclearOutline,
+  OptionsOutline,
+  ReorderThreeOutline,
+} from "@vicons/ionicons5";
 import { injectRequired } from "../context";
 import { workspaceKey } from "../workspace";
 import { useDismissable } from "../useDismissable";
@@ -38,10 +49,27 @@ const directionOptions = [
   { label: "↑", value: "BT" },
 ];
 
+/** Trigger icons: the arrow shows the current flow, the layout icons echo
+ * the mode's structure (ui DESIGN.md, "布局"). */
+const DIRECTION_ICONS: Record<LayoutDirection, Component> = {
+  LR: ArrowForwardOutline,
+  TB: ArrowDownOutline,
+  RL: ArrowBackOutline,
+  BT: ArrowUpOutline,
+};
+const directionIcon = computed(() => DIRECTION_ICONS[direction.value]);
+
+const LAYOUT_ICONS: Record<LayoutMode, Component> = {
+  layered: GitNetworkOutline,
+  force: NuclearOutline,
+  rail: ReorderThreeOutline,
+};
+
 // Layout selection and display direction live in the persisted canvas
 // config; both apply to every layout (the force layout's main axis is
 // signed by the direction).
 const layoutMode = computed(() => workspace.state.config.layoutMode);
+const layoutIcon = computed(() => LAYOUT_ICONS[layoutMode.value]);
 const layoutOptions = computed(() => [
   { label: t("app.layoutLayered"), value: "layered" },
   { label: t("app.layoutForce"), value: "force" },
@@ -169,7 +197,7 @@ const showVirtualRoot = computed<boolean>({
         :title="t('canvas.layoutTuning')"
         @click="tuning = !tuning"
       >
-        ⚙
+        <NIcon :component="OptionsOutline" />
       </NButton>
     </div>
     <NPopselect
@@ -179,14 +207,12 @@ const showVirtualRoot = computed<boolean>({
       @update:value="setLayoutMode"
     >
       <NButton circle :title="t('app.layout')">
-        <span v-if="layoutMode === 'layered'">≡</span>
-        <span v-else-if="layoutMode === 'rail'">∥</span>
-        <span v-else>⚛</span>
+        <NIcon :component="layoutIcon" />
       </NButton>
     </NPopselect>
     <NPopselect v-model:value="direction" :options="directionOptions" trigger="click">
       <NButton circle :title="t('app.direction')">
-        {{ direction }}
+        <NIcon :component="directionIcon" />
       </NButton>
     </NPopselect>
     <NButton
@@ -196,7 +222,7 @@ const showVirtualRoot = computed<boolean>({
       :title="t('canvas.premises')"
       @click="showPremises = !showPremises"
     >
-      ⌇
+      <NIcon :component="LayersOutline" />
     </NButton>
   </div>
 </template>

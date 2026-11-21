@@ -9,13 +9,15 @@ import { closePalette, paletteState } from "../src/palette";
 import CommandPalette from "../src/components/CommandPalette.vue";
 import { storeKey, createStore } from "../src/store";
 import { createWorkspace, workspaceKey } from "../src/workspace";
+import type { SearchNode } from "../src/types";
 
 /**
  * The command palette (ui DESIGN.md, "命令面板"): keyboard navigation and
- * toggling must work while the search input holds focus — the handlers sit
+ * closing must work while the search input holds focus — the handlers sit
  * on document, so nothing between the input and document may stop keydown
  * propagation (a past `@keydown.stop` on the input dead-marked every key
- * while focused, which is always after open).
+ * while focused, which is always after open). Opening is the registry's
+ * job, covered by the shortcut-dispatch tests.
  */
 
 function fakeClient(): RefinoClient {
@@ -48,8 +50,9 @@ function fakeClient(): RefinoClient {
  * handling keys across tests and double-toggle or double-execute. */
 const wrappers: Array<ReturnType<typeof mount>> = [];
 
-function mountPalette() {
+function mountPalette(nodes: SearchNode[] = []) {
   const client = fakeClient();
+  client.search = async () => ({ nodes });
   const workspace = createWorkspace(client);
   const store = createStore(client, workspace);
   const nodeOps = createNodeOps(client, store, workspace, (key) => key);
@@ -124,6 +127,20 @@ describe("CommandPalette keyboard", () => {
     store.cancelCreate();
   });
 
+  it("tags node hits with their type and leaves action rows untagged", async () => {
+    mountPalette([
+      { id: "A1B2C3D4", type: "decision", summary: "决策一" },
+      { id: "D4E5F6G7", type: "premise", summary: "前提一" },
+    ]);
+    paletteState.open = true;
+    await waits(320);
+    const rows = [...document.querySelectorAll(".palette li")];
+    const tagged = rows.filter((row) => row.querySelector(".kind") !== null);
+    expect(tagged.map((row) => row.querySelector(".kind")?.textContent)).toEqual(["决策", "前提"]);
+    const create = rows.find((row) => row.textContent?.includes("新建决策"));
+    expect(create?.querySelector(".kind")).toBeNull();
+  });
+
   it("closes on Escape without clearing the selection", async () => {
     const { workspace } = mountPalette();
     workspace.select({ id: "A1B2C3D4", type: "decision", summary: "决策一" });
@@ -135,16 +152,12 @@ describe("CommandPalette keyboard", () => {
     expect(workspace.state.selection).toEqual(["A1B2C3D4"]);
   });
 
-  it("toggles on Ctrl/Cmd+K even when the input holds focus", async () => {
+  it("closes on Ctrl/Cmd+K while the input holds focus", async () => {
     mountPalette();
     paletteState.open = true;
     await waits(50);
     key("k", { ctrlKey: true });
     await waits(20);
     expect(paletteState.open).toBe(false);
-    key("k", { ctrlKey: true });
-    await waits(20);
-    expect(paletteState.open).toBe(true);
-    expect(document.querySelector(".palette")).not.toBeNull();
   });
 });

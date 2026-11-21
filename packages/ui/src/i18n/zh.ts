@@ -44,8 +44,6 @@ export default {
     title: "命令面板",
     placeholder: "搜索节点或命令…",
     noResults: "没有匹配的节点或命令",
-    action: "命令",
-    node: "节点",
     navigate: "选择",
     execute: "执行",
   },

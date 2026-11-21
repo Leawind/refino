@@ -7,7 +7,8 @@
 // select. Unknown (dangling) grounds fall back to their id.
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { NSelect } from "naive-ui";
+import { NIcon, NSelect } from "naive-ui";
+import { CloseOutline } from "@vicons/ionicons5";
 import { clientKey, type RefinoClient } from "../api";
 import { fetchGroundLites } from "../grounds";
 import { injectRequired } from "../context";
@@ -107,7 +108,7 @@ function append(id: string | null): void {
       >
         <span class="summary" :title="row.id">{{ row.label }}</span>
         <button class="remove" :title="t('node.groundsRemove')" @click.stop="remove(row.id)">
-          ×
+          <NIcon :component="CloseOutline" />
         </button>
       </li>
     </ul>
@@ -170,6 +171,8 @@ function append(id: string | null): void {
 
 .remove {
   flex: none;
+  display: inline-flex;
+  align-items: center;
   border: none;
   background: transparent;
   color: inherit;

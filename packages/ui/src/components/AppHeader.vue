@@ -73,12 +73,18 @@ const localeOptions = computed(() =>
         <NIcon :component="SearchOutline" />
       </button>
       <slot />
-      <button class="nav-btn" :aria-label="t('app.refresh')" @click="emit('refresh')">
+      <button
+        class="nav-btn"
+        :aria-label="t('app.refresh')"
+        :title="t('app.refresh')"
+        @click="emit('refresh')"
+      >
         <NIcon :component="RefreshOutline" />
       </button>
       <button
         class="nav-btn"
         :aria-label="isDark ? t('app.themeLight') : t('app.themeDark')"
+        :title="isDark ? t('app.themeLight') : t('app.themeDark')"
         @click="toggleTheme"
       >
         <NIcon :component="isDark ? SunnyOutline : MoonOutline" />
@@ -91,7 +97,7 @@ const localeOptions = computed(() =>
         placement="bottom"
         @select="store.setLocale($event)"
       >
-        <button class="nav-btn" :aria-label="t('app.language')">
+        <button class="nav-btn" :aria-label="t('app.language')" :title="t('app.language')">
           <NIcon :component="LanguageOutline" />
           <NIcon :size="12" class="chevron">
             <ChevronDownOutline />
@@ -157,6 +163,14 @@ const localeOptions = computed(() =>
 
 .nav-btn:hover {
   color: var(--refino-primary, #18a058);
+}
+
+/* Keyboard focus gets the brand ring instead of the browser's default
+ * orange, which clashes with both themes. */
+.nav-btn:focus-visible {
+  outline: 2px solid var(--refino-primary, #18a058);
+  outline-offset: -8px;
+  border-radius: 10px;
 }
 
 .chevron {

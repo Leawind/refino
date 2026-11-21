@@ -4,6 +4,8 @@
 // removes, the head button clears, Alt+hover peeks (DESIGN.md, "交互" —
 // the list is one of the peek surfaces).
 import { useI18n } from "vue-i18n";
+import { NIcon } from "naive-ui";
+import { CloseOutline, TrashOutline } from "@vicons/ionicons5";
 import { injectRequired } from "../context";
 import { peekHide, peekMove } from "../peek";
 import { workspaceKey } from "../workspace";
@@ -26,7 +28,7 @@ function onMove(event: MouseEvent, node: NodeLite): void {
     <div class="head">
       <span class="title">{{ t("selection.title") }} ({{ workspace.state.selection.length }})</span>
       <button class="btn" :title="t('selection.clear')" @click="workspace.clearSelection()">
-        ✕
+        <NIcon :component="TrashOutline" :size="12" />
       </button>
     </div>
     <ul>
@@ -48,7 +50,7 @@ function onMove(event: MouseEvent, node: NodeLite): void {
           :title="t('selection.remove')"
           @click.stop="workspace.removeFromSelection(node.id)"
         >
-          ×
+          <NIcon :component="CloseOutline" :size="12" />
         </button>
       </li>
     </ul>
@@ -130,6 +132,8 @@ li.focus .marker {
 
 .btn {
   flex: none;
+  display: inline-flex;
+  align-items: center;
   border: none;
   background: transparent;
   color: inherit;

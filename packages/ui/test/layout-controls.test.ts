@@ -53,10 +53,13 @@ beforeEach(() => {
 });
 
 describe("LayoutControls", () => {
-  it("reflects the persisted layout config", () => {
+  it("shows the persisted layout and direction as icons", () => {
     const { wrapper } = mountControls();
-    expect(wrapper.find('button[title="布局"]').text()).toBe("≡");
-    expect(wrapper.find('button[title="方向"]').text().trim()).toBe("LR");
+    // Glyph labels proved unreadable ("⌇", "⚛"); the controls draw the
+    // shared icon set instead, state carried by the icon choice.
+    expect(wrapper.find('button[title="布局"] svg').exists()).toBe(true);
+    expect(wrapper.find('button[title="方向"] svg').exists()).toBe(true);
+    expect(wrapper.text()).not.toContain("LR");
   });
 
   it("toggles the premises layer through the canvas config", async () => {

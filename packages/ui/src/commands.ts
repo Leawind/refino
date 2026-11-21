@@ -2,6 +2,7 @@ import type { Store } from "./store";
 import type { Workspace } from "./workspace";
 import type { NodeOps } from "./nodeOps";
 import { toggleHelp } from "./help";
+import { openPalette } from "./palette";
 import { viewportBridge } from "./viewportBridge";
 
 /**
@@ -64,8 +65,20 @@ export function matchBinding(event: KeyboardEvent, binding: Binding): boolean {
 
 const ZOOM_IN_STEP = 1.25;
 
+/** Modifier prefix of the display strings (palette rows, help overlay):
+ * Cmd on Apple platforms, Ctrl elsewhere. */
+export const MOD_LABEL =
+  typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl+";
+
 function createCommands(): Command[] {
   return [
+    {
+      id: "command-palette",
+      labelKey: "palette.title",
+      keys: `${MOD_LABEL}K`,
+      bindings: [{ key: "k", ctrlOrMeta: true }],
+      run: () => openPalette(),
+    },
     {
       id: "create-decision",
       labelKey: "node.createDecision",
@@ -131,7 +144,7 @@ function createCommands(): Command[] {
     {
       id: "view-zoom-in",
       labelKey: "app.zoomIn",
-      keys: "+",
+      keys: `${MOD_LABEL}=`,
       bindings: [
         { key: "=", ctrlOrMeta: true },
         { key: "+", ctrlOrMeta: true },
@@ -142,7 +155,7 @@ function createCommands(): Command[] {
     {
       id: "view-zoom-out",
       labelKey: "app.zoomOut",
-      keys: "-",
+      keys: `${MOD_LABEL}-`,
       bindings: [
         { key: "-", ctrlOrMeta: true },
         { code: "NumpadSubtract", ctrlOrMeta: true },

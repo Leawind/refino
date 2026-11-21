@@ -429,12 +429,41 @@ function nodeLabel(id: string): string {
   flex: 1;
 }
 
-/* Wide bars: grounds/rationale in the left column, summary+body on the
- * right so the long content stays last. */
+/* Wide bars split each form into a content column and a metadata column,
+ * keeping inputs at readable widths instead of stretching one column over
+ * the whole modal. Decisions put the long form on the right (grounds and
+ * rationale left); premises keep title and content left, the confirmation
+ * time on the right. */
 @container (min-width: 640px) {
+  .fields.decision,
+  .fields.premise {
+    column-gap: 16px;
+  }
+
   .fields.decision {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
-    column-gap: 16px;
+  }
+
+  .fields.premise {
+    grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  }
+
+  .fields.premise .f-summary,
+  .fields.premise .f-body {
+    grid-column: 1;
+  }
+
+  .fields.premise .f-confirmed {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .fields.premise .f-summary {
+    grid-row: 1;
+  }
+
+  .fields.premise .f-body {
+    grid-row: 2 / span 2;
   }
 
   .fields.decision .f-summary,

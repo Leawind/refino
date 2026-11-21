@@ -18,6 +18,16 @@ const decisionCount = computed(
   () => workspace.displayed.value.filter((n) => n.type === "decision").length,
 );
 
+/** The focus is the last selection entry; present it by summary like every
+ * other list surface (ui DESIGN.md, "显示规则与样式" keeps ids out of them). */
+const focusLabel = computed(() => {
+  const node = workspace.selectedNodes.value.find(
+    (candidate) => candidate.id === workspace.state.focusId,
+  );
+  if (node === undefined) return null;
+  return node.summary === "" ? t("node.untitled") : node.summary;
+});
+
 /** Issues grouped by their node so one row reads as one problem site;
  * only the rendered strings are kept (the state's issue shape is a deep
  * readonly view). */
@@ -80,8 +90,8 @@ function locate(id: string): void {
         </div>
       </div>
     </NPopover>
-    <span v-if="workspace.state.focusId !== null" class="mono">
-      {{ t("status.selected") }}: {{ workspace.state.focusId }}
+    <span v-if="focusLabel !== null" class="focus" :title="focusLabel">
+      {{ t("status.selected") }}: {{ focusLabel }}
     </span>
     <span class="hint">{{ t("app.peekHint") }}</span>
   </div>
@@ -121,6 +131,15 @@ function locate(id: string): void {
 
 .mono {
   font-family: monospace;
+}
+
+/* Focus summaries can be long; the pill keeps its footprint by truncating
+ * instead of widening across the canvas. */
+.focus {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Raw popover: the panel carries its own surface styling. */

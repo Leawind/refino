@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
-import { commandLabel, commands, matchBinding } from "../src/commands";
+import { MOD_LABEL, commandLabel, commands, matchBinding } from "../src/commands";
 
 /**
  * The command registry (ui DESIGN.md, "命令面板"): one descriptor list feeds
@@ -57,6 +57,21 @@ describe("command registry", () => {
     for (const command of commands) {
       if (command.bindings !== undefined) expect(command.keys, command.id).toBeDefined();
     }
+  });
+
+  it("spells modifier-bearing keys with the platform modifier", () => {
+    // The display strings sit next to the binding in the palette and the
+    // help overlay; "+" alone would claim a key that does nothing.
+    for (const command of commands) {
+      const modified = command.bindings?.some((binding) => binding.ctrlOrMeta === true);
+      if (modified === true) expect(command.keys, command.id).toContain(MOD_LABEL);
+    }
+  });
+
+  it("registers the palette so the help overlay lists its shortcut", () => {
+    const palette = commands.find((command) => command.id === "command-palette");
+    expect(palette?.bindings).toEqual([{ key: "k", ctrlOrMeta: true }]);
+    expect(palette?.keys).toBe(`${MOD_LABEL}K`);
   });
 
   it("labels toggle commands from the context", () => {

@@ -4,8 +4,18 @@
 // actions. Opens at the pointer, keyboard-navigable, closes on an outside
 // press or Esc (its Esc handler sits on the window capture phase so it runs
 // ahead of the app shell's clear-selection listener).
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, type Component } from "vue";
 import { useI18n } from "vue-i18n";
+import { NIcon } from "naive-ui";
+import {
+  AddCircleOutline,
+  CheckmarkCircleOutline,
+  CreateOutline,
+  ExpandOutline,
+  LayersOutline,
+  LocateOutline,
+  TrashOutline,
+} from "@vicons/ionicons5";
 import { injectRequired } from "../context";
 import { injectRequiredNodeOps } from "../nodeOps";
 import { viewportBridge } from "../viewportBridge";
@@ -23,6 +33,7 @@ const { t } = useI18n();
 interface MenuItem {
   key: string;
   label: string;
+  icon: Component;
   run(): void;
   danger?: boolean;
 }
@@ -31,11 +42,22 @@ const items = computed<MenuItem[]>(() => {
   const id = props.nodeId;
   if (id !== null) {
     return [
-      { key: "open", label: t("node.edit"), run: () => store.openDetail(id) },
-      { key: "locate", label: t("selection.locate"), run: () => workspace.locate(id) },
+      {
+        key: "open",
+        label: t("node.edit"),
+        icon: CreateOutline,
+        run: () => store.openDetail(id),
+      },
+      {
+        key: "locate",
+        label: t("selection.locate"),
+        icon: LocateOutline,
+        run: () => workspace.locate(id),
+      },
       {
         key: "toggle",
         label: t("selection.toggle"),
+        icon: CheckmarkCircleOutline,
         run: () => {
           const lite = workspace.displayed.value.find((node) => node.id === id);
           if (lite !== undefined) workspace.toggle(lite);
@@ -46,11 +68,13 @@ const items = computed<MenuItem[]>(() => {
         // stages it with this node pre-filled as the ground.
         key: "refine",
         label: t("canvas.refineThis"),
+        icon: AddCircleOutline,
         run: () => store.startCreate("decision", { grounds: [id] }),
       },
       {
         key: "delete",
         label: t("node.delete"),
+        icon: TrashOutline,
         danger: true,
         run: () => void nodeOps.deleteNode(id),
       },
@@ -60,10 +84,21 @@ const items = computed<MenuItem[]>(() => {
     {
       key: "new-decision",
       label: t("node.createDecision"),
+      icon: AddCircleOutline,
       run: () => store.startCreate("decision"),
     },
-    { key: "new-premise", label: t("node.createPremise"), run: () => store.startCreate("premise") },
-    { key: "fit", label: t("app.fitView"), run: () => viewportBridge.commands?.fitView() },
+    {
+      key: "new-premise",
+      label: t("node.createPremise"),
+      icon: LayersOutline,
+      run: () => store.startCreate("premise"),
+    },
+    {
+      key: "fit",
+      label: t("app.fitView"),
+      icon: ExpandOutline,
+      run: () => viewportBridge.commands?.fitView(),
+    },
   ];
 });
 
@@ -132,7 +167,7 @@ onBeforeUnmount(() => {
         @click="runItem(item)"
         @mousemove="active = index"
       >
-        {{ item.label }}
+        <NIcon :component="item.icon" class="item-icon" />{{ item.label }}
       </button>
     </div>
   </Teleport>
@@ -153,6 +188,9 @@ onBeforeUnmount(() => {
 }
 
 .item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   border: none;
   background: transparent;
   color: inherit;
@@ -163,6 +201,11 @@ onBeforeUnmount(() => {
   border-radius: 6px;
   cursor: pointer;
   white-space: nowrap;
+}
+
+.item .item-icon {
+  flex: none;
+  opacity: 0.65;
 }
 
 .item.active {

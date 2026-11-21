@@ -15,7 +15,3 @@ export function openPalette(): void {
 export function closePalette(): void {
   paletteState.open = false;
 }
-
-export function togglePalette(): void {
-  paletteState.open = !paletteState.open;
-}

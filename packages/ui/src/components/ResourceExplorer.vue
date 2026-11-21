@@ -320,7 +320,7 @@ function isDirty(node: SearchNode): boolean {
               :title="t('inline.toggle')"
               @click.stop="toggleExpand(nodeItem)"
             >
-              ▸
+              <NIcon :component="ChevronForwardOutline" />
             </button>
             <div class="texts">
               <div class="summary">
@@ -463,12 +463,15 @@ function isDirty(node: SearchNode): boolean {
 .chevron {
   flex: none;
   width: 16px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: none;
   background: transparent;
   color: inherit;
   cursor: pointer;
-  font-size: 11px;
-  line-height: 20px;
+  font-size: 13px;
   padding: 0;
   opacity: 0.55;
 }
