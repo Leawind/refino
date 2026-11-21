@@ -1,5 +1,13 @@
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -8,7 +16,7 @@ import { describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
 
-const { candidateNames, isMusl, resolveBinaryPath, runBinary, missingBinaryError } =
+const { candidateNames, isMusl, resolveBinaryPath, runBinary, missingBinaryError, withUiDir } =
   require("../bin/refino.js") as {
     candidateNames: (platform?: string, arch?: string, musl?: boolean) => string[];
     isMusl: (platform: string, report?: unknown) => boolean;
@@ -18,8 +26,13 @@ const { candidateNames, isMusl, resolveBinaryPath, runBinary, missingBinaryError
       musl?: boolean;
       resolve?: (id: string) => string;
     }) => { path: string; packageName: string } | undefined;
-    runBinary: (binaryPath: string, argv: string[]) => number;
+    runBinary: (binaryPath: string, argv: string[], env?: NodeJS.ProcessEnv) => number;
     missingBinaryError: (candidates: string[]) => string;
+    withUiDir: (
+      env?: NodeJS.ProcessEnv,
+      resolve?: (id: string) => string,
+      exists?: (path: string) => boolean,
+    ) => NodeJS.ProcessEnv;
   };
 
 const shellManifest = require("../package.json") as {
@@ -164,6 +177,45 @@ describe("manifest contract", () => {
   });
 });
 
+describe("withUiDir", () => {
+  it("hands the installed @refino/ui build to the child", () => {
+    const env = withUiDir(
+      { PATH: "/bin" },
+      () => "/fake/node_modules/@refino/ui/package.json",
+      (path) => path === join("/fake/node_modules/@refino/ui", "dist"),
+    );
+    expect(env.REFINO_UI_DIR).toBe(join("/fake/node_modules/@refino/ui", "dist"));
+    expect(env.PATH).toBe("/bin");
+  });
+
+  it("keeps an explicit REFINO_UI_DIR and leaves the env alone when the build is absent", () => {
+    const explicit = { REFINO_UI_DIR: "/custom/ui" };
+    expect(
+      withUiDir(
+        explicit,
+        () => "/fake/package.json",
+        () => true,
+      ),
+    ).toBe(explicit);
+    expect(
+      withUiDir(
+        {},
+        () => "/fake/package.json",
+        () => false,
+      ).REFINO_UI_DIR,
+    ).toBeUndefined();
+    expect(
+      withUiDir(
+        {},
+        () => {
+          throw new Error("not installed");
+        },
+        () => true,
+      ).REFINO_UI_DIR,
+    ).toBeUndefined();
+  });
+});
+
 describe("runBinary", () => {
   it(
     "propagates the exit code of the spawned binary",
@@ -175,6 +227,59 @@ describe("runBinary", () => {
       chmodSync(fake, 0o755);
       try {
         expect(runBinary(fake, [])).toBe(3);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it("spawns with the environment it is given", { skip: process.platform === "win32" }, () => {
+    const dir = mkdtempSync(join(tmpdir(), "refino-shell-"));
+    const fake = join(dir, "fake-refino.sh");
+    // Exits 9 when the UI directory did not reach the child.
+    writeFileSync(fake, '#!/bin/sh\n[ "$REFINO_UI_DIR" = "/fake/ui" ] || exit 9\nexit 0\n');
+    chmodSync(fake, 0o755);
+    try {
+      expect(runBinary(fake, [], { ...process.env, REFINO_UI_DIR: "/fake/ui" })).toBe(0);
+      expect(runBinary(fake, [], { ...process.env })).toBe(9);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("install layout", () => {
+  it(
+    "finds the platform package with Node's resolver from the installed shell",
+    { skip: process.platform === "win32" },
+    () => {
+      // A throwaway copy of the shell under node_modules/@refino/cli, with a
+      // sibling platform package: the layout a global npm install produces.
+      // The default resolver must work with no injection.
+      const suffix = `${process.platform}-${process.arch}`;
+      const dir = mkdtempSync(join(tmpdir(), "refino-shell-"));
+      const shellDir = join(dir, "node_modules", "@refino", "cli");
+      const platformDir = join(dir, "node_modules", "@refino", `cli-${suffix}`);
+      mkdirSync(join(shellDir, "bin"), { recursive: true });
+      mkdirSync(join(platformDir, "bin"), { recursive: true });
+      cpSync(require.resolve("../bin/refino.js"), join(shellDir, "bin", "refino.js"));
+      cpSync(require.resolve("../package.json"), join(shellDir, "package.json"));
+      writeFileSync(
+        join(platformDir, "package.json"),
+        JSON.stringify({ name: `@refino/cli-${suffix}`, version: shellManifest.version }),
+      );
+      const fake = join(platformDir, "bin", "refino");
+      writeFileSync(fake, "#!/bin/sh\nexit 5\n");
+      chmodSync(fake, 0o755);
+      try {
+        const result = spawnSync(
+          process.execPath,
+          [join(shellDir, "bin", "refino.js"), "--version"],
+          {
+            encoding: "utf8",
+          },
+        );
+        expect(result.status).toBe(5);
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }

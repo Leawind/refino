@@ -677,6 +677,11 @@ fn cmd_web(
         },
     };
     let static_root = refino_server::resolve_ui_static_root(&opts.root);
+    if static_root.is_none() {
+        io.err(
+            "warning: @refino/ui build not found; serving a placeholder page (set REFINO_UI_DIR to the built UI directory)\n",
+        );
+    }
     let options = refino_server::WebServerOptions {
         host: host.unwrap_or_else(|| "127.0.0.1".to_string()),
         port: port_number,

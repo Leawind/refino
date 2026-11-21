@@ -29,30 +29,28 @@
   "publishConfig": {
     "access": "public"
   },
-  "dependencies": {
+  "devDependencies": {
     "@refino/harness": "workspace:^",
+    "@refino/testkit": "workspace:*",
+    "@shaderfrog/glsl-parser": "^7.0.1",
+    "@types/d3-force": "^3.0.10",
+    "@types/d3-quadtree": "^3.0.6",
     "@vicons/ionicons5": "^0.13.0",
+    "@vitejs/plugin-vue": "^6.0.0",
+    "@vue/test-utils": "^2.4.0",
     "d3-force": "^3.0.0",
     "d3-quadtree": "^3.0.1",
+    "glslang-validator-prebuilt-predownloaded": "^0.0.2",
     "katex": "^0.18.5",
     "marked": "^18.0.11",
     "marked-katex-extension": "^5.1.12",
     "mermaid": "^11.17.2",
     "naive-ui": "^2.45.3",
     "refino": "workspace:^",
-    "vue": "^3.5.0",
-    "vue-i18n": "^11.4.10"
-  },
-  "devDependencies": {
-    "@refino/testkit": "workspace:*",
-    "@shaderfrog/glsl-parser": "^7.0.1",
-    "@types/d3-force": "^3.0.10",
-    "@types/d3-quadtree": "^3.0.6",
-    "@vitejs/plugin-vue": "^6.0.0",
-    "@vue/test-utils": "^2.4.0",
-    "glslang-validator-prebuilt-predownloaded": "^0.0.2",
     "vite": "^7.0.0",
     "vite-plugin-vue-devtools": "^8.2.1",
+    "vue": "^3.5.0",
+    "vue-i18n": "^11.4.10",
     "vue-tsc": "^3.0.0"
   }
 }

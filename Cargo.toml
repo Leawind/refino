@@ -3,10 +3,15 @@ resolver = "2"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.0.2"
+version = "0.0.3"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/Leawind/refino"
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
 
 [workspace.dependencies]
 refino-core = { path = "crates/refino-core" }

@@ -26,7 +26,7 @@ refino --help
 - **没有装上二进制？** 常见于 `--omit=optional` / `--no-optional` 安装，或 `node_modules` 被跨机器复制。重新安装即可；错误信息会列出期望的平台包。
 - **musl 系统（Alpine 等）**：暂未发布 musl 构建，请 `cargo install refino`（crates.io 渠道）或自行编译。
 - **`REFINO_BINARY_PATH`**：设为二进制路径可跳过解析（开发与 CI 场景），同 esbuild 的 `ESBUILD_BINARY_PATH`。
-- **`refino web` 的界面资产**：壳依赖 `@refino/ui`，装在本机 `node_modules` 时 `refino web` 自动找到构建产物；也可用 `REFINO_UI_DIR` 显式指定。
+- **`refino web` 的界面资产**：壳依赖 `@refino/ui`，启动时把构建产物目录经 `REFINO_UI_DIR` 传给原生二进制，本地与全局安装都可直接使用；显式设置 `REFINO_UI_DIR` 可覆盖。
 
 ## 了解更多
 

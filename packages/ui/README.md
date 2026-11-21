@@ -18,3 +18,5 @@ pnpm --filter @refino/ui dev     # 终端 2：启动开发服务
 ```sh
 pnpm --filter @refino/ui build
 ```
+
+npm 发布物只包含 `dist/`；Vue、Naive UI、Mermaid 等是构建依赖，不会成为下游安装时的运行时依赖。

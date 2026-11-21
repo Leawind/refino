@@ -110,7 +110,14 @@ async fn static_fallback(req: axum::extract::Request, static_root: Option<PathBu
     (
         StatusCode::OK,
         [("content-type", "text/html")],
-        "<!doctype html><html><body><h1>refino web</h1></body></html>",
+        r#"<!doctype html>
+<html>
+  <head><meta charset="utf-8"><title>refino web</title></head>
+  <body>
+    <h1>refino web</h1>
+    <p>The user interface assets were not found. Install <code>@refino/ui</code> or point <code>REFINO_UI_DIR</code> at the built <code>dist</code> directory.</p>
+  </body>
+</html>"#,
     )
         .into_response()
 }

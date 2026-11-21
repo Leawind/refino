@@ -17,7 +17,7 @@
 
 ## `refino web` 的界面资产
 
-原生 `refino web` 从运行根向上查找 `node_modules/@refino/ui/dist`（或 `REFINO_UI_DIR`）。壳声明对 `@refino/ui` 的运行时依赖，使 npm 渠道安装后 web 界面开箱可用；全局安装等无法沿目录树命中的场景以 `REFINO_UI_DIR` 兜底。
+原生 `refino web` 从运行根向上查找 `node_modules/@refino/ui/dist`，或读取 `REFINO_UI_DIR`。npm 渠道由壳负责：壳声明 `@refino/ui` 运行时依赖，启动时经 Node 解析把构建目录写入子进程的 `REFINO_UI_DIR`，使本地与全局安装都开箱可用（显式设置的 `REFINO_UI_DIR` 优先）。两者皆无时，终端打印警告，浏览器得到一页说明如何补齐资产。
 
 ## 职责边界
 
