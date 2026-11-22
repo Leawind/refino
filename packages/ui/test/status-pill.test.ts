@@ -106,6 +106,22 @@ describe("StatusPill", () => {
     workspace.stop();
   });
 
+  it("names issue nodes by summary instead of id", async () => {
+    const { wrapper, workspace } = await mountWithIssues([
+      { code: "cycle", message: "依据构成环路", nodeId: "A1B2C3D4" },
+    ]);
+    workspace.toggle({ id: "A1B2C3D4", type: "decision", summary: "决策一" });
+    await vi.waitFor(() =>
+      expect(workspace.displayed.value.some((node) => node.id === "A1B2C3D4")).toBe(true),
+    );
+    await wrapper.find(".issue-trigger").trigger("click");
+    await vi.waitFor(() => expect(document.body.textContent).toContain("决策一"));
+    const panel = [...document.body.querySelectorAll(".issue-panel")].pop()!;
+    expect(panel.textContent).not.toContain("A1B2C3D4");
+    expect(panel.querySelector(".issue-node")?.classList.contains("mono")).toBe(false);
+    workspace.stop();
+  });
+
   it("offers no locate for issues without a node", async () => {
     const { wrapper, workspace } = await mountWithIssues([
       { code: "empty", message: "图不含任何决策" },

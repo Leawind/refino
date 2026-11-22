@@ -28,11 +28,23 @@ const focusLabel = computed(() => {
   return node.summary === "" ? t("node.untitled") : node.summary;
 });
 
+/** List surfaces name nodes by summary; a raw id is only a last resort for
+ * nodes the working set has never seen. */
+function labelOf(id: string): string {
+  const node = workspace.displayed.value.find((candidate) => candidate.id === id);
+  return node === undefined || node.summary === "" ? id : node.summary;
+}
+
 /** Issues grouped by their node so one row reads as one problem site;
  * only the rendered strings are kept (the state's issue shape is a deep
  * readonly view). */
 const issueRows = computed(() => {
-  const rows: Array<{ node: string | null; messages: string[] }> = [];
+  const rows: Array<{
+    node: string | null;
+    label: string | null;
+    unknown: boolean;
+    messages: string[];
+  }> = [];
   const byNode = new Map<string, string[]>();
   const loose: string[] = [];
   for (const issue of workspace.state.issues) {
@@ -44,8 +56,11 @@ const issueRows = computed(() => {
     if (group === undefined) byNode.set(issue.nodeId, [issue.message]);
     else group.push(issue.message);
   }
-  for (const [node, messages] of byNode) rows.push({ node, messages });
-  if (loose.length > 0) rows.push({ node: null, messages: loose });
+  for (const [node, messages] of byNode) {
+    const label = labelOf(node);
+    rows.push({ node, label, unknown: label === node, messages });
+  }
+  if (loose.length > 0) rows.push({ node: null, label: null, unknown: false, messages: loose });
   return rows;
 });
 
@@ -79,7 +94,9 @@ function locate(id: string): void {
       <div class="issue-panel">
         <div v-for="row in issueRows" :key="row.node ?? row.messages[0]" class="issue-row">
           <div class="issue-texts">
-            <span v-if="row.node !== null" class="issue-node mono">{{ row.node }}</span>
+            <span v-if="row.node !== null" class="issue-node" :class="{ mono: row.unknown }">
+              {{ row.label }}
+            </span>
             <span v-for="message in row.messages" :key="message" class="issue-message">
               {{ message }}
             </span>

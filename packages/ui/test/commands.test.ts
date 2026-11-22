@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { MOD_LABEL, commandLabel, commands, matchBinding } from "../src/commands";
 
 /**
@@ -84,5 +84,21 @@ describe("command registry", () => {
         t,
       ),
     ).toBe("app.themeLight");
+  });
+
+  it("names and toggles the canvas view from the context", () => {
+    const t = (key: string): string => key;
+    const config: { canvasView: "planar" | "orbit" } = { canvasView: "planar" };
+    const setConfig = vi.fn((next: { canvasView: "planar" | "orbit" }) => {
+      config.canvasView = next.canvasView;
+    });
+    const ctx = { workspace: { state: { config }, setConfig } } as never;
+    const command = commands.find((entry) => entry.id === "view-toggle")!;
+    expect(commandLabel(command, ctx, t)).toBe("canvas.viewOrbit");
+    command.run(ctx);
+    expect(setConfig).toHaveBeenLastCalledWith({ canvasView: "orbit" });
+    expect(commandLabel(command, ctx, t)).toBe("canvas.viewPlanar");
+    command.run(ctx);
+    expect(config.canvasView).toBe("planar");
   });
 });

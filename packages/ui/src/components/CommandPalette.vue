@@ -119,7 +119,17 @@ function searchNodes(): void {
   }, 150);
 }
 
-watch(query, searchNodes);
+// A new query starts over at the first hit; keeping the previous index would
+// leave no highlighted row when the shorter result list no longer reaches it,
+// and Enter would then do nothing.
+watch(query, () => {
+  active.value = 0;
+  searchNodes();
+});
+
+watch(items, (list) => {
+  if (active.value >= list.length) active.value = Math.max(0, list.length - 1);
+});
 
 /** Every open — whatever surface asked for it — starts a fresh search. */
 watch(

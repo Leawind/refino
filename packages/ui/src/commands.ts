@@ -95,6 +95,19 @@ function createCommands(): Command[] {
       run: ({ store }) => store.setTheme(store.state.theme === "dark" ? "light" : "dark"),
     },
     {
+      id: "view-toggle",
+      labelKey: (ctx) =>
+        ctx.workspace.state.config.canvasView === "orbit"
+          ? "canvas.viewPlanar"
+          : "canvas.viewOrbit",
+      keys: "V",
+      bindings: [{ key: "v" }],
+      run: ({ workspace }) =>
+        workspace.setConfig({
+          canvasView: workspace.state.config.canvasView === "orbit" ? "planar" : "orbit",
+        }),
+    },
+    {
       id: "layout-layered",
       labelKey: "app.layoutLayered",
       run: ({ workspace }) => workspace.setConfig({ layoutMode: "layered" }),

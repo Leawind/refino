@@ -110,7 +110,7 @@ export default {
     cancel: "Cancel",
     edit: "Edit",
     delete: "Delete",
-    deleteConfirm: "Delete node {id}? This cannot be undone.",
+    deleteConfirm: "Delete node “{node}”? This cannot be undone.",
     deleteBlocked: "Referenced by {count} downstream decision(s); cannot delete",
     groundsAdd: "Add a ground…",
     groundsRemove: "Remove this ground",

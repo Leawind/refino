@@ -22,8 +22,10 @@ import { clientKey } from "./api";
 import { injectRequired } from "./context";
 import { installAltTracking } from "./peek";
 import { createNodeOps, nodeOpsKey } from "./nodeOps";
+import { reviewKey } from "./review";
 import { installShortcuts } from "./shortcuts";
 import { storeKey } from "./store";
+import { hasOpenDismissable } from "./useDismissable";
 import { workspaceKey } from "./workspace";
 import AppHeader from "./components/AppHeader.vue";
 import ResourceExplorer from "./components/ResourceExplorer.vue";
@@ -39,6 +41,7 @@ import type { LayoutDirection } from "./types";
 const client = injectRequired(clientKey, "client");
 const store = injectRequired(storeKey, "store");
 const workspace = injectRequired(workspaceKey, "workspace");
+const review = injectRequired(reviewKey, "review");
 
 const { t, locale } = useI18n();
 
@@ -84,10 +87,19 @@ function refresh(): void {
   void workspace.reload();
 }
 
-// Esc clears the selection; the detail window consumes Esc first when open
-// (closing it keeps the selection, per design).
+// Esc peels one surface at a time: the editor, palette and help consume it
+// themselves; the drawer and float panels are tracked here. Only when no
+// surface is open does Esc clear the selection.
 function onKeydown(event: KeyboardEvent): void {
-  if (event.key === "Escape" && !store.state.detailOpen) workspace.clearSelection();
+  if (
+    event.key !== "Escape" ||
+    store.state.detailOpen ||
+    review.state.open ||
+    hasOpenDismissable()
+  ) {
+    return;
+  }
+  workspace.clearSelection();
 }
 onMounted(() => document.addEventListener("keydown", onKeydown));
 onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));

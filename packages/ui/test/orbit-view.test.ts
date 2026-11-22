@@ -4,7 +4,7 @@ import { flushPromises, mount } from "@vue/test-utils";
 import { nextTick, reactive, ref } from "vue";
 import OrbitView from "../src/components/OrbitView.vue";
 import { createRefinoI18n } from "../src/i18n";
-import { setViewportCommands } from "../src/viewportBridge";
+import { setViewportCommands, viewportBridge } from "../src/viewportBridge";
 import { clientKey } from "../src/api";
 import { storeKey } from "../src/store";
 import { workspaceKey } from "../src/workspace";
@@ -23,6 +23,7 @@ interface FakePick {
 
 const orbit = vi.hoisted(() => ({
   focusOn: vi.fn(),
+  fitSelection: vi.fn(),
   focusOnNode: vi.fn((id: string) => {
     if (orbit.focus?.id === id) return true;
     orbit.setFocus({ key: id === "P" ? "P@A" : id, id });
@@ -61,7 +62,9 @@ vi.mock("../src/graph/orbit/scene", () => {
     }
     zoomBy(): void {}
     fitView(): void {}
-    fitSelection(): void {}
+    fitSelection(ids: readonly string[]): void {
+      orbit.fitSelection(ids);
+    }
     focusOn(key: string): void {
       orbit.focusOn(key);
       orbit.setFocus({ key, id: key.includes("@") ? key.split("@")[0]! : key });
@@ -212,6 +215,7 @@ function clickOnStar(init: MouseEventInit = {}): void {
 
 beforeEach(() => {
   orbit.focusOn.mockClear();
+  orbit.fitSelection.mockClear();
   orbit.focusOnNode.mockClear();
   orbit.rootHover.mockClear();
   orbit.beginDrag.mockClear();
@@ -363,6 +367,24 @@ describe("orbit view focus", () => {
     await nextTick();
     expect(orbit.focusOnNode).toHaveBeenCalledWith("P");
     expect(orbit.focus).toEqual({ key: "P@A", id: "P" });
+  });
+
+  it("keeps the single selected star focused when fitting the selection", () => {
+    const workspace = fakeWorkspace();
+    workspace.state.selection = ["P"];
+    mountOrbit(workspace);
+    viewportBridge.commands?.fitSelection();
+    expect(orbit.fitSelection).toHaveBeenCalledWith(["P"]);
+    expect(orbit.focusOnNode).toHaveBeenCalledWith("P");
+  });
+
+  it("frames a group centroid without focusing one star", () => {
+    const workspace = fakeWorkspace();
+    workspace.state.selection = ["A", "P"];
+    mountOrbit(workspace);
+    viewportBridge.commands?.fitSelection();
+    expect(orbit.fitSelection).toHaveBeenCalledWith(["A", "P"]);
+    expect(orbit.focusOnNode).not.toHaveBeenCalled();
   });
 
   it("retries an external focus whose star arrives with the working set", async () => {

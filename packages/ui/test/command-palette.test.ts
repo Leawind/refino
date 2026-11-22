@@ -127,6 +127,25 @@ describe("CommandPalette keyboard", () => {
     store.cancelCreate();
   });
 
+  it("resets the highlight when a query narrows the results", async () => {
+    const { store } = mountPalette();
+    paletteState.open = true;
+    await waits(50);
+    for (let i = 0; i < 12; i++) key("ArrowDown");
+    await waits(20);
+    // The palette is teleported to body, outside the component wrapper.
+    const input = document.querySelector(".palette .input") as HTMLInputElement;
+    input.value = "新建前提";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    await waits(20);
+    expect(document.querySelectorAll(".palette li")).toHaveLength(1);
+    expect(document.querySelector(".palette li.active .label")?.textContent).toContain("新建前提");
+    key("Enter");
+    await waits(20);
+    expect(store.state.creatingType).toBe("premise");
+    store.cancelCreate();
+  });
+
   it("tags node hits with their type and leaves action rows untagged", async () => {
     mountPalette([
       { id: "A1B2C3D4", type: "decision", summary: "决策一" },

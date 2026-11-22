@@ -102,6 +102,14 @@ describe("shortcut dispatch", () => {
     expect(event.defaultPrevented).toBe(true);
   });
 
+  it("switches the canvas view with V", () => {
+    expect(workspace.state.config.canvasView).toBe("planar");
+    key("v");
+    expect(workspace.state.config.canvasView).toBe("orbit");
+    key("v");
+    expect(workspace.state.config.canvasView).toBe("planar");
+  });
+
   it("toggles the shortcut help overlay with ?", () => {
     key("?");
     expect(helpState.open).toBe(true);

@@ -78,7 +78,7 @@ let workspace: Workspace;
 let store: ReturnType<typeof createStore>;
 let ops: NodeOps;
 let notices: Array<{ message: string; type: string }>;
-let confirms: Array<{ onConfirm: () => void }>;
+let confirms: Array<{ content: string; onConfirm: () => void }>;
 
 beforeEach(() => {
   localStorage.clear();
@@ -164,6 +164,15 @@ describe("nodeOps.deleteNode", () => {
     expect(notices).toEqual([{ message: t("node.deleteBlocked", { count: 1 }), type: "warning" }]);
     expect(confirms).toHaveLength(0);
     expect(state.deleted).toHaveLength(0);
+  });
+
+  it("names the node by summary in the delete confirmation", async () => {
+    workspace.toggle({ id: TARGET, type: "decision", summary: "摘要节点" });
+    await vi.waitFor(() =>
+      expect(workspace.displayed.value.some((node) => node.id === TARGET)).toBe(true),
+    );
+    await ops.deleteNode(TARGET);
+    expect(confirms[0]!.content).toBe(t("node.deleteConfirm", { node: "摘要节点" }));
   });
 
   it("confirms and then removes through the store", async () => {

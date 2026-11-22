@@ -157,6 +157,14 @@ function toggleCollapsed(): void {
   collapsed.value = !collapsed.value;
 }
 
+/** The quick view fixes the type to premises, so clear any narrower type
+ * filter at the same time; otherwise the dropdown would still claim the type
+ * the list stopped using. */
+function toggleUnreferenced(): void {
+  unreferencedOnly.value = !unreferencedOnly.value;
+  if (unreferencedOnly.value) typeFilter.value = "premise";
+}
+
 let startX = 0;
 let startPercent = 0;
 
@@ -269,7 +277,7 @@ function isDirty(node: SearchNode): boolean {
             :quaternary="!unreferencedOnly"
             :type="unreferencedOnly ? 'primary' : 'default'"
             :secondary="unreferencedOnly"
-            @click="unreferencedOnly = !unreferencedOnly"
+            @click="toggleUnreferenced"
           >
             {{ t("explorer.unreferenced") }}
           </NButton>

@@ -8,6 +8,16 @@ import { onBeforeUnmount, watch, type Ref } from "vue";
  * and at unmount-while-open, so idempotent cleanup hooks (e.g. ending a
  * live drag gesture) are safe to pass.
  */
+
+let openPanels = 0;
+
+/** Whether any float panel is open. The shell's Esc handler consults this so
+ * that closing a panel does not also clear the selection: Esc peels surfaces
+ * one layer at a time. */
+export function hasOpenDismissable(): boolean {
+  return openPanels > 0;
+}
+
 export function useDismissable(
   open: Ref<boolean>,
   root: Ref<HTMLElement | null>,
@@ -24,20 +34,34 @@ export function useDismissable(
     if (event.key === "Escape") open.value = false;
   }
 
+  let listening = false;
+
+  function attach(): void {
+    if (listening) return;
+    listening = true;
+    openPanels++;
+    document.addEventListener("mousedown", onDocumentDown);
+    window.addEventListener("keydown", onKeydown);
+  }
+
+  function detach(): void {
+    if (!listening) return;
+    listening = false;
+    openPanels--;
+    document.removeEventListener("mousedown", onDocumentDown);
+    window.removeEventListener("keydown", onKeydown);
+  }
+
   watch(open, (value) => {
-    if (value) {
-      document.addEventListener("mousedown", onDocumentDown);
-      window.addEventListener("keydown", onKeydown);
-    } else {
-      document.removeEventListener("mousedown", onDocumentDown);
-      window.removeEventListener("keydown", onKeydown);
+    if (value) attach();
+    else {
+      detach();
       onClose?.();
     }
   });
 
   onBeforeUnmount(() => {
-    document.removeEventListener("mousedown", onDocumentDown);
-    window.removeEventListener("keydown", onKeydown);
+    detach();
     if (open.value) onClose?.();
   });
 }

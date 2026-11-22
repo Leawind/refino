@@ -200,7 +200,10 @@ function nodeLabel(id: string): string {
 
         <template v-else-if="selected !== null">
           <div class="head">
-            <h2 class="mono">{{ selected.id }}</h2>
+            <h2 class="title">
+              {{ form.summary.trim() === "" ? t("node.untitled") : form.summary.trim() }}
+            </h2>
+            <span class="mono id">{{ selected.id }}</span>
             <NTag
               size="small"
               :bordered="false"
@@ -350,7 +353,11 @@ function nodeLabel(id: string): string {
                     {{ t("node.delete") }}
                   </NButton>
                 </template>
-                {{ t("node.deleteConfirm", { id: selected.id }) }}
+                {{
+                  t("node.deleteConfirm", {
+                    node: form.summary.trim() === "" ? t("node.untitled") : form.summary.trim(),
+                  })
+                }}
               </NPopconfirm>
             </template>
             {{ t("node.deleteBlocked", { count: dependentCount }) }}
@@ -582,6 +589,21 @@ h2 {
 
 .mono {
   font-family: monospace;
+}
+
+.head .title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.id {
+  flex: none;
+  font-size: 11px;
+  opacity: 0.5;
 }
 
 .actions {

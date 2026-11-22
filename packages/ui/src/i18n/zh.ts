@@ -109,7 +109,7 @@ export default {
     cancel: "取消",
     edit: "编辑",
     delete: "删除",
-    deleteConfirm: "确定删除节点 {id} 吗？该操作不可撤销。",
+    deleteConfirm: "确定删除节点“{node}”吗？该操作不可撤销。",
     deleteBlocked: "存在 {count} 个下游决策引用此节点，无法删除",
     groundsAdd: "追加依据…",
     groundsRemove: "移除该依据",

@@ -4,6 +4,7 @@ import { mount } from "@vue/test-utils";
 import { createRefinoI18n } from "../src/i18n";
 import CanvasStyleSettings from "../src/components/CanvasStyleSettings.vue";
 import NodeSizeControl from "../src/components/NodeSizeControl.vue";
+import { hasOpenDismissable } from "../src/useDismissable";
 import { createWorkspace, workspaceKey } from "../src/workspace";
 import type { Component } from "vue";
 import type { RefinoClient } from "../src/api";
@@ -82,6 +83,21 @@ describe("float panel dismissal", () => {
     pressEscape();
     await wrapper.vm.$nextTick();
     expect(wrapper.find(".panel").exists()).toBe(false);
+  });
+
+  it("reports an open panel so Esc does not also clear the selection", async () => {
+    expect(hasOpenDismissable()).toBe(false);
+    const wrapper = mountControl(CanvasStyleSettings);
+    await wrapper.find('button[title="样式设置"]').trigger("click");
+    expect(hasOpenDismissable()).toBe(true);
+    pressEscape();
+    await wrapper.vm.$nextTick();
+    expect(hasOpenDismissable()).toBe(false);
+    // Unmounting an open panel must not leave the shell blocked forever.
+    await wrapper.find('button[title="样式设置"]').trigger("click");
+    expect(hasOpenDismissable()).toBe(true);
+    wrapper.unmount();
+    expect(hasOpenDismissable()).toBe(false);
   });
 
   it("node size: outside press and Escape collapse the expanded card", async () => {

@@ -119,8 +119,14 @@ function ensureScene(): void {
     fitView: () => scene.value?.fitView(),
     fitSelection: () => {
       const selection = workspace.state.selection;
-      if (selection.length > 0) scene.value?.fitSelection(selection);
-      else scene.value?.fitView();
+      if (selection.length === 0) {
+        scene.value?.fitView();
+        return;
+      }
+      scene.value?.fitSelection(selection);
+      // One selected star owns the new centre; keep its content in view. A
+      // group frames a centroid that no single star can stand for.
+      if (selection.length === 1) scene.value?.focusOnNode(selection[0]!);
     },
     // The minimap is planar-only; nothing navigates orbit space by plane
     // coordinates.

@@ -95,9 +95,12 @@ export function createNodeOps(
         notify(t("node.deleteBlocked", { count: dependents.length }), "warning");
         return;
       }
+      const lite = workspace.displayed.value.find((node) => node.id === id);
+      const label =
+        lite === undefined ? id : lite.summary === "" ? t("node.untitled") : lite.summary;
       confirmAction({
         title: t("node.delete"),
-        content: t("node.deleteConfirm", { id }),
+        content: t("node.deleteConfirm", { node: label }),
         positiveText: t("node.delete"),
         onConfirm: () => {
           void store
