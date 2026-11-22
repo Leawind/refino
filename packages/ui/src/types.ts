@@ -109,5 +109,8 @@ export type LayoutDirection = "LR" | "TB" | "RL" | "BT";
  * "布局"). */
 export type FloatPlacement = "top-left" | "top-right" | "bottom-left" | "bottom-right";
 
+/** Canvas presentation: the planar graph or the 3D orbit view. */
+export type CanvasView = "planar" | "orbit";
+
 export type Theme = "light" | "dark";
 export type Locale = "zh" | "en";

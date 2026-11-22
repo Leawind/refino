@@ -25,6 +25,7 @@ export default {
     zoomReset: "Reset zoom",
     fitView: "Fit view",
     fitSelection: "Fit selection",
+    fov: "Field of view",
     shortcuts: "Keyboard shortcuts",
   },
   common: {
@@ -152,6 +153,8 @@ export default {
     minimapClose: "Hide the minimap",
     rangeDisconnected:
       "No path between the two nodes (no common ancestor or the search budget ran out); the selection is now just the clicked node",
+    viewOrbit: "Three-dimensional view",
+    viewPlanar: "Planar view",
     glUnavailable: "WebGL 2 is unavailable; the canvas cannot render",
     refineThis: "Refine this decision",
     groundAdded: "Ground added",

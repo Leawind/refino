@@ -30,24 +30,24 @@ const props = defineProps<{
 }
 
 .top-left {
-  top: 12px;
-  left: 12px;
+  top: 4px;
+  left: 4px;
 }
 
 .top-right {
-  top: 12px;
-  right: 12px;
+  top: 4px;
+  right: 4px;
   flex-direction: column;
 }
 
 .bottom-left {
-  bottom: 12px;
-  left: 12px;
+  bottom: 4px;
+  left: 4px;
 }
 
 .bottom-right {
-  bottom: 12px;
-  right: 12px;
+  bottom: 4px;
+  right: 4px;
   flex-direction: column;
 }
 </style>

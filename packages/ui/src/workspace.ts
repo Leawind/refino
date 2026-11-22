@@ -5,7 +5,7 @@ import { TEXT_SCALE_MAX, TEXT_SCALE_MIN } from "./graph/render/renderer";
 import { LAYER_GAP, LAYER_GAP_MAX, LAYER_GAP_MIN } from "./graph/layout/engine";
 import { FORCE_TUNING_DEFAULT, FORCE_TUNING_MAX, FORCE_TUNING_MIN } from "./graph/layout/force";
 import type { LayoutMode } from "./graph/layout/types";
-import type { ChangeEvent, IssueRecord, LayoutDirection, NodeLite } from "./types";
+import type { CanvasView, ChangeEvent, IssueRecord, LayoutDirection, NodeLite } from "./types";
 
 /**
  * Accumulated working-set state (docs/design.md, "画布按需查询"; @refino/ui
@@ -66,6 +66,8 @@ export interface CanvasConfig {
   /** Whether the force layout's virtual root renders (display-only, with
    * its edges to the real roots; force layout only). */
   showVirtualRoot: boolean;
+  /** Canvas presentation: the planar graph or the 3D orbit view. */
+  canvasView: CanvasView;
   /** Whether the canvas minimap overview floats in the top-left corner. */
   showMinimap: boolean;
 }
@@ -98,6 +100,7 @@ const DEFAULT_CONFIG: CanvasConfig = {
   forceRepulsion: FORCE_TUNING_DEFAULT.repulsion,
   forceSpring: FORCE_TUNING_DEFAULT.spring,
   showVirtualRoot: true,
+  canvasView: "planar",
   showMinimap: true,
 };
 
@@ -122,6 +125,7 @@ const CONFIG_KEYS: Record<keyof CanvasConfig, string> = {
   forceRepulsion: "refino.canvas.forceRepulsion",
   forceSpring: "refino.canvas.forceSpring",
   showVirtualRoot: "refino.canvas.showVirtualRoot",
+  canvasView: "refino.canvas.canvasView",
   showMinimap: "refino.canvas.showMinimap",
 };
 
@@ -227,6 +231,10 @@ function loadConfig(): CanvasConfig {
     showVirtualRoot:
       readPreference(CONFIG_KEYS.showVirtualRoot, String(DEFAULT_CONFIG.showVirtualRoot)) ===
       "true",
+    canvasView:
+      readPreference(CONFIG_KEYS.canvasView, DEFAULT_CONFIG.canvasView) === "orbit"
+        ? "orbit"
+        : "planar",
     showMinimap:
       readPreference(CONFIG_KEYS.showMinimap, String(DEFAULT_CONFIG.showMinimap)) === "true",
   };
@@ -647,6 +655,7 @@ export function createWorkspace(client: RefinoClient) {
     "textScale",
     "zoomAnchor",
     "zoomMax",
+    "canvasView",
     "showMinimap",
   ]);
 

@@ -73,13 +73,10 @@ beforeEach(() => {
 
 describe("canvas floats manifest", () => {
   it("registers one entry per edge control at its corner", () => {
-    expect(canvasFloats).toHaveLength(7);
+    expect(canvasFloats).toHaveLength(4);
     expect(canvasFloats.map((f) => f.placement)).toEqual([
       "top-left",
       "top-right",
-      "bottom-right",
-      "bottom-right",
-      "bottom-right",
       "bottom-right",
       "bottom-left",
     ]);
@@ -99,8 +96,36 @@ describe("canvas floats manifest", () => {
     // does not descend into reliably.
     expect(wrapper.find(".graph-float.top-right").element.children).toHaveLength(0);
     expect(document.querySelector(".graph-float.top-left .minimap .map")).not.toBeNull();
-    expect(document.querySelectorAll(".graph-float.bottom-right > *")).toHaveLength(4);
-    // The bottom-left float carries the status pill.
+    // The bottom-right corner is one grouped control built from compact
+    // rows, so no lone button leaves a gap next to the edge.
+    expect(document.querySelectorAll(".graph-float.bottom-right > *")).toHaveLength(1);
+    expect(document.querySelector(".graph-float.bottom-right .canvas-controls")).not.toBeNull();
+    expect(document.querySelector(".graph-float.bottom-right .style-settings")).not.toBeNull();
+    expect(document.querySelector(".graph-float.bottom-right .node-size")).not.toBeNull();
+    expect(document.querySelector(".graph-float.bottom-right .layout-controls")).not.toBeNull();
+    expect(document.querySelector(".graph-float.bottom-right .view-toggle")).not.toBeNull();
+    expect(document.querySelector(".graph-float.bottom-right .zoom-controls")).not.toBeNull();
+    // The field-of-view control belongs to the orbit view.
+    expect(document.querySelector(".graph-float.bottom-right .fov-control")).toBeNull();
     expect(document.querySelector(".graph-float.bottom-left .status-pill")).not.toBeNull();
+    wrapper.unmount();
+  });
+
+  it("hides the planar-only controls in the orbit view", () => {
+    localStorage.setItem("refino.canvas.canvasView", "orbit");
+    const wrapper = mountFloats();
+    // No minimap, no layout/style/size controls: they only address the
+    // planar layout. The view switch, zoom controls and status pill stay.
+    expect(document.querySelector(".graph-float.top-left")).toBeNull();
+    // The selection list is view-neutral but empty, so its layer stays.
+    expect(document.querySelector(".graph-float.top-right")?.children).toHaveLength(0);
+    expect(document.querySelectorAll(".graph-float.bottom-right > *")).toHaveLength(1);
+    expect(document.querySelector(".graph-float.bottom-right .view-toggle")).not.toBeNull();
+    expect(document.querySelector(".graph-float.bottom-right .zoom-controls")).not.toBeNull();
+    expect(document.querySelector(".graph-float.bottom-right .fov-control")).not.toBeNull();
+    expect(document.querySelector(".graph-float.bottom-right .layout-controls")).toBeNull();
+    expect(document.querySelector(".graph-float.bottom-right .style-settings")).toBeNull();
+    expect(document.querySelector(".graph-float.bottom-left .status-pill")).not.toBeNull();
+    wrapper.unmount();
   });
 });

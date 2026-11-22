@@ -14,6 +14,11 @@
   /* Labels read this token instead of body color: custom properties are not
    * transitioned, so the WebGL palette never sees a mid-animation value. */
   --refino-node-text: rgba(0, 0, 0, 0.9);
+  /* Edge-control fills: canvas controls must hide the live canvas behind
+   * them, so translucent theme colors are pre-blended onto the surface. */
+  --refino-control-bg: #ffffff;
+  --refino-control-bg-hover: #f1f3f6;
+  --refino-control-bg-pressed: #e7eaef;
 }
 
 :root[data-theme="dark"] {
@@ -24,6 +29,9 @@
   --refino-node-border: rgba(255, 255, 255, 0.28);
   --refino-edge: rgba(255, 255, 255, 0.32);
   --refino-node-text: rgba(255, 255, 255, 0.85);
+  --refino-control-bg: rgb(24, 24, 28);
+  --refino-control-bg-hover: rgb(38, 38, 44);
+  --refino-control-bg-pressed: rgb(31, 31, 36);
 }
 
 /* Theme flips recolor every surface; one global rule keeps all elements
@@ -46,6 +54,18 @@ body {
   transition:
     background-color 0.2s ease,
     color 0.2s ease !important;
+}
+
+/* Canvas edge controls sit directly on the canvas: naive's default button
+ * fill is transparent, which would let graph strokes and labels show through
+ * the control itself. Fill them from the opaque control tokens so the
+ * controls read as objects lying on the canvas. */
+.canvas-controls .n-button--default-type {
+  --n-color: var(--refino-control-bg) !important;
+  --n-color-hover: var(--refino-control-bg-hover) !important;
+  --n-color-pressed: var(--refino-control-bg-pressed) !important;
+  --n-color-focus: var(--refino-control-bg-hover) !important;
+  --n-color-disabled: var(--refino-control-bg) !important;
 }
 
 /* naive portals (dropdown menus etc.) escape .shell, so they read the same

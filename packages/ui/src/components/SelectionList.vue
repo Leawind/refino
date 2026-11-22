@@ -68,7 +68,6 @@ function onMove(event: MouseEvent, node: NodeLite): void {
   border: 1px solid var(--refino-border);
   border-radius: var(--refino-radius);
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
-  opacity: 0.95;
 }
 
 .head {

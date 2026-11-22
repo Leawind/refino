@@ -80,11 +80,12 @@ function reset(): void {
   background: var(--refino-surface);
   border: 1px solid var(--refino-border);
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
-  opacity: 0.92;
 }
 
+/* Inert until a canvas registers its commands. Dim the glyphs instead of the
+ * whole surface: the bar must stay opaque over the canvas as well. */
 .zoom-controls.disabled {
-  opacity: 0.4;
+  color: rgba(128, 128, 128, 0.8);
 }
 
 .btn {

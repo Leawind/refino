@@ -218,7 +218,6 @@ const showVirtualRoot = computed<boolean>({
     <NButton
       circle
       :type="showPremises ? 'primary' : 'default'"
-      :secondary="showPremises"
       :title="t('canvas.premises')"
       @click="showPremises = !showPremises"
     >

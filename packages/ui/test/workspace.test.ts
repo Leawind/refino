@@ -547,3 +547,29 @@ describe("node card size config", () => {
     await vi.waitFor(() => expect(expansions()).toBe(before));
   });
 });
+
+describe("canvas view config", () => {
+  it("defaults to the planar view", () => {
+    expect(workspace.state.config.canvasView).toBe("planar");
+  });
+
+  it("loads a persisted orbit choice and falls back on nonsense", () => {
+    localStorage.setItem("refino.canvas.canvasView", "orbit");
+    const orbit = createWorkspace(createHttpClient());
+    expect(orbit.state.config.canvasView).toBe("orbit");
+    orbit.stop();
+    localStorage.setItem("refino.canvas.canvasView", "sideways");
+    const planar = createWorkspace(createHttpClient());
+    expect(planar.state.config.canvasView).toBe("planar");
+    planar.stop();
+  });
+
+  it("persists the view switch without refreshing the working set", async () => {
+    await select(C1);
+    const expansions = (): number => calls.filter((c) => c.path === "/api/query/expand").length;
+    const before = expansions();
+    workspace.setConfig({ canvasView: "orbit" });
+    expect(localStorage.getItem("refino.canvas.canvasView")).toBe("orbit");
+    await vi.waitFor(() => expect(expansions()).toBe(before));
+  });
+});

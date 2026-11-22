@@ -1,12 +1,9 @@
 import type { Component } from "vue";
+import CanvasControls from "./components/CanvasControls.vue";
 import CanvasMinimap from "./components/CanvasMinimap.vue";
-import CanvasStyleSettings from "./components/CanvasStyleSettings.vue";
-import LayoutControls from "./components/LayoutControls.vue";
-import NodeSizeControl from "./components/NodeSizeControl.vue";
 import SelectionList from "./components/SelectionList.vue";
 import StatusPill from "./components/StatusPill.vue";
-import ZoomControls from "./components/ZoomControls.vue";
-import type { FloatPlacement } from "./types";
+import type { CanvasView, FloatPlacement } from "./types";
 
 /**
  * The canvas edge controls (ui DESIGN.md, "布局"): each float is a
@@ -15,31 +12,40 @@ import type { FloatPlacement } from "./types";
  *
  * A static manifest, not a runtime registry: every control is first-party
  * and known at compile time, so registration stays type-checked and
- * tree-shakeable. GraphFloats.vue is the single renderer.
+ * tree-shakeable. GraphFloats.vue is the single renderer. Controls that
+ * only make sense on the planar canvas declare their views and disappear
+ * in the orbit view.
  */
 export interface CanvasFloat {
   placement: FloatPlacement;
   component: Component;
+  /** Views the control appears in; absent = every view. */
+  views?: readonly CanvasView[];
 }
 
 export const canvasFloats: CanvasFloat[] = [
-  { placement: "top-left", component: CanvasMinimap },
+  { placement: "top-left", component: CanvasMinimap, views: ["planar"] },
   { placement: "top-right", component: SelectionList },
-  { placement: "bottom-right", component: CanvasStyleSettings },
-  { placement: "bottom-right", component: NodeSizeControl },
-  { placement: "bottom-right", component: LayoutControls },
-  { placement: "bottom-right", component: ZoomControls },
+  // One grouped control: its rows hide the planar-only pieces themselves.
+  { placement: "bottom-right", component: CanvasControls },
   { placement: "bottom-left", component: StatusPill },
 ];
 
 export type CanvasFloatGroups = Record<FloatPlacement, Component[]>;
 
 /** The manifest grouped by corner, preserving registration order within a
- * corner: one float layer per corner, not per control. */
-export const canvasFloatGroups: CanvasFloatGroups = canvasFloats.reduce(
-  (groups, float) => {
+ * corner: one float layer per corner, not per control. A corner whose
+ * controls are all hidden by the current view renders no layer. */
+export function canvasFloatGroups(view: CanvasView): CanvasFloatGroups {
+  const groups: CanvasFloatGroups = {
+    "top-left": [],
+    "top-right": [],
+    "bottom-left": [],
+    "bottom-right": [],
+  };
+  for (const float of canvasFloats) {
+    if (float.views !== undefined && !float.views.includes(view)) continue;
     groups[float.placement].push(float.component);
-    return groups;
-  },
-  { "top-left": [], "top-right": [], "bottom-left": [], "bottom-right": [] } as CanvasFloatGroups,
-);
+  }
+  return groups;
+}

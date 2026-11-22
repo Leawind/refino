@@ -190,7 +190,6 @@ onBeforeUnmount(() => {
   background: var(--refino-surface);
   border: 1px solid var(--refino-border);
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
-  opacity: 0.92;
   overflow: hidden;
 }
 
@@ -228,7 +227,6 @@ onBeforeUnmount(() => {
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
   padding: 5px;
   cursor: pointer;
-  opacity: 0.85;
 }
 
 .restorer:hover {

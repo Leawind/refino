@@ -25,6 +25,7 @@ export default {
     zoomReset: "重置缩放",
     fitView: "适应视图",
     fitSelection: "适应所选",
+    fov: "视场角",
     shortcuts: "快捷键帮助",
   },
   common: {
@@ -150,6 +151,8 @@ export default {
     minimap: "小地图",
     minimapClose: "收起小地图",
     rangeDisconnected: "两节点间未找到路径（无公共祖先或超出搜索预算），选择已替换为被点击的节点",
+    viewOrbit: "三维视图",
+    viewPlanar: "平面视图",
     glUnavailable: "当前环境不支持 WebGL 2，画布无法渲染",
     refineThis: "以此细化",
     groundAdded: "已添加依据",

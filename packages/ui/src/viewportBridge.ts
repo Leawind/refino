@@ -1,6 +1,14 @@
 import { reactive } from "vue";
 import type { OverviewSnapshot } from "./graph/render/overview";
 
+/** Field of view of the orbit camera: the narrower of the horizontal and
+ * vertical viewing angles, which is what the FOV control adjusts. */
+export interface ViewportFov {
+  value: number;
+  min: number;
+  max: number;
+}
+
 /**
  * Viewport command seam (ui DESIGN.md, "视口"): zoom and fit commands are
  * exposed to global shortcuts and the palette, and the minimap reads its
@@ -21,9 +29,13 @@ export interface ViewportCommands {
   centerOn(vx: number, vy: number): void;
   /** Overview snapshot for the minimap; null while empty. */
   getOverview(): OverviewSnapshot | null;
-  /** Subscribe to camera/scene movement (minimap redraw); returns the
-   * unsubscribe function. */
+  /** Subscribe to camera/scene movement (minimap redraw, zoom and FOV
+   * readouts); returns the unsubscribe function. */
   onCameraChanged(handler: () => void): () => void;
+  /** Orbit-only: the field of view and its limits; null without a camera. */
+  getFov?(): ViewportFov | null;
+  /** Orbit-only: ease the field of view to a new narrower angle. */
+  setFov?(fov: number): void;
 }
 
 export const viewportBridge = reactive<{ commands: ViewportCommands | null }>({
