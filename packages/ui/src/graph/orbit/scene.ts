@@ -40,6 +40,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import type { RGBA } from "../render/renderer";
 import {
   clampLimitingFov,
+  DEFAULT_FOV,
   easeBlend,
   fitDistance,
   fovForLimiting,
@@ -168,7 +169,6 @@ interface HaloState {
   target: number;
 }
 
-const CAMERA_FOV = 45;
 const MIN_DISTANCE = 2.5;
 const PICK_RADIUS = 16;
 /** The virtual root's glow is smaller than a star, so its click target is
@@ -473,7 +473,7 @@ export class OrbitScene {
   /** Narrower viewing angle the wheel or the FOV slider is heading for. */
   #fovTarget: number | null = null;
   /** FOV the current fit distance was computed for. */
-  #fitFov = CAMERA_FOV;
+  #fitFov = DEFAULT_FOV;
   readonly #wheelHandler: (event: WheelEvent) => void;
   /** Ctrl state tracked from key events: some hosts deliver Ctrl+wheel with
    * `ctrlKey` cleared, so the wheel alone is not reliable. */
@@ -498,7 +498,7 @@ export class OrbitScene {
     });
     this.#renderer.setClearAlpha(0);
     this.#renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    this.#camera = new PerspectiveCamera(CAMERA_FOV, 1, 0.1, 20000);
+    this.#camera = new PerspectiveCamera(DEFAULT_FOV, 1, 0.1, 20000);
     this.#camera.position.set(0.55, 0.42, 1).normalize().multiplyScalar(20);
     this.#controls = new OrbitControls(this.#camera, canvas);
     this.#controls.enableDamping = true;

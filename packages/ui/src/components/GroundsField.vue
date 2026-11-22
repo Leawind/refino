@@ -43,12 +43,17 @@ watch(
   { immediate: true },
 );
 
-/** Rows in declared order; unresolved or summary-less grounds show the id. */
+/** Rows in declared order. Known nodes read by summary like every other
+ * list surface; an unresolved id is the only handle we have until the lite
+ * arrives. */
 const rows = computed(() =>
-  props.grounds.map((id) => ({
-    id,
-    label: known.value.get(id) || id,
-  })),
+  props.grounds.map((id) => {
+    const summary = known.value.get(id);
+    return {
+      id,
+      label: summary === undefined ? id : summary === "" ? t("node.untitled") : summary,
+    };
+  }),
 );
 
 function remove(id: string): void {
@@ -106,7 +111,7 @@ function append(id: string | null): void {
         @mousemove="onRowMove($event, row.id)"
         @mouseleave="peekHide(row.id)"
       >
-        <span class="summary" :title="row.id">{{ row.label }}</span>
+        <span class="summary">{{ row.label }}</span>
         <button class="remove" :title="t('node.groundsRemove')" @click.stop="remove(row.id)">
           <NIcon :component="CloseOutline" />
         </button>

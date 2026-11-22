@@ -7,6 +7,7 @@ import { onBeforeUnmount, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { NButton, NIcon, NSlider } from "naive-ui";
 import { ApertureOutline } from "@vicons/ionicons5";
+import { DEFAULT_FOV } from "../graph/orbit/camera";
 import { useDismissable } from "../useDismissable";
 import { viewportBridge } from "../viewportBridge";
 
@@ -80,6 +81,9 @@ useDismissable(open, root);
         :tooltip="false"
         @update:value="onSlide"
       />
+      <NButton quaternary size="tiny" :disabled="fov === DEFAULT_FOV" @click="onSlide(DEFAULT_FOV)">
+        {{ t("app.fovReset") }}
+      </NButton>
     </section>
   </div>
 </template>

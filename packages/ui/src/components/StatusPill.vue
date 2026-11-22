@@ -3,7 +3,7 @@
 // issue count, current focus). Sits in the bottom-left float corner. The
 // issue count expands a problem list whose entries locate their node on the
 // canvas (ui DESIGN.md, "布局"); everything else stays read-only.
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { NButton, NPopover } from "naive-ui";
 import { injectRequired } from "../context";
@@ -64,8 +64,12 @@ const issueRows = computed(() => {
   return rows;
 });
 
+const issuesOpen = ref(false);
+
 function locate(id: string): void {
   workspace.locate(id);
+  // The panel floats over the canvas; clear it so the located node is visible.
+  issuesOpen.value = false;
 }
 </script>
 
@@ -80,6 +84,7 @@ function locate(id: string): void {
     </span>
     <NPopover
       v-if="workspace.state.issues.length > 0"
+      v-model:show="issuesOpen"
       trigger="click"
       placement="top-start"
       :show-arrow="false"

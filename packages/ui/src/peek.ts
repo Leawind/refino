@@ -49,7 +49,8 @@ export function isTextEntry(target: EventTarget | null): boolean {
  * cleanup function. Alt keydowns are prevented outside text entry surfaces
  * so the browser menu bar does not steal the modifier (Windows/Firefox);
  * Alt+Tab and friends are OS-level and unaffected. Typing with Option on
- * macOS is untouched because inputs are skipped.
+ * macOS is untouched because inputs are skipped. Esc hides the card while
+ * Alt is still held; the next hover brings it back.
  */
 export function installAltTracking(): () => void {
   const onKeydown = (event: KeyboardEvent): void => {
@@ -62,16 +63,23 @@ export function installAltTracking(): () => void {
     if (event.key !== "Alt") return;
     peekState.alt = false;
   };
+  const onEscape = (event: KeyboardEvent): void => {
+    if (event.key === "Escape") peekHide();
+  };
   const onBlur = (): void => {
     // Window focus loss can swallow the keyup; never stick the peek on.
     peekState.alt = false;
   };
   window.addEventListener("keydown", onKeydown, true);
   window.addEventListener("keyup", onKeyup, true);
+  // Bubble phase: the shell's Esc handler runs on document first, sees the
+  // peek still open and leaves the selection alone; this closes the card.
+  window.addEventListener("keydown", onEscape);
   window.addEventListener("blur", onBlur);
   return () => {
     window.removeEventListener("keydown", onKeydown, true);
     window.removeEventListener("keyup", onKeyup, true);
+    window.removeEventListener("keydown", onEscape);
     window.removeEventListener("blur", onBlur);
   };
 }

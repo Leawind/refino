@@ -64,6 +64,15 @@ describe("FovControl", () => {
     expect(wrapper.find(".panel .value").text()).toBe("60°");
   });
 
+  it("resets the angle to the scene default", async () => {
+    const wrapper = mountControl();
+    await wrapper.find("button").trigger("click");
+    const reset = wrapper.findAll(".panel button").find((button) => button.text() === "重置视场角");
+    expect(reset).toBeDefined();
+    await reset!.trigger("click");
+    expect(commands.setFov).toHaveBeenLastCalledWith(45);
+  });
+
   it("drives the camera through the bridge and follows camera frames", async () => {
     const wrapper = mountControl();
     await wrapper.find("button").trigger("click");

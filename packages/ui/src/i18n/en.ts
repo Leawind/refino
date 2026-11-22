@@ -26,6 +26,7 @@ export default {
     fitView: "Fit view",
     fitSelection: "Fit selection",
     fov: "Field of view",
+    fovReset: "Reset field of view",
     shortcuts: "Keyboard shortcuts",
   },
   common: {
@@ -40,6 +41,7 @@ export default {
     title: "Nodes",
     all: "All",
     unreferenced: "Unreferenced premises",
+    noResults: "No matching nodes",
   },
   palette: {
     title: "Command palette",

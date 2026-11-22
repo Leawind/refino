@@ -103,6 +103,8 @@ describe("StatusPill", () => {
     expect(locate).toBeDefined();
     locate!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await vi.waitFor(() => expect(workspace.state.selection).toEqual(["A1B2C3D4"]));
+    // Locating clears the panel so it no longer floats over the canvas.
+    await vi.waitFor(() => expect(document.querySelector(".issue-panel")).toBeNull());
     workspace.stop();
   });
 

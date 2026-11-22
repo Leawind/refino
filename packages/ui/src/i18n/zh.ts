@@ -26,6 +26,7 @@ export default {
     fitView: "适应视图",
     fitSelection: "适应所选",
     fov: "视场角",
+    fovReset: "重置视场角",
     shortcuts: "快捷键帮助",
   },
   common: {
@@ -40,6 +41,7 @@ export default {
     title: "节点",
     all: "全部",
     unreferenced: "未被引用的前提",
+    noResults: "没有匹配的节点",
   },
   palette: {
     title: "命令面板",

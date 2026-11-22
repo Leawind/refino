@@ -45,6 +45,8 @@ export function wheelTargetDistance(
  * fits, so the limits belong to it rather than to the vertical one alone. */
 export const MIN_FOV = 40;
 export const MAX_FOV = 120;
+/** Narrower viewing angle the orbit scene starts at and resets to. */
+export const DEFAULT_FOV = 45;
 
 const DEGREES = Math.PI / 180;
 

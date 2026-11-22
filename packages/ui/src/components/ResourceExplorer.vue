@@ -330,6 +330,11 @@ function isDirty(node: SearchNode): boolean {
             >
               <NIcon :component="ChevronForwardOutline" />
             </button>
+            <span
+              class="type-dot"
+              :class="nodeItem.type"
+              :title="t(nodeItem.type === 'decision' ? 'node.decision' : 'node.premise')"
+            />
             <div class="texts">
               <div class="summary">
                 {{ nodeItem.summary === "" ? t("node.untitled") : nodeItem.summary }}
@@ -338,6 +343,9 @@ function isDirty(node: SearchNode): boolean {
             </div>
           </div>
           <InlineNodeForm :node-id="nodeItem.id" />
+        </li>
+        <li v-if="items.length === 0 && !loading" class="no-results">
+          {{ t("explorer.noResults") }}
         </li>
         <li v-if="loading" class="more">
           <NSpin size="small" />
@@ -492,6 +500,19 @@ function isDirty(node: SearchNode): boolean {
   transform: rotate(90deg);
 }
 
+.type-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-top: 7px;
+  border-radius: 50%;
+  background: var(--refino-primary, #18a058);
+}
+
+.type-dot.premise {
+  background: #8a97a8;
+}
+
 .texts {
   flex: 1;
   min-width: 0;
@@ -507,6 +528,13 @@ function isDirty(node: SearchNode): boolean {
 .dirty {
   color: #f0a020;
   margin-left: 4px;
+}
+
+.no-results {
+  padding: 14px 8px;
+  font-size: 12px;
+  opacity: 0.6;
+  text-align: center;
 }
 
 .more {
