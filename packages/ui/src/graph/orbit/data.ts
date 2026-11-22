@@ -1,6 +1,6 @@
 import type { NodeLite } from "../../types";
 import { structureSignature } from "../layout/structure";
-import { hashAngle, layoutOrbit, ORBIT_ROOT_STAR_RADIUS, ORBIT_STAR_RADIUS } from "./layout";
+import { hashAngle, layoutOrbit } from "./layout";
 import type { OrbitSceneEdge, OrbitSceneNode, OrbitSceneSatellite } from "./scene";
 
 /** One frame of orbit data: decision positions, the satellite rings of their
@@ -10,8 +10,6 @@ export interface OrbitSceneData {
   nodes: OrbitSceneNode[];
   satellites: OrbitSceneSatellite[];
   edges: OrbitSceneEdge[];
-  /** Bounding-sphere radius, for camera fitting. */
-  radius: number;
   signature: string;
 }
 
@@ -141,19 +139,5 @@ export function buildOrbitScene(displayed: readonly NodeLite[]): OrbitSceneData 
   }
   satellites.sort((left, right) => left.key.localeCompare(right.key));
 
-  let radius = layout.radius;
-  for (const satellite of satellites) {
-    const host =
-      satellite.host === null ? { x: 0, y: 0, z: 0 } : layout.positions.get(satellite.host);
-    if (host === undefined) continue;
-    radius = Math.max(
-      radius,
-      Math.hypot(host.x, host.y, host.z) + satellite.radius + ORBIT_STAR_RADIUS + 0.6,
-    );
-  }
-  if (satellites.some((satellite) => satellite.host === null)) {
-    radius = Math.max(radius, ROOT_SATELLITE_RADIUS + ORBIT_ROOT_STAR_RADIUS + 0.6);
-  }
-
-  return { nodes, satellites, edges, radius, signature: structureSignature(displayed) };
+  return { nodes, satellites, edges, signature: structureSignature(displayed) };
 }

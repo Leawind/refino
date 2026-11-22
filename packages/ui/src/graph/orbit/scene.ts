@@ -14,7 +14,6 @@
  */
 
 import {
-  AdditiveBlending,
   BufferAttribute,
   BufferGeometry,
   CanvasTexture,
@@ -24,13 +23,16 @@ import {
   LineSegments,
   MOUSE,
   PerspectiveCamera,
+  Plane,
   Points,
   PointsMaterial,
+  Raycaster,
   Scene,
   Sprite,
   SpriteMaterial,
   SRGBColorSpace,
   TOUCH,
+  Vector2,
   Vector3,
   WebGLRenderer,
 } from "three";
@@ -52,6 +54,9 @@ import {
   wheelTargetDistance,
   zoomDistance,
 } from "./camera";
+import { ADDITIVE_OVER_PAGE } from "./blending";
+import { createEdgeFlowMaterial, fillFlowDirections } from "./edgeFlow";
+import { OrbitForceSession } from "./force";
 import { ORBIT_ROOT_STAR_RADIUS, ORBIT_STAR_RADIUS } from "./layout";
 import { ORBIT_THEME } from "./theme";
 import type { OrbitTheme } from "./theme";
@@ -108,6 +113,44 @@ export interface OrbitProjection {
   visible: boolean;
 }
 
+/** A star's mark in canvas-local CSS pixels, for DOM overlays that need to
+ * keep out of its way. */
+export interface OrbitScreenStar {
+  x: number;
+  y: number;
+  /** Radius of the visible glow. */
+  radius: number;
+}
+
+/** One drawn star in screen space, with what an overlay needs to rank it. */
+export interface OrbitScreenNode extends OrbitScreenStar {
+  /** Unique per copy: a premise may orbit several hosts. */
+  key: string;
+  /** Data node id. */
+  id: string;
+  type: "decision" | "premise";
+  /** Distance from the camera, for distance-scaled text. */
+  distance: number;
+  /** Hovered or selected: an extra claim on the viewer's attention. */
+  interacted: boolean;
+  /** A ground of the focused decision (the copy on its own ring for premises). */
+  ground: boolean;
+}
+
+/** Everything a screen-space overlay needs to place itself around the
+ * picture: the stars' marks and the focused star's centre. */
+export interface OrbitScreenLayout {
+  width: number;
+  height: number;
+  stars: OrbitScreenStar[];
+  /** The focused star, or null when nothing (or the virtual root) is. */
+  anchor: OrbitScreenStar | null;
+  /** Every drawn star, decisions and premise copies alike. */
+  nodes: OrbitScreenNode[];
+  /** Camera distance to the orbit centre: the unscaled-text reference. */
+  referenceDistance: number;
+}
+
 /** One rendered star: a decision, or one satellite copy of a premise. */
 interface SceneItem {
   key: string;
@@ -133,7 +176,7 @@ const PICK_RADIUS = 16;
 const ROOT_PICK_RADIUS = 14;
 const STAR_SIZE = 2.4;
 const STAR_GLOW_SIZE = 5.5;
-const POSITION_TAU_MS = 90;
+const SATELLITE_SIZE = 1.2;
 /** The orbit center glides to a clicked star instead of jumping. */
 const CENTER_TAU_MS = 160;
 /** Interacted stars grow their halo instead of popping it in. */
@@ -161,6 +204,14 @@ const ROOT_GLOW_FOCUS = 1.6;
 const ROOT_OPACITY_BASE = 0.6;
 const ROOT_OPACITY_HOVER = 0.75;
 const ROOT_OPACITY_FOCUS = 0.9;
+/** Fraction of a glow sprite that reads as the star's mark: the halo texture
+ * is mostly a soft falloff, so only its centre looks like a disc. */
+const GLOW_VISIBLE = 0.32;
+/** Screen radii of the marks, in CSS pixels: what a DOM overlay must keep
+ * clear of even when the camera pulls back. */
+const DECISION_MARK_RADIUS = 12;
+const SATELLITE_MARK_RADIUS = 8;
+const ROOT_MARK_RADIUS = 10;
 
 function colorOf(value: RGBA): Color {
   return new Color().setRGB(value[0], value[1], value[2], SRGBColorSpace);
@@ -287,7 +338,7 @@ export class OrbitScene {
     size: STAR_SIZE,
     transparent: true,
     depthWrite: false,
-    blending: AdditiveBlending,
+    ...ADDITIVE_OVER_PAGE,
     vertexColors: true,
     sizeAttenuation: true,
   });
@@ -297,7 +348,7 @@ export class OrbitScene {
     transparent: true,
     opacity: 0.12,
     depthWrite: false,
-    blending: AdditiveBlending,
+    ...ADDITIVE_OVER_PAGE,
     vertexColors: true,
     sizeAttenuation: true,
   });
@@ -306,51 +357,36 @@ export class OrbitScene {
    * sprite keeps the halo tight, so the core can stay bright. */
   readonly #satelliteMaterial = new PointsMaterial({
     map: this.#haloCanvas,
-    size: 1.2,
+    size: SATELLITE_SIZE,
     transparent: true,
     opacity: 0.92,
     depthWrite: false,
-    blending: AdditiveBlending,
+    ...ADDITIVE_OVER_PAGE,
     vertexColors: true,
     sizeAttenuation: true,
   });
-  readonly #edgeMaterial = new LineBasicMaterial({
-    vertexColors: true,
-    transparent: true,
-    opacity: 0.65,
-    depthWrite: false,
-    blending: AdditiveBlending,
-  });
+  readonly #edgeMaterial = createEdgeFlowMaterial();
   /** The focused system's orbital ring, a whisper of a circle. */
   readonly #trackMaterial = new LineBasicMaterial({
     color: colorOf(ORBIT_THEME.edge),
     transparent: true,
     opacity: TRACK_OPACITY,
     depthWrite: false,
-    blending: AdditiveBlending,
-  });
-  /** Virtual-root rays are much fainter than lineage edges: they only hint
-   * at where the tree starts. */
-  readonly #rootRayMaterial = new LineBasicMaterial({
-    vertexColors: true,
-    transparent: true,
-    opacity: 0.32,
-    depthWrite: false,
-    blending: AdditiveBlending,
+    ...ADDITIVE_OVER_PAGE,
   });
   readonly #rootMaterial = new SpriteMaterial({
     map: this.#haloCanvas,
     color: colorOf(ORBIT_THEME.root),
     transparent: true,
     depthWrite: false,
-    blending: AdditiveBlending,
+    ...ADDITIVE_OVER_PAGE,
   });
   readonly #selectionMaterial = new SpriteMaterial({
     map: this.#haloCanvas,
     transparent: true,
     depthWrite: false,
     depthTest: false,
-    blending: AdditiveBlending,
+    ...ADDITIVE_OVER_PAGE,
     opacity: 0.7,
   });
   readonly #hoverMaterial = new SpriteMaterial({
@@ -358,7 +394,7 @@ export class OrbitScene {
     transparent: true,
     depthWrite: false,
     depthTest: false,
-    blending: AdditiveBlending,
+    ...ADDITIVE_OVER_PAGE,
     opacity: 0.45,
   });
   readonly #root: Sprite;
@@ -369,7 +405,20 @@ export class OrbitScene {
   #items: SceneItem[] = [];
   #itemByKey = new Map<string, SceneItem>();
   #current = new Map<string, Vector3>();
-  #targets = new Map<string, Vector3>();
+  /** Force session that owns the decision positions; null before data. */
+  #force: OrbitForceSession | null = null;
+  /** Star being dragged, or null. */
+  #dragId: string | null = null;
+  /** Drag plane: through the grabbed star, perpendicular to the view. */
+  readonly #dragPlane = new Plane();
+  /** Where inside the star the pointer grabbed it. */
+  readonly #dragOffset = new Vector3();
+  readonly #dragNormal = new Vector3();
+  readonly #raycaster = new Raycaster();
+  readonly #pointer = new Vector2();
+  readonly #hitPoint = new Vector3();
+  /** Keep the initial fit framing the graph while it relaxes. */
+  #autoFit = false;
   #depths = new Map<string, number>();
   /** Current world position per satellite key. */
   #satellitePositions = new Map<string, Vector3>();
@@ -385,8 +434,10 @@ export class OrbitScene {
   #satelliteBuffer = new Float32Array(0);
   #edgeLines: LineSegments | null = null;
   #edgePositions = new Float32Array(0);
+  #edgeLengths = new Float32Array(0);
   #rootRays: LineSegments | null = null;
   #rootRayPositions = new Float32Array(0);
+  #rootRayLengths = new Float32Array(0);
   #rootIds: string[] = [];
   #selection = new Set<string>();
   #hovered: string | null = null;
@@ -407,7 +458,7 @@ export class OrbitScene {
     transparent: true,
     opacity: 0.6,
     depthWrite: false,
-    blending: AdditiveBlending,
+    ...ADDITIVE_OVER_PAGE,
     vertexColors: true,
     fog: false,
   });
@@ -432,6 +483,7 @@ export class OrbitScene {
   readonly #onWindowBlur: () => void;
   #cameraListener: (() => void) | null = null;
   #frameListener: (() => void) | null = null;
+  #focusListener: (() => void) | null = null;
   #projected = new Vector3();
   #origin = new Vector3();
   #disposed = false;
@@ -493,6 +545,7 @@ export class OrbitScene {
     this.#rootMaterial.opacity = ROOT_OPACITY_BASE;
     this.#scene.add(this.#root);
     this.#selectionMaterial.color.copy(colorOf(this.#theme.highlight));
+    this.#edgeMaterial.uniforms.uHighlight!.value.copy(colorOf(this.#theme.highlight));
     this.#hoverMaterial.color.copy(colorOf(this.#theme.highlight));
     this.#scene.fog = new Fog(colorOf(this.#theme.background), 1, 1000);
     this.#scene.background = null;
@@ -518,17 +571,34 @@ export class OrbitScene {
     fit: boolean,
   ): void {
     const ordered = [...nodes].sort((left, right) => left.id.localeCompare(right.id));
-    const previous = this.#current;
+    const carried = this.#current;
     this.#decisions = ordered;
-    this.#targets = new Map(
-      ordered.map((node) => [node.id, new Vector3(node.x, node.y, node.z)] as const),
-    );
-    const next = new Map<string, Vector3>();
+    // The force session owns the positions from here on; known decisions keep
+    // where they settled, new ones start at their deterministic layout seed.
+    const seed = new Map<string, Vector3>();
     for (const node of ordered) {
-      const target = this.#targets.get(node.id)!;
-      next.set(node.id, previous.get(node.id)?.clone() ?? target.clone());
+      const known = carried.get(node.id);
+      if (known !== undefined) seed.set(node.id, known.clone());
     }
-    this.#current = next;
+    this.#edges = edges.map((edge) => ({ ...edge }));
+    this.#force = new OrbitForceSession(
+      ordered.map((node) => ({
+        id: node.id,
+        x: node.x,
+        y: node.y,
+        z: node.z,
+        depth: node.depth,
+        root: node.root,
+      })),
+      this.#edges,
+      seed,
+    );
+    this.#current = new Map(
+      ordered.map((node) => {
+        const point = this.#force!.positions.get(node.id)!;
+        return [node.id, new Vector3(point.x, point.y, point.z)] as const;
+      }),
+    );
     this.#depths = new Map(ordered.map((node) => [node.id, node.depth] as const));
     this.#satellites = [...satellites].sort((left, right) => left.key.localeCompare(right.key));
     this.#satelliteAngles = new Map(
@@ -552,27 +622,19 @@ export class OrbitScene {
       })),
     ];
     this.#itemByKey = new Map(this.#items.map((item) => [item.key, item] as const));
-    this.#edges = edges.map((edge) => ({ ...edge }));
+    // A focused star can leave the working set entirely; the focus would then
+    // hold the camera on a point nothing draws.
+    if (this.#focusKey !== null && this.#focusKey !== ORBIT_ROOT_ID) {
+      if (!this.#itemByKey.has(this.#focusKey)) this.#setFocus(null);
+    }
     this.#updateSatellitePositions(0);
     this.#rebuildPoints();
     this.#rebuildEdges();
     this.#rebuildRootRays();
     this.#rebuildHalos();
     this.#rebuildTrack();
-    this.#boundsRadius = ORBIT_ROOT_STAR_RADIUS;
-    for (const node of ordered) {
-      const position = this.#targets.get(node.id)!;
-      this.#boundsRadius = Math.max(this.#boundsRadius, position.length() + ORBIT_STAR_RADIUS);
-    }
-    for (const satellite of this.#satellites) {
-      const host =
-        satellite.host === null ? new Vector3() : this.#targets.get(satellite.host)?.clone();
-      if (host === undefined) continue;
-      this.#boundsRadius = Math.max(
-        this.#boundsRadius,
-        host.length() + satellite.radius + ORBIT_STAR_RADIUS,
-      );
-    }
+    this.#updateBounds();
+    this.#autoFit = fit;
     if (fit) this.fitView();
     else this.#syncDistanceLimits();
     this.#queue();
@@ -582,9 +644,9 @@ export class OrbitScene {
     this.#selection = new Set(selection);
     this.#hovered = hovered;
     this.#applyPointColors();
-    // Cross-links join the picture only around an interacted node; their
-    // presence changes with hover/selection, so the edge mesh is rebuilt.
-    this.#rebuildEdges();
+    // Every edge is always drawn; interaction only brightens the related
+    // ones.
+    this.#applyEdgeColors();
     this.#rebuildHalos();
     this.#queue();
   }
@@ -654,16 +716,18 @@ export class OrbitScene {
 
   fitView(): void {
     this.#settleFov();
+    this.#updateBounds();
     const distance = fitDistance(this.#boundsRadius, this.#camera.fov, this.#camera.aspect, 0.96);
     const direction = this.#camera.position.clone().sub(this.#controls.target);
     if (direction.lengthSq() < 1e-9) direction.set(0.55, 0.42, 1);
     this.#controls.target.set(0, 0, 0);
     this.#camera.position.copy(direction.normalize().multiplyScalar(distance));
     this.#zoomTarget = null;
-    this.#focusKey = null;
-    this.#rebuildTrack();
+    this.#setFocus(null);
     this.#fitReference = distance;
     this.#fitFov = this.#camera.fov;
+    // Keep the frame on the graph while the simulation is still relaxing.
+    this.#autoFit = true;
     this.#syncDistanceLimits();
     this.#controls.update();
     this.#queue();
@@ -673,6 +737,7 @@ export class OrbitScene {
    * premise contributes every visible satellite copy. */
   fitSelection(ids: readonly string[]): void {
     this.#settleFov();
+    this.#autoFit = false;
     const points: Vector3[] = [];
     for (const id of ids) {
       const decision = this.#current.get(id);
@@ -708,8 +773,7 @@ export class OrbitScene {
     this.#controls.target.copy(center);
     this.#camera.position.copy(center).add(direction.normalize().multiplyScalar(distance));
     this.#zoomTarget = null;
-    this.#focusKey = null;
-    this.#rebuildTrack();
+    this.#setFocus(null);
     this.#controls.update();
     this.#notifyCamera();
     this.#queue();
@@ -725,9 +789,84 @@ export class OrbitScene {
       this.#current.has(key) ||
       this.#satellites.some((satellite) => satellite.key === key);
     if (!known) return;
-    this.#focusKey = key;
-    this.#rebuildTrack();
-    this.#queue();
+    this.#setFocus(key);
+  }
+
+  /** Move the orbit center onto the star backing a node id, for focuses that
+   * come from outside the canvas. A premise may orbit several hosts; one copy
+   * stands in for the node. */
+  focusOnNode(id: string): boolean {
+    const focused = this.#focusKey === null ? undefined : this.#itemByKey.get(this.#focusKey);
+    if (focused?.id === id) return true;
+    const item = this.#items.find((entry) => entry.id === id);
+    if (item === undefined) return false;
+    this.focusOn(item.key);
+    return true;
+  }
+
+  /** The focused star: its scene key and the data node behind it, or null.
+   * The virtual root has no node. */
+  get focus(): { key: string; id: string | null } | null {
+    if (this.#focusKey === null) return null;
+    return { key: this.#focusKey, id: this.#itemByKey.get(this.#focusKey)?.id ?? null };
+  }
+
+  /** Every drawn star's mark in canvas-local CSS pixels, plus the focused
+   * one. Screen-space overlays place themselves around these. */
+  screenLayout(): OrbitScreenLayout {
+    const stars: OrbitScreenStar[] = [];
+    const nodes: OrbitScreenNode[] = [];
+    let anchor: OrbitScreenStar | null = null;
+    const groundIds = new Set(
+      this.#focusKey === null
+        ? []
+        : this.#edges.filter((edge) => edge.to === this.#focusKey).map((edge) => edge.from),
+    );
+    for (const item of this.#items) {
+      const position = this.#itemPosition(item);
+      if (position === undefined) continue;
+      const star = this.#markOf(item, position);
+      if (star === null) continue;
+      stars.push(star);
+      if (item.key === this.#focusKey) anchor = star;
+      nodes.push({
+        ...star,
+        key: item.key,
+        id: item.id,
+        type: item.satellite === null ? "decision" : "premise",
+        distance: this.#camera.position.distanceTo(position),
+        interacted: this.#selection.has(item.id) || item.id === this.#hovered,
+        ground:
+          item.satellite === null
+            ? groundIds.has(item.id)
+            : item.satellite.host === this.#focusKey && groundIds.has(item.id),
+      });
+    }
+    // The virtual root is drawn too, and is worth keeping clear of.
+    const root = this.#markAt(
+      this.#origin,
+      ORBIT_ROOT_STAR_RADIUS * this.#rootScale * this.#glowScaleAt(this.#origin),
+      ROOT_MARK_RADIUS,
+    );
+    if (root !== null) stars.push(root);
+    return {
+      width: this.#width,
+      height: this.#height,
+      stars,
+      anchor,
+      nodes,
+      referenceDistance: this.#distance(),
+    };
+  }
+
+  /** The focused star's mark alone, for the per-frame overlay updates. */
+  focusScreen(): OrbitScreenStar | null {
+    const key = this.#focusKey;
+    if (key === null) return null;
+    const item = this.#itemByKey.get(key);
+    if (item === undefined) return null;
+    const position = this.#itemPosition(item);
+    return position === undefined ? null : this.#markOf(item, position);
   }
 
   /** Hover state of the display-only virtual root. Its glow only grows a
@@ -739,6 +878,7 @@ export class OrbitScene {
   }
 
   zoomBy(factor: number): void {
+    this.#autoFit = false;
     const base = this.#zoomTarget ?? this.#distance();
     this.#zoomTarget = zoomDistance(
       base,
@@ -770,6 +910,52 @@ export class OrbitScene {
     this.#queue();
   }
 
+  /** Start dragging a decision inside the plane through it that faces the
+   * camera; returns false when nowhere to drag from. */
+  beginDrag(id: string, x: number, y: number): boolean {
+    const position = this.#current.get(id);
+    if (position === undefined || this.#force === null) return false;
+    this.#camera.getWorldDirection(this.#dragNormal);
+    this.#dragPlane.setFromNormalAndCoplanarPoint(this.#dragNormal, position);
+    this.#setRay(x, y);
+    const hit = this.#raycaster.ray.intersectPlane(this.#dragPlane, this.#hitPoint);
+    if (hit === null) return false;
+    // Keep the grabbed point under the pointer instead of snapping the star's
+    // centre onto it.
+    this.#dragOffset.copy(position).sub(hit);
+    this.#dragId = id;
+    this.#autoFit = false;
+    this.#force.pin(id, position);
+    this.#queue();
+    return true;
+  }
+
+  /** Move the dragged star to the pointer, still inside its drag plane. */
+  dragTo(x: number, y: number): void {
+    if (this.#dragId === null || this.#force === null) return;
+    this.#setRay(x, y);
+    const hit = this.#raycaster.ray.intersectPlane(this.#dragPlane, this.#hitPoint);
+    if (hit === null) return;
+    hit.add(this.#dragOffset);
+    this.#force.pin(this.#dragId, hit);
+    this.#current.get(this.#dragId)?.copy(hit);
+    this.#updateSatellitePositions(0);
+    this.#updateBounds();
+    this.#queue();
+  }
+
+  /** Release the dragged star; the forces take it from here. */
+  endDrag(): void {
+    if (this.#dragId === null) return;
+    this.#force?.pin(this.#dragId, null);
+    this.#dragId = null;
+    this.#queue();
+  }
+
+  get dragging(): string | null {
+    return this.#dragId;
+  }
+
   /** Zoom readout: 100% at the fitted distance. */
   get scale(): number {
     return scaleAtDistance(
@@ -790,16 +976,27 @@ export class OrbitScene {
     this.#frameListener = handler;
   }
 
+  /** The orbit center's target changed (a click, a fit, or the focused star
+   * leaving the picture). */
+  onFocusChanged(handler: (() => void) | null): void {
+    this.#focusListener = handler;
+  }
+
   requestRender(): void {
     this.#queue();
   }
 
   dispose(): void {
     this.#disposed = true;
+    this.#force = null;
+    this.#dragId = null;
     if (this.#frame !== 0) cancelAnimationFrame(this.#frame);
     this.#frame = 0;
     this.#halos.clear();
     this.#focusKey = null;
+    this.#cameraListener = null;
+    this.#frameListener = null;
+    this.#focusListener = null;
     this.#satellitePositions.clear();
     this.#satelliteAngles.clear();
     this.#track?.geometry.dispose();
@@ -826,12 +1023,67 @@ export class OrbitScene {
     this.#skyMaterial.dispose();
     this.#edgeLines?.geometry.dispose();
     this.#rootRays?.geometry.dispose();
-    this.#rootRayMaterial.dispose();
     this.#renderer.dispose();
   }
 
   #distance(): number {
     return this.#camera.position.distanceTo(this.#controls.target);
+  }
+
+  /** Aim a picking ray at a canvas-local point. */
+  #setRay(x: number, y: number): void {
+    this.#pointer.set(
+      (x / Math.max(1, this.#width)) * 2 - 1,
+      -(y / Math.max(1, this.#height)) * 2 + 1,
+    );
+    this.#raycaster.setFromCamera(this.#pointer, this.#camera);
+  }
+
+  /** Copy the force positions into the vectors the renderer draws. */
+  #syncForcePositions(): void {
+    if (this.#force === null) return;
+    for (const node of this.#decisions) {
+      const point = this.#force.positions.get(node.id);
+      const current = this.#current.get(node.id);
+      if (point !== undefined && current !== undefined) current.set(point.x, point.y, point.z);
+    }
+  }
+
+  /** Bounds of the decisions and their satellite rings, for fitting. */
+  #updateBounds(): void {
+    let radius = ORBIT_ROOT_STAR_RADIUS;
+    for (const node of this.#decisions) {
+      const position = this.#current.get(node.id);
+      if (position !== undefined) radius = Math.max(radius, position.length() + ORBIT_STAR_RADIUS);
+    }
+    for (const satellite of this.#satellites) {
+      const host = satellite.host === null ? this.#origin : this.#current.get(satellite.host);
+      if (host === undefined) continue;
+      radius = Math.max(radius, host.length() + satellite.radius + ORBIT_STAR_RADIUS);
+    }
+    this.#boundsRadius = radius;
+  }
+
+  /** While the first episode relaxes, keep the whole graph framed: the shape
+   * grows as the forces spread it, and a fixed frame would leave the outer
+   * stars outside the view. Any camera command ends this. */
+  #applyAutoFit(): boolean {
+    if (!this.#autoFit) return false;
+    if (this.#force === null || this.#force.settled) {
+      this.#autoFit = false;
+      return false;
+    }
+    this.#updateBounds();
+    const distance = fitDistance(this.#boundsRadius, this.#camera.fov, this.#camera.aspect, 0.96);
+    const offset = this.#camera.position.clone().sub(this.#controls.target);
+    if (offset.lengthSq() < 1e-9) return false;
+    this.#camera.position
+      .copy(this.#controls.target)
+      .add(offset.normalize().multiplyScalar(distance));
+    this.#fitReference = distance;
+    this.#syncDistanceLimits();
+    this.#notifyCamera();
+    return true;
   }
 
   /** A wheel notch covers roughly a quarter of the current distance; small
@@ -840,6 +1092,7 @@ export class OrbitScene {
    * towards their target in the smooth apply methods instead of snapping. */
   #onWheel(event: WheelEvent): void {
     event.preventDefault();
+    this.#autoFit = false;
     const delta =
       event.deltaMode === 1
         ? event.deltaY * 16
@@ -1041,11 +1294,19 @@ export class OrbitScene {
       colors[index * 6 + 4] = end.g;
       colors[index * 6 + 5] = end.b;
     });
+    const flow = new Float32Array(this.#rootIds.length * 2);
+    fillFlowDirections(flow);
+    const lengths = new Float32Array(this.#rootIds.length * 2);
     const geometry = new BufferGeometry();
     geometry.setAttribute("position", new BufferAttribute(positions, 3));
     geometry.setAttribute("color", new BufferAttribute(colors, 3));
+    geometry.setAttribute("aFlow", new BufferAttribute(flow, 1));
+    geometry.setAttribute("aEdgeLength", new BufferAttribute(lengths, 1));
     this.#rootRayPositions = positions;
-    this.#rootRays = new LineSegments(geometry, this.#rootRayMaterial);
+    this.#rootRayLengths = lengths;
+    // The same flow material as the lineage edges: the roots are the first
+    // step of a lineage, so the pulse leaves the virtual root towards them.
+    this.#rootRays = new LineSegments(geometry, this.#edgeMaterial);
     this.#rootRays.frustumCulled = false;
     this.#rootRays.renderOrder = -1;
     this.#scene.add(this.#rootRays);
@@ -1065,17 +1326,13 @@ export class OrbitScene {
       this.#rootRayPositions[offset + 3] = point.x;
       this.#rootRayPositions[offset + 4] = point.y;
       this.#rootRayPositions[offset + 5] = point.z;
+      const length = point.length();
+      this.#rootRayLengths[index * 2] = length;
+      this.#rootRayLengths[index * 2 + 1] = length;
     });
     rays.geometry.getAttribute("position").needsUpdate = true;
-  }
-
-  #isEdgeVisible(edge: OrbitSceneEdge): boolean {
-    if (edge.primary) return true;
-    return (
-      edge.from === this.#hovered ||
-      edge.to === this.#hovered ||
-      (this.#selection.has(edge.from) && this.#selection.has(edge.to))
-    );
+    const lengthAttribute = rays.geometry.getAttribute("aEdgeLength");
+    if (lengthAttribute !== undefined) lengthAttribute.needsUpdate = true;
   }
 
   #rebuildEdges(): void {
@@ -1084,14 +1341,22 @@ export class OrbitScene {
       this.#edgeLines.geometry.dispose();
       this.#edgeLines = null;
     }
-    this.#visibleEdges = this.#edges.filter((edge) => this.#isEdgeVisible(edge));
+    // Every grounds edge is drawn: the force layout is built on all of them,
+    // not just the genealogy edges.
+    this.#visibleEdges = this.#edges;
     if (this.#visibleEdges.length === 0) return;
     const positions = new Float32Array(this.#visibleEdges.length * 6);
     const colors = new Float32Array(this.#visibleEdges.length * 6);
+    const flow = new Float32Array(this.#visibleEdges.length * 2);
+    fillFlowDirections(flow);
+    const lengths = new Float32Array(this.#visibleEdges.length * 2);
     const geometry = new BufferGeometry();
     geometry.setAttribute("position", new BufferAttribute(positions, 3));
     geometry.setAttribute("color", new BufferAttribute(colors, 3));
+    geometry.setAttribute("aFlow", new BufferAttribute(flow, 1));
+    geometry.setAttribute("aEdgeLength", new BufferAttribute(lengths, 1));
     this.#edgePositions = positions;
+    this.#edgeLengths = lengths;
     this.#edgeLines = new LineSegments(geometry, this.#edgeMaterial);
     this.#edgeLines.frustumCulled = false;
     this.#scene.add(this.#edgeLines);
@@ -1113,9 +1378,16 @@ export class OrbitScene {
         edge.from === this.#hovered ||
         edge.to === this.#hovered ||
         (this.#selection.has(edge.from) && this.#selection.has(edge.to));
-      const weight = edge.primary ? 1 : 0.8;
+      // The focused node's genealogy edge is the thread back towards the
+      // root, so it reads brighter than the rest of the lineage.
+      const parentOfFocus = edge.primary && edge.to === this.#focusKey;
+      const weight = parentOfFocus ? 1.7 : edge.primary ? 1 : 0.45;
       const upstream = base.clone().multiplyScalar(weight * 0.3);
       const downstream = base.clone().multiplyScalar(weight);
+      if (parentOfFocus) {
+        upstream.lerp(highlight, 0.4);
+        downstream.lerp(highlight, 0.65);
+      }
       if (active) {
         upstream.lerp(highlight, 0.55);
         downstream.lerp(highlight, 0.85);
@@ -1140,9 +1412,16 @@ export class OrbitScene {
       this.#edgePositions[offset + 3] = to.x;
       this.#edgePositions[offset + 4] = to.y;
       this.#edgePositions[offset + 5] = to.z;
+      // The pulse is spaced in world units, so long edges carry more pulses
+      // and every edge flows at the same speed.
+      const length = Math.hypot(to.x - from.x, to.y - from.y, to.z - from.z);
+      this.#edgeLengths[index * 2] = length;
+      this.#edgeLengths[index * 2 + 1] = length;
     });
     const attribute = lines.geometry.getAttribute("position");
     attribute.needsUpdate = true;
+    const lengthAttribute = lines.geometry.getAttribute("aEdgeLength");
+    if (lengthAttribute !== undefined) lengthAttribute.needsUpdate = true;
   }
 
   #haloTargetScale(item: SceneItem, kind: HaloState["kind"]): number {
@@ -1257,14 +1536,51 @@ export class OrbitScene {
     return this.#current.get(this.#focusKey) ?? null;
   }
 
+  #setFocus(key: string | null): void {
+    if (this.#focusKey === key) return;
+    this.#focusKey = key;
+    this.#rebuildTrack();
+    this.#applyEdgeColors();
+    this.#queue();
+    this.#focusListener?.();
+  }
+
+  /** Projected mark of one star, or null when it is behind the camera. */
+  #markOf(item: SceneItem, position: Vector3): OrbitScreenStar | null {
+    if (item.satellite === null) {
+      const world = STAR_GLOW_SIZE * this.#glowScaleAt(position);
+      return this.#markAt(position, world, DECISION_MARK_RADIUS);
+    }
+    return this.#markAt(position, SATELLITE_SIZE, SATELLITE_MARK_RADIUS);
+  }
+
+  /** Screen mark of a world-sized glow at `position`; null behind the camera. */
+  #markAt(position: Vector3, worldSize: number, floor: number): OrbitScreenStar | null {
+    this.#projected.copy(position).project(this.#camera);
+    if (this.#projected.z < -1 || this.#projected.z > 1) return null;
+    return {
+      x: (this.#projected.x * 0.5 + 0.5) * this.#width,
+      y: (-this.#projected.y * 0.5 + 0.5) * this.#height,
+      radius: Math.max(floor, this.#screenRadius(worldSize, position)),
+    };
+  }
+
+  /** Screen radius of a world-sized sprite at `position`, in CSS pixels. */
+  #screenRadius(worldSize: number, position: Vector3): number {
+    const depth = Math.max(this.#camera.position.distanceTo(position), 1e-3);
+    const half = Math.tan((this.#camera.fov * Math.PI) / 360);
+    return (GLOW_VISIBLE * worldSize * this.#height) / (4 * depth * half);
+  }
+
   /** Glide the orbit center onto the focused star, carrying the camera by
    * the same offset so the rotation distance and direction stay put. */
   #applySmoothCenter(delta: number): boolean {
-    if (this.#focusKey === null) return false;
+    // A dragged star must not drag the camera along; the view would move
+    // under the pointer that is supposed to place it.
+    if (this.#focusKey === null || this.#dragId !== null) return false;
     const point = this.#focusPosition();
     if (point === null) {
-      this.#focusKey = null;
-      this.#rebuildTrack();
+      this.#setFocus(null);
       return false;
     }
     const moving = glideCenter(
@@ -1299,24 +1615,6 @@ export class OrbitScene {
         host.y + (cos * satellite.axisA.y + sin * satellite.axisB.y) * satellite.radius,
         host.z + (cos * satellite.axisA.z + sin * satellite.axisB.z) * satellite.radius,
       );
-    }
-    return moving;
-  }
-
-  /** Interpolate every decision towards its target position; returns whether
-   * anything is still moving. */
-  #interpolate(delta: number): boolean {
-    let moving = false;
-    const blend = easeBlend(delta, POSITION_TAU_MS);
-    for (const node of this.#decisions) {
-      const current = this.#current.get(node.id);
-      const target = this.#targets.get(node.id);
-      if (current === undefined || target === undefined) continue;
-      if (current.distanceToSquared(target) < 1e-8) current.copy(target);
-      else {
-        current.lerp(target, blend);
-        moving = true;
-      }
     }
     return moving;
   }
@@ -1463,7 +1761,15 @@ export class OrbitScene {
     this.#frame = 0;
     const delta = this.#lastTime === 0 ? 16 : Math.min(64, time - this.#lastTime);
     this.#lastTime = time;
-    const moving = this.#interpolate(delta);
+    // Edge pulses keep flowing even while the layout rests.
+    this.#edgeMaterial.uniforms.uTime!.value = time / 1000;
+    const simulating = this.#force?.step() ?? false;
+    if (simulating) {
+      this.#syncForcePositions();
+      this.#updateBounds();
+      this.#syncDistanceLimits();
+    }
+    const framing = this.#applyAutoFit();
     const revolving = this.#updateSatellitePositions(delta);
     this.#writeItemPositions();
     const centering = this.#applySmoothCenter(delta);
@@ -1476,7 +1782,8 @@ export class OrbitScene {
     if (this.#width > 1) this.#renderer.render(this.#scene, this.#camera);
     this.#frameListener?.();
     if (
-      moving ||
+      simulating ||
+      framing ||
       revolving ||
       centering ||
       glowing ||

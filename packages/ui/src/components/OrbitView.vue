@@ -3,11 +3,13 @@
 // the virtual root, premises as satellites of the decisions they ground.
 // Right drag turns the ball, the wheel changes the camera distance, left
 // click selects and makes the clicked star the orbit center (Ctrl/Cmd
-// toggles, Shift range-selects), the virtual root is clickable too, double
+// toggles, Shift range-selects), left drag moves a decision inside the plane
+// through it that faces the camera, the virtual root is clickable too, double
 // click opens the editor, right click without dragging opens the context
-// menu. Hover shows the summary and feeds the Alt-peek card; the same
-// viewport bridge as the planar canvas serves zoom, fit and shortcuts.
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+// menu. Hover shows the summary and feeds the Alt-peek card; the focused
+// star's content floats in a free spot of the picture (OrbitCallout); the
+// same viewport bridge as the planar canvas serves zoom, fit and shortcuts.
+import { computed, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { injectRequired } from "../context";
 import { peekHide, peekMove } from "../peek";
@@ -20,6 +22,7 @@ import { ORBIT_ROOT_ID, OrbitScene } from "../graph/orbit/scene";
 import type { OrbitPick } from "../graph/orbit/scene";
 import type { NodeType } from "../types";
 import CanvasContextMenu from "./CanvasContextMenu.vue";
+import OrbitCallout from "./OrbitCallout.vue";
 
 const store = injectRequired(storeKey, "store");
 const workspace = injectRequired(workspaceKey, "workspace");
@@ -35,11 +38,18 @@ const hoverInfo = ref<{
   top: number;
 } | null>(null);
 
-let scene: OrbitScene | null = null;
+/** The scene instance, once WebGL is up; the callout overlay reads its
+ * screen geometry through it. */
+const scene = shallowRef<OrbitScene | null>(null);
+/** The orbit center's target, mirrored from the scene for the callout. */
+const focus = shallowRef<{ key: string; id: string | null } | null>(null);
 let resizeObserver: ResizeObserver | null = null;
 let signature = "";
 let hadNodes = false;
 let hoveredId: string | null = null;
+/** An external focus may name a node that the working set has not loaded
+ * yet; retry when the scene next receives data. */
+let pendingFocusId: string | null = null;
 /** Bridge subscribers (zoom readout, FOV control): the scene keeps a single
  * camera listener, so the view fans movement out to all of them. */
 const cameraHandlers = new Set<() => void>();
@@ -52,78 +62,107 @@ const TIP_OFFSET = 16;
 const byId = computed(
   () => new Map(workspace.displayed.value.map((node) => [node.id, node] as const)),
 );
+/** The focused star's node; null for the virtual root and empty space. */
+const focusedNode = computed(() => {
+  const id = focus.value?.id;
+  return id === null || id === undefined ? null : (byId.value.get(id) ?? null);
+});
+/** Summaries for the premise labels around the focused decision. */
+const summaries = computed(
+  () =>
+    new Map(
+      workspace.displayed.value.map(
+        (node) => [node.id, node.summary === "" ? t("node.untitled") : node.summary] as const,
+      ),
+    ),
+);
 
 function rebuild(fit: boolean): void {
-  if (scene === null) return;
+  const current = scene.value;
+  if (current === null) return;
   const displayed = workspace.displayed.value;
   const data = buildOrbitScene(displayed);
   if (!fit && data.signature === signature) return;
   signature = data.signature;
   const firstContent = !hadNodes && data.nodes.length > 0;
   hadNodes = data.nodes.length > 0;
-  scene.setData(data.nodes, data.satellites, data.edges, fit || firstContent);
+  current.setData(data.nodes, data.satellites, data.edges, fit || firstContent);
+  applyPendingFocus();
+}
+
+function applyPendingFocus(): void {
+  if (pendingFocusId === null) return;
+  if (scene.value?.focusOnNode(pendingFocusId) ?? false) pendingFocusId = null;
 }
 
 function ensureScene(): void {
   const host = hostEl.value;
   const canvas = canvasEl.value;
-  if (scene !== null || host === null || canvas === null) return;
-  scene = OrbitScene.create(canvas);
-  if (scene === null) {
+  if (scene.value !== null || host === null || canvas === null) return;
+  const created = OrbitScene.create(canvas);
+  if (created === null) {
     failed.value = true;
     return;
   }
-  scene.resize(host.clientWidth, host.clientHeight);
-  scene.setState(new Set(workspace.state.selection), workspace.state.hoveredId);
-  scene.onCameraChanged(() => {
+  scene.value = created;
+  created.resize(host.clientWidth, host.clientHeight);
+  created.setState(new Set(workspace.state.selection), workspace.state.hoveredId);
+  created.onCameraChanged(() => {
     for (const handler of cameraHandlers) handler();
   });
+  created.onFocusChanged(() => {
+    focus.value = created.focus;
+  });
+  focus.value = created.focus;
   setViewportCommands({
-    zoomBy: (factor) => scene?.zoomBy(factor),
-    fitView: () => scene?.fitView(),
+    zoomBy: (factor) => scene.value?.zoomBy(factor),
+    fitView: () => scene.value?.fitView(),
     fitSelection: () => {
       const selection = workspace.state.selection;
-      if (selection.length > 0) scene?.fitSelection(selection);
-      else scene?.fitView();
+      if (selection.length > 0) scene.value?.fitSelection(selection);
+      else scene.value?.fitView();
     },
     // The minimap is planar-only; nothing navigates orbit space by plane
     // coordinates.
     centerOn: () => {},
-    getOverview: (): OverviewSnapshot | null =>
-      scene === null
+    getOverview: (): OverviewSnapshot | null => {
+      const current = scene.value;
+      return current === null
         ? null
         : {
             nodes: [],
-            camera: { scale: scene.scale, tx: 0, ty: 0 },
-            viewport: scene.viewport,
-          },
+            camera: { scale: current.scale, tx: 0, ty: 0 },
+            viewport: current.viewport,
+          };
+    },
     onCameraChanged: (handler) => {
       cameraHandlers.add(handler);
       return () => {
         cameraHandlers.delete(handler);
       };
     },
-    getFov: () => scene?.fov ?? null,
-    setFov: (fov) => scene?.setFov(fov),
+    getFov: () => scene.value?.fov ?? null,
+    setFov: (fov) => scene.value?.setFov(fov),
   });
   resizeObserver = new ResizeObserver(() => {
     if (host === null) return;
-    scene?.resize(host.clientWidth, host.clientHeight);
+    scene.value?.resize(host.clientWidth, host.clientHeight);
   });
   resizeObserver.observe(host);
   rebuild(true);
 }
 
-function localPoint(event: MouseEvent): { x: number; y: number } {
+function localPoint(event: { clientX: number; clientY: number }): { x: number; y: number } {
   const rect = canvasEl.value?.getBoundingClientRect();
   if (rect === undefined) return { x: 0, y: 0 };
   return { x: event.clientX - rect.left, y: event.clientY - rect.top };
 }
 
 function pick(event: MouseEvent): OrbitPick | null {
-  if (scene === null) return null;
+  const current = scene.value;
+  if (current === null) return null;
   const point = localPoint(event);
-  return scene.pick(point.x, point.y);
+  return current.pick(point.x, point.y);
 }
 
 function clampTip(event: MouseEvent): { left: number; top: number } {
@@ -141,7 +180,7 @@ function hideHover(): void {
   if (hoveredId !== null) peekHide(hoveredId);
   hoveredId = null;
   hoverInfo.value = null;
-  scene?.setRootHover(false);
+  scene.value?.setRootHover(false);
   workspace.unhover();
 }
 
@@ -154,7 +193,7 @@ function updateHover(event: MouseEvent): void {
   const hit = pick(event);
   const id = hit?.id ?? null;
   const overRoot = hit !== null && hit.id === null;
-  scene?.setRootHover(overRoot);
+  scene.value?.setRootHover(overRoot);
   if (id === hoveredId) {
     if (id !== null) {
       peekMove(id, event.clientX, event.clientY);
@@ -195,11 +234,34 @@ function updateHover(event: MouseEvent): void {
 
 let press: { x: number; y: number; button: number } | null = null;
 let rightDragged = false;
+/** Left press that may turn into a node drag once it moves far enough. */
+let dragPress: {
+  id: string;
+  x: number;
+  y: number;
+  pointerId: number;
+  active: boolean;
+} | null = null;
 
 function onPointerDown(event: PointerEvent): void {
   press = { x: event.clientX, y: event.clientY, button: event.button };
   if (event.button === 2) rightDragged = false;
   menu.open = false;
+  if (event.button === 0) {
+    const hit = pick(event);
+    // Only decisions own a body in the force layout; premise satellites stay
+    // where their ring puts them.
+    dragPress =
+      hit !== null && hit.id !== null && byId.value.get(hit.id)?.type === "decision"
+        ? {
+            id: hit.id,
+            x: event.clientX,
+            y: event.clientY,
+            pointerId: event.pointerId,
+            active: false,
+          }
+        : null;
+  }
 }
 
 function onPointerMove(event: PointerEvent): void {
@@ -208,6 +270,29 @@ function onPointerMove(event: PointerEvent): void {
     if (moved > 4 && press.button === 2) {
       rightDragged = true;
       menu.open = false;
+    }
+  }
+  if (dragPress !== null) {
+    if ((event.buttons & 1) === 0) {
+      dragPress = null;
+    } else if (dragPress.active) {
+      const point = localPoint(event);
+      scene.value?.dragTo(point.x, point.y);
+      return;
+    } else if (Math.hypot(event.clientX - dragPress.x, event.clientY - dragPress.y) > 4) {
+      // The plane passes through the star's position at the start of the
+      // drag, so it stays perpendicular to the view for the whole gesture.
+      const start = localPoint({ clientX: dragPress.x, clientY: dragPress.y });
+      if (scene.value?.beginDrag(dragPress.id, start.x, start.y) ?? false) {
+        dragPress.active = true;
+        canvasEl.value?.setPointerCapture?.(dragPress.pointerId);
+        hideHover();
+        setCursor("grabbing");
+        const point = localPoint(event);
+        scene.value?.dragTo(point.x, point.y);
+        return;
+      }
+      dragPress = null;
     }
   }
   // Right drag turns the view: freeze the hover instead of lighting up
@@ -223,6 +308,15 @@ function onPointerMove(event: PointerEvent): void {
 function onPointerUp(event: PointerEvent): void {
   const gesture = press;
   press = null;
+  if (dragPress !== null) {
+    const dragging = dragPress.active;
+    if (dragging) {
+      scene.value?.endDrag();
+      setCursor("default");
+    }
+    dragPress = null;
+    if (dragging) return;
+  }
   if (event.button === 2) {
     // Keep `rightDragged` for the context menu that follows on mouse-up;
     // the next right press resets it.
@@ -239,7 +333,7 @@ function onPointerUp(event: PointerEvent): void {
   if (hit.id === null) {
     // The virtual root is a focus target, not a selectable node.
     if (!event.shiftKey && !event.ctrlKey && !event.metaKey) workspace.clearSelection();
-    scene?.focusOn(ORBIT_ROOT_ID);
+    scene.value?.focusOn(ORBIT_ROOT_ID);
     return;
   }
   const node = byId.value.get(hit.id);
@@ -251,11 +345,19 @@ function onPointerUp(event: PointerEvent): void {
   else workspace.select(node);
   // A click that leaves the star selected also makes it the orbit center;
   // Ctrl/Cmd-clicking a selected star only removes it from the selection.
-  if (!toggle || !wasSelected) scene?.focusOn(hit.key);
+  if (!toggle || !wasSelected) scene.value?.focusOn(hit.key);
 }
 
 function onPointerLeave(): void {
+  // A captured drag keeps its pointer moves even outside the canvas.
+  if (dragPress?.active === true) return;
   hideHover();
+  setCursor("default");
+}
+
+function onPointerCancel(): void {
+  if (dragPress?.active === true) scene.value?.endDrag();
+  dragPress = null;
   setCursor("default");
 }
 
@@ -296,7 +398,17 @@ watch(
 );
 watch(
   () => [workspace.state.selection, workspace.state.hoveredId] as const,
-  ([selection, hovered]) => scene?.setState(new Set(selection), hovered),
+  ([selection, hovered]) => scene.value?.setState(new Set(selection), hovered),
+);
+// A "locate" from the resource list, selection list, palette or review drawer
+// changes only the shared focus. Bring the orbit center there too; a plain
+// click inside the canvas has already focused the star and is a no-op here.
+watch(
+  () => workspace.state.focusId,
+  (id) => {
+    pendingFocusId = id;
+    applyPendingFocus();
+  },
 );
 
 onBeforeUnmount(() => {
@@ -307,8 +419,9 @@ onBeforeUnmount(() => {
   if (hoveredId !== null) peekHide(hoveredId);
   hoveredId = null;
   workspace.unhover();
-  scene?.dispose();
-  scene = null;
+  scene.value?.dispose();
+  scene.value = null;
+  focus.value = null;
 });
 </script>
 
@@ -321,6 +434,7 @@ onBeforeUnmount(() => {
       @pointermove="onPointerMove"
       @pointerup="onPointerUp"
       @pointerleave="onPointerLeave"
+      @pointercancel="onPointerCancel"
       @contextmenu="onContextMenu"
       @dblclick="onDoubleClick"
     />
@@ -332,6 +446,7 @@ onBeforeUnmount(() => {
       <span class="kind">{{ t(`node.${hoverInfo.type}`) }}</span>
       <span class="summary">{{ hoverInfo.summary }}</span>
     </div>
+    <OrbitCallout v-if="scene !== null" :scene="scene" :node="focusedNode" :summaries="summaries" />
     <CanvasContextMenu
       v-if="menu.open"
       :x="menu.x"

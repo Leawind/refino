@@ -34,7 +34,6 @@ describe("buildOrbitScene", () => {
     }
     expect(scene.satellites).toHaveLength(1);
     expect(scene.satellites[0]).toMatchObject({ id: "P1", host: "A" });
-    expect(scene.radius).toBeGreaterThan(0);
   });
 
   it("gives a shared premise one satellite per consumer decision", () => {
