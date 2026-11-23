@@ -1,29 +1,20 @@
 <script setup lang="ts">
-// The single resource explorer (DESIGN.md, "布局"): one list for decisions
-// and premises with a type filter and the unreferenced-premises quick view.
-// Listings come from the paginated /api/search endpoint — the full graph is
-// never loaded. Rows expand into the inline editor (single accordion);
-// expansion never touches the panel width. Alt+hover peeks a row's node
-// unless the row is expanded (an editing surface never peeks). Width is
-// a percentage of the whole interface; dragging below the minimum collapses
-// it to a floating round button, and the panel can dock or float.
-import { computed, onBeforeUnmount, ref, watch } from "vue";
+// The finder panel (ui DESIGN.md, "布局"): one searchable list for every
+// node plus the create actions, pinned in the left column. It answers
+// "where is it" only — the node itself is read and written in the right
+// pane, so rows stay one line and carry no editor. Listings come from the
+// paginated /api/search endpoint; the full graph is never loaded.
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { NButton, NIcon, NInput, NPopselect, NSpin } from "naive-ui";
-import {
-  AddOutline,
-  ChevronBackOutline,
-  ChevronForwardOutline,
-  OpenOutline,
-  ScanOutline,
-} from "@vicons/ionicons5";
-import { clientKey, type RefinoClient } from "../api";
+import { NButton, NIcon, NInput, NSpin } from "naive-ui";
+import { AddOutline, ChevronForwardOutline, SearchOutline } from "@vicons/ionicons5";
+import { clientKey } from "../api";
 import { injectRequired } from "../context";
-import { useMenuEscape } from "../menuEscape";
 import { peekHide, peekMove } from "../peek";
+import { readNumberPreference, readPreference, writePreference } from "../preferences";
 import { storeKey } from "../store";
 import { workspaceKey } from "../workspace";
-import InlineNodeForm from "./InlineNodeForm.vue";
+import FinderHead from "./FinderHead.vue";
 import type { NodeType, SearchNode } from "../types";
 
 const client = injectRequired(clientKey, "client");
@@ -31,58 +22,29 @@ const store = injectRequired(storeKey, "store");
 const workspace = injectRequired(workspaceKey, "workspace");
 const { t } = useI18n();
 
-const MIN_PERCENT = 4;
-const MAX_PERCENT = 40;
 const PAGE_SIZE = 50;
 const DEBOUNCE_MS = 250;
-
-const SIDE = "left";
+const WIDTH_KEY = "refino.finder.width";
+const COLLAPSED_KEY = "refino.finder.collapsed";
+const WIDTH_MIN = 220;
+const WIDTH_MAX = 460;
 
 const rootEl = ref<HTMLElement | null>(null);
-const widthPercent = ref(20);
-const collapsed = ref(false);
-const floating = ref(false);
+const collapsed = ref(readPreference<string>(COLLAPSED_KEY, "false") === "true");
+const width = ref(clampWidth(readNumberPreference(WIDTH_KEY, 288)));
+const searchEl = ref<InstanceType<typeof NInput> | null>(null);
+
+function clampWidth(value: number): number {
+  return Math.min(WIDTH_MAX, Math.max(WIDTH_MIN, value));
+}
+
+const style = computed(() => (collapsed.value ? undefined : { width: `${width.value}px` }));
+
 const query = ref("");
 
 /** "all" lists both types; the unreferenced view implies premises. */
 const typeFilter = ref<"all" | NodeType>("all");
-/** Controlled so Escape can close the menu (useMenuEscape). */
-const typeMenuOpen = ref(false);
 const unreferencedOnly = ref(false);
-const filterOptions = computed(() => [
-  { label: t("explorer.all"), value: "all" },
-  { label: t("node.decisions"), value: "decision" },
-  { label: t("node.premises"), value: "premise" },
-]);
-const typeLabel = computed(
-  () =>
-    filterOptions.value.find((option) => option.value === typeFilter.value)?.label ??
-    t("explorer.all"),
-);
-
-const widthStyle = computed(() => ({ width: `${widthPercent.value}%` }));
-
-const panelStyle = computed(() => {
-  if (collapsed.value) {
-    return {
-      position: "absolute" as const,
-      top: "8px",
-      [`${SIDE}`]: "8px",
-      zIndex: 10,
-    };
-  }
-  if (floating.value) {
-    return {
-      position: "absolute" as const,
-      top: "8px",
-      bottom: "8px",
-      [`${SIDE}`]: "8px",
-      zIndex: 15,
-      ...widthStyle.value,
-    };
-  }
-  return widthStyle.value;
-});
 
 const items = ref<SearchNode[]>([]);
 const nextCursor = ref<string | undefined>(undefined);
@@ -94,6 +56,12 @@ let searchToken = 0;
 const effectiveType = computed<"premise" | "decision" | undefined>(() =>
   unreferencedOnly.value ? "premise" : typeFilter.value === "all" ? undefined : typeFilter.value,
 );
+
+const scopes = computed(() => [
+  { value: "all" as const, label: t("explorer.all") },
+  { value: "decision" as const, label: t("node.decisions") },
+  { value: "premise" as const, label: t("node.premises") },
+]);
 
 async function fetchPage(
   cursor: string | undefined,
@@ -114,7 +82,7 @@ async function fetchPage(
     nextCursor.value = page.nextCursor;
     return page.nodes;
   } catch {
-    // Sidebar listings are best-effort; keep the previous page on failure.
+    // The listing is best-effort; keep the previous page on failure.
     return null;
   } finally {
     if (token === searchToken) loading.value = false;
@@ -161,46 +129,17 @@ function onScroll(event: Event): void {
   void fetchPage(nextCursor.value, false);
 }
 
-function toggleCollapsed(): void {
-  collapsed.value = !collapsed.value;
+function setScope(value: "all" | NodeType): void {
+  typeFilter.value = value;
+  unreferencedOnly.value = false;
 }
 
-/** The quick view fixes the type to premises, so clear any narrower type
- * filter at the same time; otherwise the dropdown would still claim the type
- * the list stopped using. */
+/** The quick view fixes the type to premises, so it clears any narrower
+ * filter at the same time; otherwise the chips would disagree. */
 function toggleUnreferenced(): void {
   unreferencedOnly.value = !unreferencedOnly.value;
   if (unreferencedOnly.value) typeFilter.value = "premise";
 }
-
-useMenuEscape(typeMenuOpen);
-
-let startX = 0;
-let startPercent = 0;
-
-function onResizeStart(event: MouseEvent): void {
-  startX = event.clientX;
-  startPercent = widthPercent.value;
-  document.addEventListener("mousemove", onResizeMove);
-  document.addEventListener("mouseup", onResizeEnd);
-}
-
-function onResizeMove(event: MouseEvent): void {
-  const delta = event.clientX - startX;
-  const base = rootEl.value?.parentElement?.clientWidth ?? 1;
-  const percent = startPercent + (delta / base) * 100;
-  widthPercent.value = Math.min(MAX_PERCENT, Math.max(MIN_PERCENT, percent));
-}
-
-function onResizeEnd(): void {
-  document.removeEventListener("mousemove", onResizeMove);
-  document.removeEventListener("mouseup", onResizeEnd);
-}
-
-onBeforeUnmount(() => {
-  clearTimeout(debounceTimer);
-  onResizeEnd();
-});
 
 function select(node: SearchNode): void {
   workspace.select(node);
@@ -216,125 +155,95 @@ async function onSearchEnter(): Promise<void> {
   if (first !== undefined) select(first);
 }
 
-/** Double click opens the modal editor (DESIGN.md, "细节三层模型"). */
+/** Double click opens the editor sheet (ui DESIGN.md, "编辑功能"). The sheet
+ * selects the node only once it actually takes over, so clicking while a
+ * draft is open does not move the canvas focus for nothing. */
 function open(node: SearchNode): void {
-  select(node);
-  store.openDetail(node.id);
-}
-
-/** Expand the row into the inline editor; expanding selects the node. */
-function toggleExpand(node: SearchNode): void {
-  if (store.state.inlineId === node.id) store.collapseInline();
-  else {
-    select(node);
-    // The expanded row is an editing surface; it never peeks.
-    peekHide(node.id);
-    store.expandInline(node.id);
-  }
+  store.openEditor(node.id);
 }
 
 function onRowMove(event: MouseEvent, node: SearchNode): void {
-  // An expanded row shows the node's content already — no peek over it.
-  if (store.state.inlineId === node.id) return;
   peekMove(node.id, event.clientX, event.clientY);
 }
 
-function onRowLeave(node: SearchNode): void {
-  peekHide(node.id);
+function setCollapsed(value: boolean): void {
+  collapsed.value = value;
+  writePreference(COLLAPSED_KEY, String(value));
 }
 
-/** The edit session belongs to this row (expanded, or a kept draft). */
-function sessionBelongsTo(node: SearchNode): boolean {
-  return store.state.detail.id === node.id;
+/** A collapsed rail can still reach search. */
+async function expandAndSearch(): Promise<void> {
+  setCollapsed(false);
+  await nextTick();
+  searchEl.value?.focus();
 }
 
-function isDirty(node: SearchNode): boolean {
-  return sessionBelongsTo(node) && store.isDirty(node.id);
+let startX = 0;
+let startWidth = 0;
+
+function onResizeStart(event: MouseEvent): void {
+  startX = event.clientX;
+  startWidth = width.value;
+  window.addEventListener("mousemove", onResizeMove);
+  window.addEventListener("mouseup", onResizeEnd);
 }
+
+function onResizeMove(event: MouseEvent): void {
+  width.value = clampWidth(startWidth + (event.clientX - startX));
+}
+
+function onResizeEnd(): void {
+  writePreference(WIDTH_KEY, String(width.value));
+  window.removeEventListener("mousemove", onResizeMove);
+  window.removeEventListener("mouseup", onResizeEnd);
+}
+
+onBeforeUnmount(() => {
+  clearTimeout(debounceTimer);
+  onResizeEnd();
+});
 </script>
 
 <template>
-  <aside ref="rootEl" class="panel" :class="[SIDE, { collapsed, floating }]" :style="panelStyle">
+  <aside ref="rootEl" class="finder" :class="{ collapsed }" :style="style">
     <template v-if="!collapsed">
-      <div class="head">
-        <span class="title">{{ t("explorer.title") }}</span>
-        <NButton
-          circle
-          size="tiny"
-          class="head-btn collapse"
-          :title="t('app.collapse')"
-          @click="toggleCollapsed"
-        >
-          <NIcon :component="ChevronBackOutline" />
-        </NButton>
-        <span class="head-actions">
-          <NButton
-            circle
-            size="tiny"
-            class="head-btn"
-            :title="floating ? t('app.dock') : t('app.float')"
-            @click="floating = !floating"
-          >
-            <NIcon :component="floating ? ScanOutline : OpenOutline" />
-          </NButton>
-        </span>
-      </div>
+      <FinderHead @collapse="setCollapsed(true)" />
+
       <div class="search">
         <NInput
+          ref="searchEl"
           v-model:value="query"
           size="small"
           clearable
           :placeholder="t('sidebar.search')"
           @keydown.enter="onSearchEnter"
-        />
-        <div class="filters">
-          <NPopselect
-            v-model:show="typeMenuOpen"
-            :value="typeFilter"
-            :options="filterOptions"
-            trigger="click"
-            @update:value="
-              (value: 'all' | NodeType) => ((typeFilter = value), (unreferencedOnly = false))
-            "
+        >
+          <template #prefix>
+            <NIcon :component="SearchOutline" :size="14" />
+          </template>
+        </NInput>
+        <div class="scopes">
+          <button
+            v-for="scope in scopes"
+            :key="scope.value"
+            class="ui-chip"
+            :class="{ 'is-on': !unreferencedOnly && typeFilter === scope.value }"
+            @click="setScope(scope.value)"
           >
-            <NButton size="tiny" quaternary>{{ typeLabel }}</NButton>
-          </NPopselect>
-          <NButton
-            size="tiny"
-            :quaternary="!unreferencedOnly"
-            :type="unreferencedOnly ? 'primary' : 'default'"
-            :secondary="unreferencedOnly"
+            {{ scope.label }}
+          </button>
+          <button
+            class="ui-chip"
+            :class="{ 'is-on': unreferencedOnly }"
+            :title="t('explorer.unreferenced')"
             @click="toggleUnreferenced"
           >
             {{ t("explorer.unreferenced") }}
-          </NButton>
+          </button>
         </div>
       </div>
+
       <ul class="list" @scroll="onScroll">
-        <li class="create-item">
-          <div class="create-row">
-            <NButton
-              dashed
-              size="small"
-              class="create"
-              :title="t('node.createDecision')"
-              @click="store.startCreate('decision')"
-            >
-              <NIcon :component="AddOutline" />
-              {{ t("node.decision") }}
-            </NButton>
-            <NButton
-              dashed
-              size="small"
-              class="create"
-              :title="t('node.createPremise')"
-              @click="store.startCreate('premise')"
-            >
-              <NIcon :component="AddOutline" />
-              {{ t("node.premise") }}
-            </NButton>
-          </div>
-        </li>
         <li
           v-for="nodeItem in items"
           :key="nodeItem.id"
@@ -342,35 +251,21 @@ function isDirty(node: SearchNode): boolean {
           :class="{
             selected: workspace.state.selection.includes(nodeItem.id),
             focused: workspace.state.focusId === nodeItem.id,
-            expanded: store.state.inlineId === nodeItem.id,
           }"
           @click="select(nodeItem)"
           @dblclick="open(nodeItem)"
           @mousemove="onRowMove($event, nodeItem)"
-          @mouseleave="onRowLeave(nodeItem)"
+          @mouseleave="peekHide(nodeItem.id)"
         >
-          <div class="row">
-            <button
-              class="chevron"
-              :class="{ open: store.state.inlineId === nodeItem.id }"
-              :title="t('inline.toggle')"
-              @click.stop="toggleExpand(nodeItem)"
-            >
-              <NIcon :component="ChevronForwardOutline" />
-            </button>
-            <span
-              class="type-dot"
-              :class="nodeItem.type"
-              :title="t(nodeItem.type === 'decision' ? 'node.decision' : 'node.premise')"
-            />
-            <div class="texts">
-              <div class="summary">
-                {{ nodeItem.summary === "" ? t("node.untitled") : nodeItem.summary }}
-                <span v-if="isDirty(nodeItem)" class="dirty" :title="t('inline.dirty')">◐</span>
-              </div>
-            </div>
-          </div>
-          <InlineNodeForm :node-id="nodeItem.id" />
+          <span
+            class="glyph"
+            :class="nodeItem.type"
+            :title="t(nodeItem.type === 'decision' ? 'node.decision' : 'node.premise')"
+          />
+          <span class="summary" :title="nodeItem.summary">
+            {{ nodeItem.summary === "" ? t("node.untitled") : nodeItem.summary }}
+          </span>
+          <span v-if="store.isDirty(nodeItem.id)" class="dirty" :title="t('inline.dirty')" />
         </li>
         <li v-if="items.length === 0 && !loading" class="no-results">
           {{ t("explorer.noResults") }}
@@ -379,195 +274,148 @@ function isDirty(node: SearchNode): boolean {
           <NSpin size="small" />
         </li>
       </ul>
+
+      <footer class="create">
+        <button class="create-btn" @click="store.startCreate('decision')">
+          <NIcon :component="AddOutline" :size="14" />
+          {{ t("node.decision") }}
+        </button>
+        <button class="create-btn" @click="store.startCreate('premise')">
+          <NIcon :component="AddOutline" :size="14" />
+          {{ t("node.premise") }}
+        </button>
+      </footer>
+
+      <div class="resize" @mousedown.prevent="onResizeStart" />
     </template>
-    <template v-else>
-      <NButton circle size="small" class="expand" :title="t('app.expand')" @click="toggleCollapsed">
+
+    <div v-else class="rail">
+      <button class="ui-icon-btn" :title="t('app.expand')" @click="setCollapsed(false)">
         <NIcon :component="ChevronForwardOutline" />
-      </NButton>
-    </template>
-    <div v-if="!collapsed" class="resize-handle" @mousedown.prevent="onResizeStart" />
+      </button>
+      <button class="ui-icon-btn" :title="t('sidebar.search')" @click="expandAndSearch">
+        <NIcon :component="SearchOutline" />
+      </button>
+      <span class="rail-spacer" />
+      <button
+        class="ui-icon-btn"
+        :title="t('node.createDecision')"
+        @click="store.startCreate('decision')"
+      >
+        <NIcon :component="AddOutline" />
+      </button>
+    </div>
   </aside>
 </template>
 
 <style scoped>
-.panel {
+.finder {
   flex: none;
   position: relative;
   display: flex;
   flex-direction: column;
   min-height: 0;
   min-width: 0;
+  background: var(--refino-surface);
   border-right: 1px solid var(--refino-border);
   box-sizing: border-box;
 }
 
-.panel.floating {
-  background: var(--refino-surface);
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.25);
-  border-radius: var(--refino-radius);
-  border: 1px solid var(--refino-border);
-}
-
-.panel.collapsed {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  background: transparent;
-}
-
-.expand {
-  background: var(--refino-surface) !important;
-}
-
-.head {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  padding: 8px 8px 0;
-}
-
-.head-btn {
-  background: var(--refino-surface) !important;
-}
-
-.collapse {
-  position: absolute;
-  left: 8px;
-}
-
-.title {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-}
-
-.head-actions {
-  display: flex;
-  align-items: center;
-  gap: 2px;
+.finder.collapsed {
+  width: 44px;
 }
 
 .search {
-  padding: 8px 8px 4px;
+  flex: none;
+  padding: 10px 10px 8px;
 }
 
-.filters {
+.scopes {
   display: flex;
-  align-items: center;
   gap: 4px;
-  margin-top: 4px;
+  margin-top: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.scopes::-webkit-scrollbar {
+  display: none;
 }
 
 .list {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   margin: 0;
-  padding: 4px 6px 6px;
+  padding: 2px 6px 10px;
   list-style: none;
   user-select: none;
 }
 
-.create-item {
-  margin: 0 2px 6px;
-  list-style: none;
-}
-
-.create-row {
-  display: flex;
-  gap: 6px;
-}
-
-.create {
-  flex: 1;
-}
-
 .item {
-  padding: 0;
-  border-radius: var(--refino-radius);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 4px 8px;
+  border-radius: var(--refino-radius-sm);
   cursor: pointer;
 }
 
-.row {
-  display: flex;
-  align-items: flex-start;
-  gap: 4px;
-  padding: 6px 8px;
+.item:hover {
+  background: var(--refino-surface-raised);
 }
 
-.item:hover .row {
-  background: rgba(128, 128, 128, 0.12);
-}
-
-.item.selected .row {
-  background: rgba(24, 160, 88, 0.15);
+.item.selected {
+  background: var(--refino-accent-soft);
 }
 
 /* The focus is the last selection entry; an inset accent marks it without
  * shifting the row's text when the focus moves. */
-.item.focused .row {
-  box-shadow: inset 2px 0 0 var(--refino-primary, #18a058);
+.item.focused {
+  box-shadow: inset 2px 0 0 var(--refino-primary);
 }
 
-.chevron {
-  flex: none;
-  width: 16px;
-  height: 20px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-  font-size: 13px;
-  padding: 0;
-  opacity: 0.55;
-}
-
-.chevron:hover {
-  opacity: 1;
-}
-
-.chevron.open {
-  transform: rotate(90deg);
-}
-
-.type-dot {
+.glyph {
   flex: none;
   width: 6px;
   height: 6px;
-  margin-top: 7px;
   border-radius: 50%;
-  background: var(--refino-primary, #18a058);
+  background: var(--refino-text-faint);
 }
 
-.type-dot.premise {
-  background: #8a97a8;
+.glyph.decision {
+  border-radius: 1px;
+  transform: rotate(45deg);
+  background: var(--refino-primary);
 }
 
-.texts {
-  flex: 1;
-  min-width: 0;
+.item.selected .glyph {
+  background: var(--refino-primary);
 }
 
 .summary {
+  flex: 1;
+  min-width: 0;
   font-size: 13px;
+  line-height: 1.4;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .dirty {
-  color: #f0a020;
-  margin-left: 4px;
+  flex: none;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--refino-warn);
 }
 
 .no-results {
-  padding: 14px 8px;
+  padding: 18px 8px;
   font-size: 12px;
-  opacity: 0.6;
+  color: var(--refino-text-faint);
   text-align: center;
 }
 
@@ -577,7 +425,39 @@ function isDirty(node: SearchNode): boolean {
   padding: 8px;
 }
 
-.resize-handle {
+/* Creation is authoring's primary verb: pinned at the panel's foot. */
+.create {
+  flex: none;
+  display: flex;
+  gap: 6px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--refino-border);
+}
+
+.create-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 30px;
+  border: 1px dashed var(--refino-border-strong);
+  border-radius: var(--refino-radius-sm);
+  background: transparent;
+  color: var(--refino-text-dim);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.create-btn:hover {
+  border-color: var(--refino-primary);
+  border-style: solid;
+  color: var(--refino-primary);
+  background: var(--refino-accent-soft);
+}
+
+.resize {
   position: absolute;
   top: 0;
   bottom: 0;
@@ -587,7 +467,21 @@ function isDirty(node: SearchNode): boolean {
   z-index: 5;
 }
 
-.resize-handle:hover {
-  background: rgba(24, 160, 88, 0.25);
+.resize:hover {
+  background: var(--refino-accent-soft);
+}
+
+/* The collapsed rail keeps search and creation one click away. */
+.rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  height: 100%;
+  padding: 8px 0;
+}
+
+.rail-spacer {
+  flex: 1;
 }
 </style>

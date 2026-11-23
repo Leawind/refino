@@ -1,35 +1,26 @@
 <script setup lang="ts">
-// Status pill: canvas statistics and warnings (truncation, render culling,
-// issue count, current focus). Sits in the bottom-left float corner. The
-// issue count expands a problem list whose entries locate their node on the
-// canvas (ui DESIGN.md, "布局"); everything else stays read-only.
+// Canvas status line: the few facts about the map that the map itself does
+// not show — decision count, truncation and render-budget warnings, the
+// validation issues, the change-feed state. Quiet by design: it sits at the
+// bottom-left edge and never asks for attention (ui DESIGN.md, "布局").
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { NButton, NPopover } from "naive-ui";
+import { NButton, NIcon, NPopover } from "naive-ui";
+import { HelpCircleOutline } from "@vicons/ionicons5";
 import { injectRequired } from "../context";
+import { toggleHelp } from "../help";
 import { useMenuEscape } from "../menuEscape";
 import { renderCulled } from "../renderStatus";
 import { workspaceKey } from "../workspace";
 
 const { t } = useI18n();
-
 const workspace = injectRequired(workspaceKey, "workspace");
 
 const decisionCount = computed(
-  () => workspace.displayed.value.filter((n) => n.type === "decision").length,
+  () => workspace.displayed.value.filter((node) => node.type === "decision").length,
 );
 
-/** The focus is the last selection entry; present it by summary like every
- * other list surface (ui DESIGN.md, "显示规则与样式" keeps ids out of them). */
-const focusLabel = computed(() => {
-  const node = workspace.selectedNodes.value.find(
-    (candidate) => candidate.id === workspace.state.focusId,
-  );
-  if (node === undefined) return null;
-  return node.summary === "" ? t("node.untitled") : node.summary;
-});
-
-/** List surfaces name nodes by summary; a raw id is only a last resort for
+/** List surfaces name nodes by summary; a raw id is only the last resort for
  * nodes the working set has never seen. */
 function labelOf(id: string): string {
   const node = workspace.displayed.value.find((candidate) => candidate.id === id);
@@ -76,14 +67,12 @@ function locate(id: string): void {
 </script>
 
 <template>
-  <div class="status-pill">
-    <span>{{ t("status.decisions") }}: {{ decisionCount }}</span>
-    <span v-if="workspace.state.truncated" class="issues">
+  <div class="status">
+    <span class="count">{{ decisionCount }} {{ t("status.decisions") }}</span>
+    <span v-if="workspace.state.truncated" class="warn">
       {{ t("canvas.truncated") }}
     </span>
-    <span v-if="renderCulled" class="issues">
-      {{ t("canvas.renderCulled") }}
-    </span>
+    <span v-if="renderCulled" class="warn">{{ t("canvas.renderCulled") }}</span>
     <NPopover
       v-if="workspace.state.issues.length > 0"
       v-model:show="issuesOpen"
@@ -91,14 +80,13 @@ function locate(id: string): void {
       placement="top-start"
       :show-arrow="false"
       raw
-      class="issue-popover"
     >
       <template #trigger>
-        <button class="issues issue-trigger" :title="t('status.issues')">
-          {{ t("status.issues") }}: {{ workspace.state.issues.length }}
+        <button class="issue-trigger" :title="t('status.issues')">
+          {{ workspace.state.issues.length }} {{ t("status.issues") }}
         </button>
       </template>
-      <div class="issue-panel">
+      <div class="issue-panel ui-panel">
         <div v-for="row in issueRows" :key="row.node ?? row.messages[0]" class="issue-row">
           <div class="issue-texts">
             <span v-if="row.node !== null" class="issue-node" :class="{ mono: row.unknown }">
@@ -114,35 +102,43 @@ function locate(id: string): void {
         </div>
       </div>
     </NPopover>
-    <span v-if="focusLabel !== null" class="focus" :title="focusLabel">
-      {{ t("status.selected") }}: {{ focusLabel }}
-    </span>
-    <span class="hint">{{ t("app.peekHint") }}</span>
+    <span
+      class="link"
+      :class="{ off: !workspace.state.connected }"
+      :title="workspace.state.connected ? t('status.live') : t('status.offline')"
+    />
+    <button class="help" :title="t('app.shortcuts')" @click="toggleHelp">
+      <NIcon :component="HelpCircleOutline" :size="13" />
+    </button>
   </div>
 </template>
 
 <style scoped>
-.status-pill {
+.status {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 4px 12px;
-  font-size: 12px;
-  border-radius: var(--refino-radius);
-  background: var(--refino-surface);
+  gap: 10px;
+  height: 24px;
+  padding: 0 9px;
+  font-size: 11px;
+  color: var(--refino-text-dim);
+  border-radius: var(--refino-radius-sm);
+  background: var(--refino-control-bg);
   border: 1px solid var(--refino-border);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--refino-shadow-1);
+  font-variant-numeric: tabular-nums;
+  user-select: none;
 }
 
-.status-pill .issues {
-  color: #d03050;
+.warn {
+  color: var(--refino-warn);
 }
 
 /* The issue count is a popover trigger styled like the surrounding text. */
 .issue-trigger {
   border: none;
   background: transparent;
-  color: #d03050;
+  color: var(--refino-danger);
   font: inherit;
   padding: 0;
   cursor: pointer;
@@ -152,20 +148,38 @@ function locate(id: string): void {
   text-decoration: underline;
 }
 
+/* Change-feed dot: green while the SSE stream is open. */
+.link {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--refino-primary);
+}
+
+.link.off {
+  background: var(--refino-text-faint);
+}
+
+.help {
+  display: inline-flex;
+  align-items: center;
+  border: none;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  cursor: pointer;
+  opacity: 0.7;
+}
+
+.help:hover {
+  opacity: 1;
+  color: var(--refino-text);
+}
+
 .mono {
-  font-family: monospace;
+  font-family: var(--refino-font-mono);
 }
 
-/* Focus summaries can be long; the pill keeps its footprint by truncating
- * instead of widening across the canvas. */
-.focus {
-  max-width: 260px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Raw popover: the panel carries its own surface styling. */
 .issue-panel {
   max-width: 420px;
   max-height: 50vh;
@@ -175,10 +189,6 @@ function locate(id: string): void {
   gap: 6px;
   padding: 10px 12px;
   font-size: 12px;
-  background: var(--refino-surface);
-  border: 1px solid var(--refino-border);
-  border-radius: var(--refino-radius);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
 }
 
 .issue-row {
@@ -196,10 +206,10 @@ function locate(id: string): void {
 }
 
 .issue-node {
-  opacity: 0.6;
+  color: var(--refino-text-dim);
 }
 
 .issue-message {
-  color: #d03050;
+  color: var(--refino-danger);
 }
 </style>

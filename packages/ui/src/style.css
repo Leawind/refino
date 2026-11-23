@@ -1,13 +1,28 @@
 :root {
-  --refino-border: rgba(0, 0, 0, 0.1);
-  --refino-radius: 8px;
   --refino-primary: #18a058;
+  /* Accent fills: selection tint and the mark on a focused row. */
+  --refino-accent-soft: rgba(24, 160, 88, 0.12);
+  --refino-accent-line: rgba(24, 160, 88, 0.55);
+  --refino-danger: #d03050;
+  --refino-warn: #b9790b;
+
+  --refino-radius-sm: 6px;
+  --refino-radius: 8px;
+  --refino-radius-lg: 12px;
+
+  --refino-border: rgba(17, 24, 39, 0.09);
+  --refino-border-strong: rgba(17, 24, 39, 0.16);
   --refino-surface: #ffffff;
+  /* Raised tint for hover fills and inset blocks inside a surface. */
+  --refino-surface-raised: #f2f4f6;
+  --refino-text: #1f2430;
+  --refino-text-dim: rgba(31, 36, 48, 0.62);
+  --refino-text-faint: rgba(31, 36, 48, 0.42);
+
   /* The canvas is a step darker than the panels so opaque node cards and
    * floating layers read as objects lying on it. */
-  --refino-canvas-bg: #eff1f4;
-  /* Decision nodes are opaque cards on the canvas; premises are not
-   * displayed on the canvas (README, "显示规则与样式"). */
+  --refino-canvas-bg: #eef0f3;
+  /* Decision nodes are opaque cards on the canvas. */
   --refino-node-bg: #ffffff;
   --refino-node-border: rgba(15, 23, 42, 0.3);
   --refino-edge: rgba(15, 23, 42, 0.35);
@@ -19,19 +34,45 @@
   --refino-control-bg: #ffffff;
   --refino-control-bg-hover: #f1f3f6;
   --refino-control-bg-pressed: #e7eaef;
+
+  --refino-shadow-1: 0 1px 2px rgba(17, 24, 39, 0.06);
+  --refino-shadow-2: 0 6px 24px rgba(17, 24, 39, 0.12);
+
+  --refino-font-ui:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  --refino-font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+
+  color-scheme: light;
 }
 
 :root[data-theme="dark"] {
-  --refino-border: rgba(255, 255, 255, 0.12);
-  --refino-surface: rgb(24, 24, 28);
-  --refino-canvas-bg: rgb(16, 16, 20);
-  --refino-node-bg: rgb(34, 34, 40);
+  --refino-primary: #36ad78;
+  --refino-accent-soft: rgba(54, 173, 120, 0.16);
+  --refino-accent-line: rgba(54, 173, 120, 0.6);
+  --refino-danger: #e0607a;
+  --refino-warn: #d5a03a;
+
+  --refino-border: rgba(255, 255, 255, 0.1);
+  --refino-border-strong: rgba(255, 255, 255, 0.18);
+  --refino-surface: #181a1e;
+  --refino-surface-raised: #23262b;
+  --refino-text: rgba(255, 255, 255, 0.88);
+  --refino-text-dim: rgba(255, 255, 255, 0.56);
+  --refino-text-faint: rgba(255, 255, 255, 0.36);
+
+  --refino-canvas-bg: #0f1114;
+  --refino-node-bg: #23262b;
   --refino-node-border: rgba(255, 255, 255, 0.28);
   --refino-edge: rgba(255, 255, 255, 0.32);
   --refino-node-text: rgba(255, 255, 255, 0.85);
-  --refino-control-bg: rgb(24, 24, 28);
-  --refino-control-bg-hover: rgb(38, 38, 44);
-  --refino-control-bg-pressed: rgb(31, 31, 36);
+  --refino-control-bg: #181a1e;
+  --refino-control-bg-hover: #262a2f;
+  --refino-control-bg-pressed: #1f2226;
+
+  --refino-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --refino-shadow-2: 0 6px 24px rgba(0, 0, 0, 0.5);
+
+  color-scheme: dark;
 }
 
 /* Theme flips recolor every surface; one global rule keeps all elements
@@ -54,6 +95,8 @@ body {
   transition:
     background-color 0.2s ease,
     color 0.2s ease !important;
+  font-family: var(--refino-font-ui);
+  color: var(--refino-text);
 }
 
 /* Canvas edge controls sit directly on the canvas: naive's default button
@@ -76,7 +119,98 @@ body {
   background: var(--refino-surface) !important;
   border: 1px solid var(--refino-border);
   border-radius: var(--refino-radius);
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.25);
+  box-shadow: var(--refino-shadow-2);
+}
+
+/* One icon button, used by every chrome surface: the finder head, float
+ * controls, list rows. Quiet until hovered, accent when active. */
+.ui-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: var(--refino-radius-sm);
+  background: transparent;
+  color: var(--refino-text-dim);
+  cursor: pointer;
+  font: inherit;
+}
+
+.ui-icon-btn:hover {
+  background: var(--refino-surface-raised);
+  color: var(--refino-text);
+}
+
+.ui-icon-btn.is-on {
+  background: var(--refino-accent-soft);
+  color: var(--refino-primary);
+}
+
+.ui-icon-btn:focus-visible,
+.ui-quiet-btn:focus-visible,
+.ui-chip:focus-visible {
+  outline: 2px solid var(--refino-primary);
+  outline-offset: 1px;
+}
+
+/* Quiet text button for secondary actions inside panels. */
+.ui-quiet-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: var(--refino-radius-sm);
+  background: transparent;
+  color: var(--refino-text-dim);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+
+.ui-quiet-btn:hover {
+  background: var(--refino-surface-raised);
+  color: var(--refino-text);
+}
+
+/* Small filter chip (finder scopes, trail entries). */
+.ui-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--refino-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--refino-text-dim);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.ui-chip:hover {
+  border-color: var(--refino-border-strong);
+  color: var(--refino-text);
+}
+
+.ui-chip.is-on {
+  background: var(--refino-accent-soft);
+  border-color: transparent;
+  color: var(--refino-primary);
+}
+
+/* Floating panel shared by every canvas float and the trail. */
+.ui-panel {
+  background: var(--refino-surface);
+  border: 1px solid var(--refino-border);
+  border-radius: var(--refino-radius-lg);
+  box-shadow: var(--refino-shadow-2);
 }
 
 /* Host-provided container sizing: the UI fills whatever element mounts it,

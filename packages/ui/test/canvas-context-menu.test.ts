@@ -95,7 +95,7 @@ describe("CanvasContextMenu", () => {
       "删除",
     ]);
     items()[0]!.click();
-    expect(store.state.detailOpen).toBe(true);
+    expect(store.state.editorOpen).toBe(true);
     expect(wrapper.emitted("close")).toHaveLength(1);
   });
 

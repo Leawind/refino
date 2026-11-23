@@ -72,11 +72,11 @@ beforeEach(() => {
 });
 
 describe("canvas floats manifest", () => {
-  it("registers one entry per edge control at its corner", () => {
+  it("registers one entry per edge control at its edge", () => {
     expect(canvasFloats).toHaveLength(4);
     expect(canvasFloats.map((f) => f.placement)).toEqual([
       "top-left",
-      "top-right",
+      "top-center",
       "bottom-right",
       "bottom-left",
     ]);
@@ -85,17 +85,16 @@ describe("canvas floats manifest", () => {
     }
   });
 
-  it("renders one float layer per corner with its controls in order", () => {
+  it("renders one float layer per edge with its controls in order", () => {
     const wrapper = mountFloats();
-    // All four corners in use now.
+    // Three edges in use: the minimap, the selection trail and the grouped
+    // controls; the status line shares the canvas foot.
     const floats = wrapper.findAll(".graph-float");
     expect(floats).toHaveLength(4);
-    // The selection list stays hidden while the selection is empty; the
-    // minimap renders its map in the top-left (shown by default). Document
-    // queries: GraphFloats's root is a fragment, which VTU's scoped find
-    // does not descend into reliably.
-    expect(wrapper.find(".graph-float.top-right").element.children).toHaveLength(0);
     expect(document.querySelector(".graph-float.top-left .minimap .map")).not.toBeNull();
+    // The trail stays hidden while the selection is empty; its layer is
+    // still mounted (the component renders nothing).
+    expect(document.querySelector(".graph-float.top-center")?.children).toHaveLength(0);
     // The bottom-right corner is one grouped control laid out along the two
     // edges it touches, so no control floats in the canvas interior.
     expect(document.querySelectorAll(".graph-float.bottom-right > *")).toHaveLength(1);
@@ -116,7 +115,7 @@ describe("canvas floats manifest", () => {
     ]);
     // The field-of-view control belongs to the orbit view.
     expect(document.querySelector(".graph-float.bottom-right .fov-control")).toBeNull();
-    expect(document.querySelector(".graph-float.bottom-left .status-pill")).not.toBeNull();
+    expect(document.querySelector(".graph-float.bottom-left .status")).not.toBeNull();
     wrapper.unmount();
   });
 
@@ -124,10 +123,10 @@ describe("canvas floats manifest", () => {
     localStorage.setItem("refino.canvas.canvasView", "orbit");
     const wrapper = mountFloats();
     // No minimap, no layout/style/size controls: they only address the
-    // planar layout. The view switch, zoom controls and status pill stay.
+    // planar layout. The view switch, zoom controls and status line stay.
     expect(document.querySelector(".graph-float.top-left")).toBeNull();
-    // The selection list is view-neutral but empty, so its layer stays.
-    expect(document.querySelector(".graph-float.top-right")?.children).toHaveLength(0);
+    // The selection trail is view-neutral but empty, so its layer stays.
+    expect(document.querySelector(".graph-float.top-center")?.children).toHaveLength(0);
     expect(document.querySelectorAll(".graph-float.bottom-right > *")).toHaveLength(1);
     expect(document.querySelector(".graph-float.bottom-right .view-toggle")).not.toBeNull();
     expect(document.querySelector(".graph-float.bottom-right .zoom-controls")).not.toBeNull();
@@ -143,7 +142,7 @@ describe("canvas floats manifest", () => {
     ]);
     expect(document.querySelector(".graph-float.bottom-right .layout-controls")).toBeNull();
     expect(document.querySelector(".graph-float.bottom-right .style-settings")).toBeNull();
-    expect(document.querySelector(".graph-float.bottom-left .status-pill")).not.toBeNull();
+    expect(document.querySelector(".graph-float.bottom-left .status")).not.toBeNull();
     wrapper.unmount();
   });
 });

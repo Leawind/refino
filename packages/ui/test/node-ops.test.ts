@@ -139,7 +139,7 @@ describe("nodeOps.addGround", () => {
   });
 
   it("joins the draft of a live edit session instead of writing", async () => {
-    store.openDetail(TARGET);
+    store.openEditor(TARGET);
     await vi.waitFor(() => expect(store.state.detail.node).not.toBeNull());
     const outcome = await ops.addGround(TARGET, GROUND);
     expect(outcome).toBe("draft");

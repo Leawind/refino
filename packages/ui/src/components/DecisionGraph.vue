@@ -594,7 +594,7 @@ onBeforeUnmount(() => {
 
 function onDoubleClick(event: MouseEvent): void {
   const id = pickAt(event);
-  if (id !== null) store.openDetail(id);
+  if (id !== null) store.openEditor(id);
   // Double click on empty space is the canvas creation entry (ui
   // DESIGN.md, "编辑功能": creation always runs through the full editor).
   else store.startCreate("decision");

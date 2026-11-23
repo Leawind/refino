@@ -21,6 +21,14 @@ const ctx: CommandContext = { store, workspace, nodeOps };
 
 const bound = computed(() => commands.filter((command) => command.bindings !== undefined));
 
+/** Pointer gestures that are not commands but still need to be discoverable:
+ * the status line no longer carries a permanent hint (ui DESIGN.md, "布局"). */
+const gestures = computed(() => [
+  { keys: "Alt", label: t("help.peek") },
+  { keys: t("help.doubleClick"), label: t("help.edit") },
+  { keys: t("help.rightDrag"), label: t("help.connect") },
+]);
+
 function onKeydown(event: KeyboardEvent): void {
   if (!helpState.open) return;
   if (event.key === "Escape") {
@@ -45,6 +53,13 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
             <li v-for="command in bound" :key="command.id">
               <span class="label">{{ commandLabel(command, ctx, t) }}</span>
               <kbd>{{ command.keys }}</kbd>
+            </li>
+          </ul>
+          <h4>{{ t("help.pointer") }}</h4>
+          <ul>
+            <li v-for="gesture in gestures" :key="gesture.label">
+              <span class="label">{{ gesture.label }}</span>
+              <kbd>{{ gesture.keys }}</kbd>
             </li>
           </ul>
           <p class="hint">{{ t("help.hint") }}</p>
@@ -78,6 +93,15 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
 h3 {
   margin: 0 0 10px;
   font-size: 14px;
+}
+
+h4 {
+  margin: 14px 0 2px;
+  padding-top: 10px;
+  border-top: 1px solid var(--refino-border);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--refino-text-dim);
 }
 
 ul {

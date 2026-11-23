@@ -134,13 +134,12 @@ async function waitFor<T>(probe: () => T | undefined): Promise<T> {
   throw new Error("condition not met");
 }
 
-/** Opens the detail editor for ID from a clean slate and waits for node +
+/** Opens the editor sheet for ID from a clean slate and waits for node +
  * form. Reopening the same id deliberately skips the reload in production
- * (it protects unsaved edits), so tests reset the detail first. */
+ * (it protects unsaved edits), so tests reset the session first. */
 async function openDetail(): Promise<void> {
-  store.closeDetail();
-  store.discardDeletedWithEdits(); // full detail reset
-  store.openDetail(ID);
+  store.closeEditor();
+  store.openEditor(ID);
   await waitFor(() => (store.state.detail.node !== null ? true : undefined));
   await waitFor(() => (store.state.detail.base !== null ? true : undefined));
 }
@@ -267,12 +266,7 @@ describe("external deletion", () => {
 
     expect(store.state.detail.deletedWithEdits).toBe(true);
 
-    await store.recreateDetail("decision", {
-      body: "未保存的编辑",
-      summary: "决策一",
-      type: "decision",
-      grounds: [P1],
-    });
+    await store.recreateDetail("decision");
     expect(disk.has(ID)).toBe(true);
     expect(store.state.detail.deletedWithEdits).toBe(false);
     expect(store.state.detail.node?.body).toBe("未保存的编辑");
@@ -284,7 +278,7 @@ describe("external deletion", () => {
     serverRevision = 5;
     await emit({ revision: 5, changed: [], deleted: [ID] });
     expect(store.state.detail.deletedWithEdits).toBe(false);
-    expect(store.state.detailOpen).toBe(false);
+    expect(store.state.editorOpen).toBe(false);
     expect(store.state.detail.id).toBeNull();
   });
 });
@@ -292,54 +286,62 @@ describe("external deletion", () => {
 describe("recreate via PUT", () => {
   it("sends the payload type so the server can create the id", async () => {
     await openDetail();
-    await store.recreateDetail("decision", { body: "重建。", type: "decision", grounds: [P1] });
+    await store.recreateDetail("decision");
     expect(putCalls).toHaveLength(1);
     expect(putCalls[0]!.body.type).toBe("decision");
   });
 });
 
-describe("inline edit session", () => {
-  it("expands row-scoped, keeps the draft on collapse, and discards on switching ids", async () => {
-    // Expand the row: the session loads for that id, the modal stays closed.
-    store.expandInline(ID);
-    await waitFor(() => (store.state.detail.node !== null ? true : undefined));
-    expect(store.state.inlineId).toBe(ID);
-    expect(store.state.detailOpen).toBe(false);
+describe("editor session", () => {
+  it("stays pinned to its node while the canvas focus moves", async () => {
+    await openDetail();
+    store.form.body = "编辑中的正文";
+    // Clicking another node moves the focus but never re-points the sheet:
+    // the draft would have nowhere to live.
+    workspace.select({ id: P1, type: "premise", summary: "前提一" });
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(store.state.detail.id).toBe(ID);
+    expect(store.form.body).toBe("编辑中的正文");
+  });
 
-    // Editing marks the row dirty; collapsing keeps the draft.
-    store.form.summary = "内联草稿";
-    expect(store.isDirty(ID)).toBe(true);
-    store.collapseInline();
-    expect(store.state.inlineId).toBeNull();
-    expect(store.isDirty(ID)).toBe(true);
+  it("parks a switch request with unsaved work and applies it on discard", async () => {
+    await openDetail();
+    store.form.body = "编辑中的正文";
+    store.openEditor(P1);
+    expect(store.state.detail.id).toBe(ID);
+    expect(store.state.pendingEditor).toEqual({ kind: "open", id: P1 });
 
-    // Re-expanding the same id resurfaces the draft…
-    store.expandInline(ID);
-    expect(store.form.summary).toBe("内联草稿");
-    // …and opening the modal takes the session over.
-    store.openDetail(ID);
-    expect(store.state.inlineId).toBeNull();
-    expect(store.state.detailOpen).toBe(true);
-    store.closeDetail();
-
-    // Expanding another id replaces the session: the old draft is gone.
-    store.expandInline(P1);
+    await store.resolvePending("discard");
     await waitFor(() => (store.state.detail.node?.id === P1 ? true : undefined));
+    expect(store.state.pendingEditor).toBeNull();
     expect(store.form.summary).toBe("前提一");
   });
 
-  it("keeps external merges running for a collapsed row with a draft", async () => {
-    store.expandInline(ID);
-    await waitFor(() => (store.state.detail.base !== null ? true : undefined));
-    store.form.body = "我的内联编辑"; // only body is edited
-    store.collapseInline();
+  it("saves before switching when the request is resolved that way", async () => {
+    await openDetail();
+    store.form.body = "保存后切换";
+    store.openEditor(P1);
+    await store.resolvePending("save");
+    expect(putCalls.some((call) => call.id === ID)).toBe(true);
+    await waitFor(() => (store.state.detail.node?.id === P1 ? true : undefined));
+  });
 
-    // External change touches an untouched field: the silent merge still
-    // applies to the kept session.
-    disk.set(ID, { ...disk.get(ID)!, summary: "外部摘要" });
-    await emit({ revision: 4, changed: [ID], deleted: [] });
-    expect(store.form.body).toBe("我的内联编辑");
-    expect(store.form.summary).toBe("外部摘要");
+  it("closing discards the session", async () => {
+    await openDetail();
+    store.form.body = "未保存";
     expect(store.isDirty(ID)).toBe(true);
+    store.closeEditor();
+    expect(store.state.editorOpen).toBe(false);
+    expect(store.state.detail.id).toBeNull();
+    expect(store.form.body).toBe("");
+  });
+
+  it("keeps the sheet open across a save", async () => {
+    await openDetail();
+    store.form.body = "已保存的正文";
+    await store.saveCurrent();
+    expect(store.state.editorOpen).toBe(true);
+    expect(store.state.detail.id).toBe(ID);
+    expect(store.isDirty(ID)).toBe(false);
   });
 });

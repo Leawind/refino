@@ -42,10 +42,7 @@ export function createNodeOps(
   /** Whether an edit session for the node is alive and holds (or may hold)
    * user edits — direct writes would race the external-merge flow. */
   function sessionOwns(id: string): boolean {
-    return (
-      store.state.detail.id === id &&
-      (store.state.detailOpen || store.state.inlineId === id || store.isDirty(id))
-    );
+    return store.state.detail.id === id && (store.state.editorOpen || store.isDirty(id));
   }
 
   async function addGround(

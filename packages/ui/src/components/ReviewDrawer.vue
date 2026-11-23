@@ -31,7 +31,7 @@ function labelOf(id: string): string {
 
 <template>
   <button
-    class="nav-btn"
+    class="ui-icon-btn"
     :aria-label="t('review.bell')"
     :title="t('review.bell')"
     @click="review.openDrawer()"
@@ -85,23 +85,6 @@ function labelOf(id: string): string {
 </template>
 
 <style scoped>
-.nav-btn {
-  width: 46px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  color: inherit;
-  font: inherit;
-  padding: 0;
-}
-
-.nav-btn:hover {
-  color: var(--refino-primary, #18a058);
-}
-
 .section {
   margin-bottom: 20px;
 }

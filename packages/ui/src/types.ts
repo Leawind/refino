@@ -107,7 +107,8 @@ export type LayoutDirection = "LR" | "TB" | "RL" | "BT";
 
 /** Corners of the canvas pane where float controls can mount (ui DESIGN.md,
  * "布局"). */
-export type FloatPlacement = "top-left" | "top-right" | "bottom-left" | "bottom-right";
+export type FloatPlacement =
+  "top-left" | "top-center" | "top-right" | "bottom-left" | "bottom-right";
 
 /** Canvas presentation: the planar graph or the 3D orbit view. */
 export type CanvasView = "planar" | "orbit";

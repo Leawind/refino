@@ -1,4 +1,4 @@
-import { reactive, readonly, watch, type InjectionKey } from "vue";
+import { reactive, readonly, type InjectionKey } from "vue";
 import type { RefinoClient } from "./api";
 import { changedFields, mergeExternal, toEditorFields } from "./conflict";
 import type { EditorField, EditorFields } from "./conflict";
@@ -63,18 +63,25 @@ interface DetailState {
   mergeNotice: number;
 }
 
+/** A session switch waiting for the user's decision on unsaved work. */
+export type PendingEditor =
+  | { kind: "open"; id?: string }
+  | { kind: "create"; type: "premise" | "decision"; prefill?: Partial<DetailFormState> };
+
 interface State {
-  detailOpen: boolean;
-  /** null while creating a new node of the given type. */
+  /**
+   * The editor sheet is open in the right pane, pinned to `detail.id` (or
+   * to a new node while `creatingType` is set). The sheet does not follow
+   * the canvas focus: a single edit session, explicitly entered and
+   * explicitly left.
+   */
+  editorOpen: boolean;
+  /** null while editing an existing node. */
   creatingType: "premise" | "decision" | null;
+  /** A requested session the current one must yield to (see PendingEditor). */
+  pendingEditor: PendingEditor | null;
   theme: Theme;
   locale: Locale;
-  /**
-   * The explorer row expanded into the inline editor (DESIGN.md, "编辑功能"):
-   * the same single edit session as the modal, row-scoped instead of
-   * following the focus. null when no row is expanded.
-   */
-  inlineId: string | null;
   detail: DetailState;
 }
 
@@ -88,11 +95,11 @@ export function createStore(client: RefinoClient, workspace: Workspace) {
   const detailForm = reactive<DetailFormState>(emptyForm());
 
   const state = reactive<State>({
-    detailOpen: false,
+    editorOpen: false,
     creatingType: null,
+    pendingEditor: null,
     theme: readPreference<Theme>("refino.theme", "light"),
     locale: readPreference<Locale>("refino.locale", "zh"),
-    inlineId: null,
     detail: {
       id: null,
       loading: false,
@@ -199,14 +206,9 @@ export function createStore(client: RefinoClient, workspace: Workspace) {
   async function refreshExternalDetail(): Promise<void> {
     const id = state.detail.id;
     const generation = detailGeneration;
-    // The session is alive for the modal and the expanded explorer row
-    // alike — and for a collapsed row that still holds a draft, which
-    // keeps merging external changes (DESIGN.md, "编辑功能").
-    const sessionAlive =
-      state.detailOpen ||
-      state.inlineId !== null ||
-      (state.detail.base !== null && changedFields(state.detail.base, detailForm).length > 0);
-    if (id === null || state.creatingType !== null || state.detail.loading || !sessionAlive) {
+    // Only the open sheet has a session to merge into; the dossier is a
+    // separate read-only view and never participates in editing.
+    if (id === null || !state.editorOpen || state.creatingType !== null || state.detail.loading) {
       return;
     }
     try {
@@ -270,7 +272,7 @@ export function createStore(client: RefinoClient, workspace: Workspace) {
       ) {
         state.detail.deletedWithEdits = true;
       } else {
-        state.detailOpen = false;
+        state.editorOpen = false;
         state.detail = emptyDetail();
         setFormFrom(null);
       }
@@ -286,16 +288,6 @@ export function createStore(client: RefinoClient, workspace: Workspace) {
     };
   }
 
-  // The modal editor tracks the focus (last selected node) while open; the
-  // inline row editor is row-scoped and does not follow.
-  watch(
-    () => [state.detailOpen, state.inlineId, state.creatingType, workspace.state.focusId] as const,
-    ([open, inlineId, creating, focusId]) => {
-      if (!open || inlineId !== null || creating !== null) return;
-      if (focusId !== null && focusId !== state.detail.id) void loadDetail(focusId);
-    },
-  );
-
   // External changes touching the open node drive the conflict flow.
   workspace.onChange((event) => {
     const id = state.detail.id;
@@ -305,116 +297,187 @@ export function createStore(client: RefinoClient, workspace: Workspace) {
     if (touchesDetail) void refreshExternalDetail();
   });
 
+  /**
+   * The payload of the current session, in the wire's optionality: empty
+   * summary/rationale/confirmed are omitted, grounds are always stated, and
+   * a decision always states its trial mark (omitting it would settle it).
+   */
+  function payloadOf(kind: "premise" | "decision"): NodePayload {
+    return {
+      body: detailForm.body,
+      summary: detailForm.summary.trim() === "" ? undefined : detailForm.summary.trim(),
+      rationale: detailForm.rationale.trim() === "" ? undefined : detailForm.rationale.trim(),
+      grounds: detailForm.grounds,
+      exploring: kind === "decision" ? detailForm.exploring : undefined,
+      confirmed: detailForm.confirmed.trim() === "" ? undefined : detailForm.confirmed.trim(),
+    };
+  }
+
+  /** Unsaved edits against the loaded node. */
+  function sessionDirty(): boolean {
+    const node = state.detail.node;
+    if (node === null) return false;
+    return changedFields(state.detail.base ?? toEditorFields(node), detailForm).length > 0;
+  }
+
+  /** Whether leaving the session now would throw work away. */
+  function sessionHasWork(): boolean {
+    if (state.creatingType !== null) {
+      return (
+        detailForm.summary.trim() !== "" ||
+        detailForm.body.trim() !== "" ||
+        detailForm.rationale.trim() !== "" ||
+        detailForm.grounds.length > 0
+      );
+    }
+    return sessionDirty();
+  }
+
+  function closeEditor(): void {
+    state.editorOpen = false;
+    state.creatingType = null;
+    state.pendingEditor = null;
+    detailGeneration++;
+    state.detail = emptyDetail();
+    setFormFrom(null);
+  }
+
+  async function applySession(request: PendingEditor): Promise<void> {
+    state.pendingEditor = null;
+    if (request.kind === "create") {
+      state.creatingType = request.type;
+      state.editorOpen = true;
+      detailGeneration++;
+      state.detail = emptyDetail();
+      setFormFrom(null);
+      if (request.prefill !== undefined) Object.assign(detailForm, request.prefill);
+      // A new premise defaults its confirmation time to now (matches the
+      // CLI's --now); the value stays editable.
+      if (request.type === "premise" && request.prefill?.confirmed === undefined) {
+        detailForm.confirmed = new Date().toISOString();
+      }
+      return;
+    }
+    state.creatingType = null;
+    state.editorOpen = true;
+    if (request.id !== undefined) {
+      // Taking the session over also makes the node the canvas focus, so the
+      // map and the sheet agree once the switch is applied.
+      workspace.locate(request.id);
+      if (request.id !== state.detail.id) await loadDetail(request.id);
+    }
+  }
+
+  /**
+   * Enter an editing session. A session holding work is never replaced
+   * silently: the request parks in `pendingEditor` and the sheet asks for a
+   * save/discard decision (ui DESIGN.md, "编辑功能").
+   */
+  function requestSession(request: PendingEditor): void {
+    if (state.editorOpen && sessionHasWork()) {
+      state.pendingEditor = request;
+      return;
+    }
+    void applySession(request);
+  }
+
+  async function create(type: "premise" | "decision", payload: NodePayload): Promise<string> {
+    const { id } = await client.createNode(type, payload);
+    state.creatingType = null;
+    state.editorOpen = true;
+    const detail = await client.fetchNode(id);
+    workspace.select({ id, type: detail.node.type, summary: detail.node.summary });
+    await loadDetail(id);
+    return id;
+  }
+
+  async function update(id: string, payload: NodePayload, revision?: number): Promise<void> {
+    try {
+      await client.updateNode(id, payload, revision);
+    } catch (error) {
+      // A 409 means the content changed externally since the form was based
+      // on it: surface the error, then run the merge flow so the user sees
+      // and resolves what arrived.
+      void refreshExternalDetail();
+      throw error;
+    }
+    const detail = state.detail;
+    if (detail.id === id && detail.node !== null) {
+      // The saved form is the new base; adopt the returned state locally
+      // (the SSE feed also carries our own write and re-expands the set).
+      const saved = await client.fetchNode(id);
+      if (detail.id === id && state.detail.id === id) {
+        setDetailContent(saved);
+        detail.base = toEditorFields(saved.node);
+        setFormFrom(saved.node);
+      }
+    }
+    // Working-set refresh rides on the SSE feed; refresh() covers the
+    // window where the feed is unavailable.
+    void workspace.refresh();
+  }
+
+  /** Save the current session as-is; no-op when nothing changed. */
+  async function saveCurrent(): Promise<void> {
+    const kind = state.detail.node?.type ?? state.creatingType;
+    if (kind === null) return;
+    if (state.creatingType !== null) {
+      await create(state.creatingType, payloadOf(kind));
+    } else if (state.detail.node !== null && sessionDirty()) {
+      await update(state.detail.node.id, payloadOf(kind), state.detail.revision ?? undefined);
+    }
+  }
+
+  /** Resolve a parked session switch with the user's decision. */
+  async function resolvePending(action: "save" | "discard" | "cancel"): Promise<void> {
+    const pending = state.pendingEditor;
+    if (pending === null) return;
+    if (action === "cancel") {
+      state.pendingEditor = null;
+      return;
+    }
+    if (action === "save") await saveCurrent();
+    await applySession(pending);
+  }
+
   return {
     state: readonly(state),
     /** The editor form; inputs bind to it directly. */
     form: detailForm,
     /** Whether the node's edit session holds unsaved changes. */
     isDirty(id: string): boolean {
-      if (state.detail.id !== id || state.detail.node === null) return false;
-      return (
-        changedFields(state.detail.base ?? toEditorFields(state.detail.node), detailForm).length > 0
-      );
+      return state.detail.id === id && sessionDirty();
     },
-    /** Single click selects; the detail window opens on double click. When
-     * `id` differs from the loaded one, the detail is (re)loaded fresh.
-     * Opening the modal takes the session over from an expanded row. */
-    openDetail(id?: string): void {
-      state.detailOpen = true;
-      state.inlineId = null;
-      if (id !== undefined && id !== state.detail.id) void loadDetail(id);
+    /** The session holds work that leaving would discard. */
+    hasUnsavedWork: sessionHasWork,
+    /** Enter the editor for a node (the focus is used when `id` is absent). */
+    openEditor(id?: string): void {
+      requestSession({ kind: "open", id });
     },
-    /** Closing the window keeps the selection. */
-    closeDetail(): void {
-      state.detailOpen = false;
-      state.creatingType = null;
-    },
-    /**
-     * Expand an explorer row into the inline editor: the same edit session
-     * as the modal, row-scoped. Re-expanding the same id keeps the draft;
-     * expanding another id replaces the session (DESIGN.md, "编辑功能").
-     */
-    expandInline(id: string): void {
-      state.inlineId = id;
-      state.detailOpen = false;
-      state.creatingType = null;
-      if (id !== state.detail.id) void loadDetail(id);
-    },
-    /** Collapse the row. The draft stays in the session and resurfaces when
-     * the same row re-expands. */
-    collapseInline(): void {
-      state.inlineId = null;
-    },
+    /** Leave the editor, discarding the session. */
+    closeEditor,
     /**
      * Open the create editor for the given type. `prefill` seeds the form
-     * (e.g. a canvas "refine this decision" seeds the grounds); a premise
-     * defaults its confirmation time to now unless prefilled.
+     * (e.g. a canvas "refine this decision" seeds the grounds).
      */
     startCreate(type: "premise" | "decision", prefill?: Partial<DetailFormState>): void {
-      state.creatingType = type;
-      state.detailOpen = true;
-      state.inlineId = null;
-      setFormFrom(null);
-      if (prefill !== undefined) Object.assign(detailForm, prefill);
-      // A new premise defaults its confirmation time to now (matches the
-      // CLI's --now); the value stays editable.
-      if (type === "premise" && prefill?.confirmed === undefined) {
-        detailForm.confirmed = new Date().toISOString();
-      }
+      requestSession({ kind: "create", type, prefill });
     },
-    cancelCreate(): void {
-      state.creatingType = null;
-      state.detailOpen = false;
-    },
+    cancelCreate: closeEditor,
+    resolvePending,
     /** Discard the user's edits: restore the form from the loaded node. */
     resetDetailForm(): void {
       setFormFrom(state.detail.node);
     },
 
-    async create(type: "premise" | "decision", payload: NodePayload): Promise<string> {
-      const { id } = await client.createNode(type, payload);
-      state.creatingType = null;
-      // Selecting the new node loads its detail via the focus watcher.
-      const detail = await client.fetchNode(id);
-      workspace.select({ id, type: detail.node.type, summary: detail.node.summary });
-      return id;
-    },
-
-    async update(id: string, payload: NodePayload, revision?: number): Promise<void> {
-      try {
-        await client.updateNode(id, payload, revision);
-      } catch (error) {
-        // A 409 means the content changed externally since the form was
-        // based on it: surface the error, then run the merge flow so the
-        // user sees and resolves what arrived.
-        void refreshExternalDetail();
-        throw error;
-      }
-      const detail = state.detail;
-      if (detail.id === id && detail.node !== null) {
-        // The saved form is the new base; adopt the returned state locally
-        // (the SSE feed also carries our own write and re-expands the set).
-        const saved = await client.fetchNode(id);
-        if (detail.id === id && state.detail.id === id) {
-          setDetailContent(saved);
-          detail.base = toEditorFields(saved.node);
-          setFormFrom(saved.node);
-        }
-      }
-      // Working-set refresh rides on the SSE feed; refresh() covers the
-      // window where the feed is unavailable.
-      void workspace.refresh();
-    },
+    create,
+    update,
+    saveCurrent,
 
     async remove(id: string): Promise<void> {
       await client.deleteNode(id);
       workspace.pruneDeleted([id]);
-      if (state.detail.id === id) {
-        state.detailOpen = false;
-        detailGeneration++;
-        state.detail = emptyDetail();
-        setFormFrom(null);
-      }
+      if (state.detail.id === id) closeEditor();
     },
 
     /** Apply the pending external version (load external over local edits). */
@@ -441,10 +504,7 @@ export function createStore(client: RefinoClient, workspace: Workspace) {
     /** Discard the pending recreation prompt and close the editor. */
     discardDeletedWithEdits(): void {
       state.detail.deletedWithEdits = false;
-      state.detailOpen = false;
-      detailGeneration++;
-      state.detail = emptyDetail();
-      setFormFrom(null);
+      closeEditor();
     },
 
     setTheme(theme: Theme): void {
@@ -461,13 +521,13 @@ export function createStore(client: RefinoClient, workspace: Workspace) {
      * Recreate a node that was deleted externally, using the editor's content
      * under the same id (PUT to a free id creates it).
      */
-    async recreateDetail(type: "premise" | "decision", payload: NodePayload): Promise<void> {
+    async recreateDetail(type: "premise" | "decision"): Promise<void> {
       const id = state.detail.id;
       if (id === null) return;
-      await client.updateNode(id, { ...payload, type }, undefined);
+      await client.updateNode(id, { ...payloadOf(type), type }, undefined);
       state.detail.deletedWithEdits = false;
       await loadDetail(id);
-      state.detailOpen = true;
+      state.editorOpen = true;
     },
   };
 

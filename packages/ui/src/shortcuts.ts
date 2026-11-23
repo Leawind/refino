@@ -18,7 +18,7 @@ import { paletteState } from "./palette";
  */
 export function installShortcuts(ctx: CommandContext): () => void {
   const onKeydown = (event: KeyboardEvent): void => {
-    if (event.altKey || paletteState.open || ctx.store.state.detailOpen) return;
+    if (event.altKey || paletteState.open || ctx.store.state.editorOpen) return;
     if (isTextEntry(event.target)) return;
     for (const command of commands) {
       if (command.bindings === undefined) continue;

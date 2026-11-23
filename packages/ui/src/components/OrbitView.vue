@@ -353,7 +353,7 @@ function onContextMenu(event: MouseEvent): void {
 function onDoubleClick(event: MouseEvent): void {
   const hit = pick(event);
   if (hit === null) store.startCreate("decision");
-  else if (hit.id !== null) store.openDetail(hit.id);
+  else if (hit.id !== null) store.openEditor(hit.id);
 }
 
 onMounted(() => {

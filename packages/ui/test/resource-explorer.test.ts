@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mount } from "@vue/test-utils";
-import { NMessageProvider } from "naive-ui";
 import { defineComponent, h, nextTick } from "vue";
+import { NMessageProvider } from "naive-ui";
 import { clientKey, type RefinoClient } from "../src/api";
 import ResourceExplorer from "../src/components/ResourceExplorer.vue";
 import { createRefinoI18n } from "../src/i18n";
+import { createReview, reviewKey } from "../src/review";
 import { createStore, storeKey } from "../src/store";
 import { createWorkspace, workspaceKey } from "../src/workspace";
 import type { SearchNode } from "../src/types";
@@ -45,12 +46,12 @@ function fakeClient(
 
 let wrapper: ReturnType<typeof mount> | null = null;
 let workspace: ReturnType<typeof createWorkspace>;
+let store: ReturnType<typeof createStore>;
 
 function mountExplorer(nodes?: SearchNode[], searchFor?: (query: string) => SearchNode[]): void {
   const client = fakeClient(nodes, searchFor);
   workspace = createWorkspace(client);
-  const store = createStore(client, workspace);
-  // InlineNodeForm calls useMessage; it needs the provider above it.
+  store = createStore(client, workspace);
   const host = defineComponent({
     render: () => h(NMessageProvider, null, { default: () => h(ResourceExplorer) }),
   });
@@ -61,6 +62,7 @@ function mountExplorer(nodes?: SearchNode[], searchFor?: (query: string) => Sear
         [clientKey as symbol]: client,
         [workspaceKey as symbol]: workspace,
         [storeKey as symbol]: store,
+        [reviewKey as symbol]: createReview(workspace),
       },
       plugins: [createRefinoI18n("zh")],
     },
@@ -141,42 +143,47 @@ describe("ResourceExplorer rows", () => {
       { id: "D4E5F6G7", type: "premise", summary: "前提一" },
     ]);
     await vi.waitFor(() => expect(wrapper!.findAll(".item")).toHaveLength(2));
-    const dots = wrapper!.findAll(".type-dot");
-    expect(dots.map((dot) => dot.classes())).toEqual([
-      ["type-dot", "decision"],
-      ["type-dot", "premise"],
+    const glyphs = wrapper!.findAll(".glyph");
+    expect(glyphs.map((glyph) => glyph.classes())).toEqual([
+      ["glyph", "decision"],
+      ["glyph", "premise"],
     ]);
-    expect(dots[1]!.attributes("title")).toBe("前提");
+    expect(glyphs[1]!.attributes("title")).toBe("前提");
+  });
+
+  it("opens the editor sheet on double click", async () => {
+    mountExplorer([{ id: "A1B2C3D4", type: "decision", summary: "决策一" }]);
+    await vi.waitFor(() => expect(wrapper!.findAll(".item")).toHaveLength(1));
+    await wrapper!.findAll(".item")[0]!.trigger("dblclick");
+    // The sheet is a store session, not a route: the app shell mounts it.
+    expect(store.state.editorOpen).toBe(true);
   });
 });
 
-describe("ResourceExplorer filters", () => {
-  it("closes the type menu on Escape without clearing the selection", async () => {
+describe("ResourceExplorer scopes", () => {
+  it("keeps the scope chips mutually exclusive", async () => {
     mountExplorer();
-    workspace.select({ id: "A1B2C3D4", type: "decision", summary: "决策一" });
+    const chips = wrapper!.findAll(".scopes .ui-chip");
+    expect(chips.map((chip) => chip.text())).toEqual(["全部", "决策", "前提", "未被引用的前提"]);
+    await chips[1]!.trigger("click");
     await nextTick();
-    await wrapper!.find(".filters button").trigger("click");
-    expect(document.querySelector(".n-base-select-menu")).not.toBeNull();
-    document.body.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
-    );
+    expect(chips[1]!.classes()).toContain("is-on");
+    expect(chips[0]!.classes()).not.toContain("is-on");
+
+    // The unreferenced view supersedes the type chips (it is premises only).
+    await chips[3]!.trigger("click");
     await nextTick();
-    expect(document.querySelector(".n-base-select-menu")).toBeNull();
-    expect(workspace.state.selection).toEqual(["A1B2C3D4"]);
+    expect(chips[3]!.classes()).toContain("is-on");
+    expect(chips[1]!.classes()).not.toContain("is-on");
+    expect(chips[2]!.classes()).not.toContain("is-on");
   });
 
-  it("drops a narrower type filter when opening the unreferenced view", async () => {
+  it("creates from the pinned footer", async () => {
     mountExplorer();
-    const buttons = wrapper!.findAll(".filters button");
-    await buttons[0]!.trigger("click");
-    const option = [...document.querySelectorAll(".n-base-select-option")].find(
-      (element) => element.textContent?.trim() === "决策",
-    );
-    expect(option).toBeDefined();
-    option!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    await vi.waitFor(() => expect(wrapper!.find(".filters button").text()).toBe("决策"));
-
-    await wrapper!.findAll(".filters button")[1]!.trigger("click");
-    expect(wrapper!.find(".filters button").text()).toBe("前提");
+    const create = wrapper!.findAll(".create-btn");
+    expect(create.map((button) => button.text())).toEqual(["决策", "前提"]);
+    await create[1]!.trigger("click");
+    expect(store.state.creatingType).toBe("premise");
+    expect(store.state.editorOpen).toBe(true);
   });
 });

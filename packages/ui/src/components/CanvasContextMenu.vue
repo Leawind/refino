@@ -46,7 +46,7 @@ const items = computed<MenuItem[]>(() => {
         key: "open",
         label: t("node.edit"),
         icon: CreateOutline,
-        run: () => store.openDetail(id),
+        run: () => store.openEditor(id),
       },
       {
         key: "locate",

@@ -196,7 +196,7 @@ function fakeWorkspace(nodes?: FakeNode[]) {
 let wrapper: ReturnType<typeof mount> | null = null;
 
 function mountOrbit(workspace: ReturnType<typeof fakeWorkspace>) {
-  const store = { openDetail: vi.fn(), startCreate: vi.fn() };
+  const store = { openEditor: vi.fn(), startCreate: vi.fn() };
   const client = {
     fetchNode: vi.fn(async (id: string) => ({
       revision: 1,

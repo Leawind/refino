@@ -3,15 +3,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { mount } from "@vue/test-utils";
 import { createRefinoI18n } from "../src/i18n";
 import { renderCulled } from "../src/renderStatus";
-import StatusPill from "../src/components/StatusPill.vue";
+import CanvasStatus from "../src/components/CanvasStatus.vue";
 import { createWorkspace, workspaceKey } from "../src/workspace";
 import type { IssueRecord } from "../src/types";
 import type { RefinoClient } from "../src/api";
 
 /**
- * The status pill (ui DESIGN.md, "布局"): read-only canvas statistics and
- * warnings — decision count, truncation, render culling (via the shared
- * render state), issue count and the current focus.
+ * The canvas status line (ui DESIGN.md, "布局"): quiet read-only facts about
+ * the map — decision count, truncation, render culling (via the shared render
+ * state), issue count and the change-feed state.
  */
 
 function fakeClient(issues: IssueRecord[] = []): RefinoClient {
@@ -39,9 +39,9 @@ function fakeClient(issues: IssueRecord[] = []): RefinoClient {
   };
 }
 
-function mountPill(issues: IssueRecord[] = []) {
+function mountStatus(issues: IssueRecord[] = []) {
   const workspace = createWorkspace(fakeClient(issues));
-  const wrapper = mount(StatusPill, {
+  const wrapper = mount(CanvasStatus, {
     global: {
       provide: { [workspaceKey as symbol]: workspace },
       plugins: [createRefinoI18n("zh")],
@@ -50,12 +50,12 @@ function mountPill(issues: IssueRecord[] = []) {
   return { wrapper, workspace };
 }
 
-/** Brings the given issues into the workspace state; the pill only reads
- * state.issues, which refreshIssues fills (via start()). */
+/** Brings the given issues into the workspace state; the status line only
+ * reads state.issues, which refreshIssues fills (via start()). */
 async function mountWithIssues(issues: IssueRecord[]) {
-  const mounted = mountPill(issues);
+  const mounted = mountStatus(issues);
   mounted.workspace.start();
-  await vi.waitFor(() => expect(mounted.wrapper.text()).toContain("校验问题: 1"));
+  await vi.waitFor(() => expect(mounted.wrapper.text()).toContain("1 校验问题"));
   return mounted;
 }
 
@@ -64,28 +64,21 @@ beforeEach(() => {
   renderCulled.value = false;
 });
 
-describe("StatusPill", () => {
-  it("renders the decision count and the peek hint", () => {
-    const { wrapper } = mountPill();
-    expect(wrapper.text()).toContain("决策: 0");
-    expect(wrapper.text()).toContain("按住 Alt 悬停可速览节点");
+describe("CanvasStatus", () => {
+  it("renders the decision count without a permanent hint", () => {
+    const { wrapper } = mountStatus();
+    expect(wrapper.text()).toContain("0 决策");
+    // Peek instructions are transient onboarding, not status (DESIGN.md).
+    expect(wrapper.text()).not.toContain("按住 Alt");
   });
 
   it("follows the shared render-culling flag", async () => {
-    const { wrapper } = mountPill();
+    const { wrapper } = mountStatus();
     expect(wrapper.text()).not.toContain("渲染已按预算裁剪");
     renderCulled.value = true;
     await vi.waitFor(() => expect(wrapper.text()).toContain("渲染已按预算裁剪"));
     renderCulled.value = false;
     await vi.waitFor(() => expect(wrapper.text()).not.toContain("渲染已按预算裁剪"));
-  });
-
-  it("shows the focus summary from the workspace selection", async () => {
-    const { wrapper, workspace } = mountPill();
-    workspace.toggle({ id: "A1B2C3D4", type: "decision", summary: "决策一" });
-    await vi.waitFor(() => expect(wrapper.text()).toContain("选中: 决策一"));
-    // Ids never surface in list-like readouts (ui DESIGN.md, 显示规则与样式).
-    expect(wrapper.text()).not.toContain("A1B2C3D4");
   });
 
   it("expands the issue list and locates a node from it", async () => {
@@ -94,7 +87,7 @@ describe("StatusPill", () => {
     ]);
     // The trigger is the issue count button.
     const trigger = wrapper.find(".issue-trigger");
-    expect(trigger.text()).toBe("校验问题: 1");
+    expect(trigger.text()).toBe("1 校验问题");
     await trigger.trigger("click");
     await vi.waitFor(() => expect(document.body.textContent).toContain("依据构成环路"));
     const locate = [...document.body.querySelectorAll("button")].find((button) =>
