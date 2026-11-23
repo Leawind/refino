@@ -87,23 +87,15 @@ function refresh(): void {
   void workspace.reload();
 }
 
-/** Naive's transient menus stay mounted while shown and do not always
- * consume Escape themselves; leaving them open while the selection is wiped
- * would skip a layer. */
-function hasOpenMenu(): boolean {
-  return document.querySelector(".n-base-select-menu, .n-dropdown-menu, .n-popover") !== null;
-}
-
-// Esc peels one surface at a time: the editor, palette and help consume it
-// themselves; the peek card, drawer, float panels and transient menus are
-// tracked here. Only when no surface is open does Esc clear the selection.
+// Esc peels one surface at a time: the editor, palette, help and naive menus
+// consume it themselves; the peek card, drawer and float panels are tracked
+// here. Only when no surface is open does Esc clear the selection.
 function onKeydown(event: KeyboardEvent): void {
   if (
     event.key !== "Escape" ||
     store.state.detailOpen ||
     review.state.open ||
     hasOpenDismissable() ||
-    hasOpenMenu() ||
     (peekState.alt && peekState.id !== null)
   ) {
     return;

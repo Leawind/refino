@@ -6,6 +6,7 @@
 // removal is per-row, appending goes through the compact remote search
 // select. Unknown (dangling) grounds fall back to their id.
 import { computed, ref, watch } from "vue";
+import { useMenuEscape } from "../menuEscape";
 import { useI18n } from "vue-i18n";
 import { NIcon, NSelect } from "naive-ui";
 import { CloseOutline } from "@vicons/ionicons5";
@@ -73,6 +74,8 @@ function onRowMove(event: MouseEvent, id: string): void {
 const PAGE_SIZE = 50;
 const options = ref<Array<{ label: string; value: string }>>([]);
 const picked = ref<string | null>(null);
+const selectOpen = ref(false);
+useMenuEscape(selectOpen);
 let searchToken = 0;
 
 async function search(q: string): Promise<void> {
@@ -118,6 +121,7 @@ function append(id: string | null): void {
       </li>
     </ul>
     <NSelect
+      v-model:show="selectOpen"
       :value="picked"
       filterable
       clearable

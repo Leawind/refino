@@ -19,6 +19,7 @@ import {
   ReorderThreeOutline,
 } from "@vicons/ionicons5";
 import { injectRequired } from "../context";
+import { useMenuEscape } from "../menuEscape";
 import { workspaceKey } from "../workspace";
 import { useDismissable } from "../useDismissable";
 import { LAYER_GAP, LAYER_GAP_MAX, LAYER_GAP_MIN } from "../graph/layout/engine";
@@ -29,6 +30,11 @@ import type { LayoutMode } from "../graph/layout/types";
 const { t } = useI18n();
 
 const workspace = injectRequired(workspaceKey, "workspace");
+
+const layoutMenuOpen = ref(false);
+const directionMenuOpen = ref(false);
+useMenuEscape(layoutMenuOpen);
+useMenuEscape(directionMenuOpen);
 
 // Writable computeds keep the v-model wiring local; the values live in the
 // persisted canvas config.
@@ -201,6 +207,7 @@ const showVirtualRoot = computed<boolean>({
       </NButton>
     </div>
     <NPopselect
+      v-model:show="layoutMenuOpen"
       :value="layoutMode"
       :options="layoutOptions"
       trigger="click"
@@ -210,7 +217,12 @@ const showVirtualRoot = computed<boolean>({
         <NIcon :component="layoutIcon" />
       </NButton>
     </NPopselect>
-    <NPopselect v-model:value="direction" :options="directionOptions" trigger="click">
+    <NPopselect
+      v-model:show="directionMenuOpen"
+      v-model:value="direction"
+      :options="directionOptions"
+      trigger="click"
+    >
       <NButton circle :title="t('app.direction')">
         <NIcon :component="directionIcon" />
       </NButton>

@@ -155,6 +155,22 @@ function createCommands(): Command[] {
         workspace.setConfig({ showPremises: !workspace.state.config.showPremises }),
     },
     {
+      id: "minimap",
+      labelKey: "canvas.minimap",
+      detail: (ctx, t) =>
+        ctx.workspace.state.config.showMinimap ? t("common.on") : t("common.off"),
+      run: ({ workspace }) =>
+        workspace.setConfig({ showMinimap: !workspace.state.config.showMinimap }),
+    },
+    {
+      id: "virtual-root",
+      labelKey: "canvas.virtualRoot",
+      detail: (ctx, t) =>
+        ctx.workspace.state.config.showVirtualRoot ? t("common.on") : t("common.off"),
+      run: ({ workspace }) =>
+        workspace.setConfig({ showVirtualRoot: !workspace.state.config.showVirtualRoot }),
+    },
+    {
       id: "view-zoom-in",
       labelKey: "app.zoomIn",
       keys: `${MOD_LABEL}=`,

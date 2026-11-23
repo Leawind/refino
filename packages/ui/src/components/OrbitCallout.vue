@@ -131,9 +131,10 @@ function onFrame(): void {
   const delta = frameTime === 0 ? 16 : Math.min(64, now - frameTime);
   frameTime = now;
   const layout = props.scene.screenLayout();
+  const obstacles = measureObstacles();
   // Summaries follow the picture, not the focus: they stay while the camera
   // turns even when no star is focused and the main block is unmounted.
-  updateSummaries(layout);
+  updateSummaries(layout, obstacles);
   const el = blockEl.value;
   if (el === null || props.node === null) {
     hideLeader();
@@ -146,7 +147,7 @@ function onFrame(): void {
     needsPlace = true;
   }
   if (needsPlace || now - placedAt >= PLACE_INTERVAL_MS) {
-    solve(layout);
+    solve(layout, obstacles);
     placedAt = now;
     needsPlace = false;
   }
@@ -214,14 +215,14 @@ function measureCandidates(el: HTMLElement): void {
   scrollDirty = true;
 }
 
-function solve(layout: OrbitScreenLayout): void {
+function solve(layout: OrbitScreenLayout, controls: CalloutRect[]): void {
   if (layout.anchor === null || candidates.length === 0) {
     target = null;
     return;
   }
-  const obstacles = measureObstacles();
   // Satellite summaries move with their rings; the main block must avoid
   // them as well as the stars and the canvas controls.
+  const obstacles = [...controls];
   for (const label of summaryLabels.value) {
     obstacles.push({
       left: label.left,
@@ -277,12 +278,13 @@ function selectSummaryCandidates(layout: OrbitScreenLayout): SummaryLabelCandida
 }
 
 /** Place and follow the summaries around the picture's prominent stars. */
-function updateSummaries(layout: OrbitScreenLayout): void {
+function updateSummaries(layout: OrbitScreenLayout, obstacles: readonly CalloutRect[]): void {
   const boxes = placeSummaryLabels({
     viewport: { width: layout.width, height: layout.height },
     candidates: selectSummaryCandidates(layout),
     focus: layout.anchor,
     summaries: props.summaries,
+    obstacles,
   });
   const signature = boxes.map((box) => `${box.key}:${box.text}:${box.scale.toFixed(2)}`).join("|");
   if (signature !== summarySignature) {

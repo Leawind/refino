@@ -118,8 +118,12 @@ function payload(): NodePayload {
 async function save(): Promise<void> {
   try {
     if (creating.value && store.state.creatingType !== null) {
-      const id = await store.create(store.state.creatingType, payload());
-      message.success(`${t("node.save")}: ${id}`);
+      await store.create(store.state.creatingType, payload());
+      message.success(
+        t("node.created", {
+          node: form.summary.trim() === "" ? t("node.untitled") : form.summary.trim(),
+        }),
+      );
     } else if (selected.value !== null) {
       // The revision turns the save into an optimistic concurrency check;
       // a 409 makes the store fetch the external change and run the merge

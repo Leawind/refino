@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Top navigation bar: logo, title, refresh and global settings. Theme and
 // language follow the VitePress pattern: small icon buttons with dropdowns.
-import { computed, h, inject } from "vue";
+import { computed, h, inject, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { NDropdown, NIcon } from "naive-ui";
 import {
@@ -14,12 +14,15 @@ import {
   CheckmarkOutline,
 } from "@vicons/ionicons5";
 import { injectRequired } from "../context";
+import { useMenuEscape } from "../menuEscape";
 import { openPalette } from "../palette";
 import { storeKey } from "../store";
 
 const store = injectRequired(storeKey, "store");
 
 const { t, locale } = useI18n();
+const localeMenuOpen = ref(false);
+useMenuEscape(localeMenuOpen);
 
 const emit = defineEmits<{ refresh: [] }>();
 
@@ -90,6 +93,7 @@ const localeOptions = computed(() =>
         <NIcon :component="isDark ? SunnyOutline : MoonOutline" />
       </button>
       <NDropdown
+        v-model:show="localeMenuOpen"
         :options="localeOptions"
         trigger="hover"
         :value="locale"

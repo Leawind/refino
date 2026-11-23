@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mount } from "@vue/test-utils";
 import { clientKey } from "../src/api";
 import type { RefinoClient } from "../src/api";
@@ -50,9 +50,9 @@ function fakeClient(): RefinoClient {
  * handling keys across tests and double-toggle or double-execute. */
 const wrappers: Array<ReturnType<typeof mount>> = [];
 
-function mountPalette(nodes: SearchNode[] = []) {
+function mountPalette(nodes: SearchNode[] = [], searchFor?: (query: string) => SearchNode[]) {
   const client = fakeClient();
-  client.search = async () => ({ nodes });
+  client.search = async (params) => ({ nodes: searchFor?.(params.q ?? "") ?? nodes });
   const workspace = createWorkspace(client);
   const store = createStore(client, workspace);
   const nodeOps = createNodeOps(client, store, workspace, (key) => key);
@@ -125,6 +125,53 @@ describe("CommandPalette keyboard", () => {
     expect(paletteState.open).toBe(false);
     expect(store.state.creatingType).toBe("decision");
     store.cancelCreate();
+  });
+
+  it("searches immediately on Enter when the debounce has not finished", async () => {
+    const stale: SearchNode[] = [{ id: "OLDID000", type: "decision", summary: "旧结果" }];
+    const fresh: SearchNode[] = [{ id: "A1B2C3D4", type: "decision", summary: "节点一" }];
+    const { workspace } = mountPalette(stale, (query) => (query === "节点一" ? fresh : stale));
+    paletteState.open = true;
+    await waits(50);
+    const input = document.querySelector(".palette .input") as HTMLInputElement;
+    input.value = "节点一";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    // Enter before the 150ms debounce fires; stale hits must not be taken.
+    key("Enter");
+    await vi.waitFor(() => expect(workspace.state.selection).toEqual(["A1B2C3D4"]));
+  });
+
+  it("drops stale hits when the immediate search fails", async () => {
+    const stale: SearchNode[] = [{ id: "OLDID000", type: "decision", summary: "旧结果" }];
+    const { workspace } = mountPalette(stale, (query) => {
+      if (query !== "") throw new Error("offline");
+      return stale;
+    });
+    paletteState.open = true;
+    // The open-time search is debounced; wait for it to land.
+    await waits(350);
+    const nodeRows = () =>
+      [...document.querySelectorAll(".palette li.item")].filter(
+        (row) => row.querySelector(".kind") !== null,
+      );
+    expect(nodeRows()).toHaveLength(1);
+    const input = document.querySelector(".palette .input") as HTMLInputElement;
+    input.value = "节点一";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    key("Enter");
+    await waits(60);
+    // The failed search must not leave the previous query's hit executable.
+    expect(workspace.state.selection).toEqual([]);
+    expect(nodeRows()).toHaveLength(0);
+  });
+
+  it("reserves the icon slot on every row so labels align", async () => {
+    mountPalette();
+    paletteState.open = true;
+    await waits(50);
+    const rows = document.querySelectorAll(".palette li.item");
+    expect(rows.length).toBeGreaterThan(1);
+    for (const row of rows) expect(row.querySelector(".icon-slot")).not.toBeNull();
   });
 
   it("resets the highlight when a query narrows the results", async () => {

@@ -19,6 +19,7 @@ import {
 } from "@vicons/ionicons5";
 import { clientKey, type RefinoClient } from "../api";
 import { injectRequired } from "../context";
+import { useMenuEscape } from "../menuEscape";
 import { peekHide, peekMove } from "../peek";
 import { storeKey } from "../store";
 import { workspaceKey } from "../workspace";
@@ -45,6 +46,8 @@ const query = ref("");
 
 /** "all" lists both types; the unreferenced view implies premises. */
 const typeFilter = ref<"all" | NodeType>("all");
+/** Controlled so Escape can close the menu (useMenuEscape). */
+const typeMenuOpen = ref(false);
 const unreferencedOnly = ref(false);
 const filterOptions = computed(() => [
   { label: t("explorer.all"), value: "all" },
@@ -92,7 +95,10 @@ const effectiveType = computed<"premise" | "decision" | undefined>(() =>
   unreferencedOnly.value ? "premise" : typeFilter.value === "all" ? undefined : typeFilter.value,
 );
 
-async function fetchPage(cursor: string | undefined, replace: boolean): Promise<void> {
+async function fetchPage(
+  cursor: string | undefined,
+  replace: boolean,
+): Promise<SearchNode[] | null> {
   const token = ++searchToken;
   loading.value = true;
   try {
@@ -103,11 +109,13 @@ async function fetchPage(cursor: string | undefined, replace: boolean): Promise<
       limit: PAGE_SIZE,
       cursor,
     });
-    if (token !== searchToken) return;
+    if (token !== searchToken) return null;
     items.value = replace ? page.nodes : [...items.value, ...page.nodes];
     nextCursor.value = page.nextCursor;
+    return page.nodes;
   } catch {
     // Sidebar listings are best-effort; keep the previous page on failure.
+    return null;
   } finally {
     if (token === searchToken) loading.value = false;
   }
@@ -165,6 +173,8 @@ function toggleUnreferenced(): void {
   if (unreferencedOnly.value) typeFilter.value = "premise";
 }
 
+useMenuEscape(typeMenuOpen);
+
 let startX = 0;
 let startPercent = 0;
 
@@ -194,6 +204,16 @@ onBeforeUnmount(() => {
 
 function select(node: SearchNode): void {
   workspace.select(node);
+}
+
+/** Enter in the search box takes the first hit, so a query can be acted on
+ * without reaching for the pointer. Search immediately: a fast Enter must
+ * not select the previous query's result still shown during the debounce. */
+async function onSearchEnter(): Promise<void> {
+  clearTimeout(debounceTimer);
+  const found = await fetchPage(undefined, true);
+  const first = found?.[0];
+  if (first !== undefined) select(first);
 }
 
 /** Double click opens the modal editor (DESIGN.md, "细节三层模型"). */
@@ -260,9 +280,16 @@ function isDirty(node: SearchNode): boolean {
         </span>
       </div>
       <div class="search">
-        <NInput v-model:value="query" size="small" clearable :placeholder="t('sidebar.search')" />
+        <NInput
+          v-model:value="query"
+          size="small"
+          clearable
+          :placeholder="t('sidebar.search')"
+          @keydown.enter="onSearchEnter"
+        />
         <div class="filters">
           <NPopselect
+            v-model:show="typeMenuOpen"
             :value="typeFilter"
             :options="filterOptions"
             trigger="click"
@@ -314,6 +341,7 @@ function isDirty(node: SearchNode): boolean {
           class="item"
           :class="{
             selected: workspace.state.selection.includes(nodeItem.id),
+            focused: workspace.state.focusId === nodeItem.id,
             expanded: store.state.inlineId === nodeItem.id,
           }"
           @click="select(nodeItem)"
@@ -474,6 +502,12 @@ function isDirty(node: SearchNode): boolean {
 
 .item.selected .row {
   background: rgba(24, 160, 88, 0.15);
+}
+
+/* The focus is the last selection entry; an inset accent marks it without
+ * shifting the row's text when the focus moves. */
+.item.focused .row {
+  box-shadow: inset 2px 0 0 var(--refino-primary, #18a058);
 }
 
 .chevron {

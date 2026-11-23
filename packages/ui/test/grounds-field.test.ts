@@ -42,6 +42,25 @@ function fakeClient(): RefinoClient {
 }
 
 describe("GroundsField", () => {
+  it("closes the ground picker on Escape", async () => {
+    const wrapper = mount(GroundsField, {
+      props: { grounds: [], ownerId: null },
+      global: {
+        provide: { [clientKey as symbol]: fakeClient() },
+        plugins: [createRefinoI18n("zh")],
+      },
+    });
+    await wrapper.find(".n-base-selection").trigger("click");
+    const menu = document.querySelector(".n-base-select-menu");
+    expect(menu).not.toBeNull();
+    expect(getComputedStyle(menu!).display).not.toBe("none");
+    document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await vi.waitFor(() =>
+      expect(getComputedStyle(document.querySelector(".n-base-select-menu")!).display).toBe("none"),
+    );
+    wrapper.unmount();
+  });
+
   it("names resolved grounds by summary without leaking the id", async () => {
     const wrapper = mount(GroundsField, {
       props: { grounds: ["G1", "G2"], ownerId: "OWNER" },

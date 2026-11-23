@@ -7,6 +7,7 @@ import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { NButton, NPopover } from "naive-ui";
 import { injectRequired } from "../context";
+import { useMenuEscape } from "../menuEscape";
 import { renderCulled } from "../renderStatus";
 import { workspaceKey } from "../workspace";
 
@@ -65,6 +66,7 @@ const issueRows = computed(() => {
 });
 
 const issuesOpen = ref(false);
+useMenuEscape(issuesOpen);
 
 function locate(id: string): void {
   workspace.locate(id);

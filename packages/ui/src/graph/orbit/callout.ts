@@ -355,6 +355,8 @@ export interface SummaryLabelInput {
   /** Centre of attention: labels are pushed away from it. */
   focus: CalloutStar | null;
   summaries: ReadonlyMap<string, string>;
+  /** Floating controls the labels must stay clear of, in canvas-local px. */
+  obstacles?: readonly CalloutRect[];
 }
 
 export interface SummaryLabelPlacement extends CalloutRect {
@@ -378,7 +380,7 @@ export interface SummaryLabelPlacement extends CalloutRect {
  * two never sit on top of each other.
  */
 export function placeSummaryLabels(input: SummaryLabelInput): SummaryLabelPlacement[] {
-  const { viewport, focus, summaries } = input;
+  const { viewport, focus, summaries, obstacles = [] } = input;
   const result: SummaryLabelPlacement[] = [];
   for (const candidate of input.candidates) {
     const text = summaries.get(candidate.id);
@@ -434,13 +436,21 @@ export function placeSummaryLabels(input: SummaryLabelInput): SummaryLabelPlacem
         Math.max(CALLOUT_PAD, viewport.height - CALLOUT_PAD - height),
       );
       chosen = { left, top };
-      const overlaps = result.some(
-        (box) =>
-          left < box.left + box.width &&
-          left + width > box.left &&
-          top < box.top + box.height &&
-          top + height > box.top,
-      );
+      const overlaps =
+        result.some(
+          (box) =>
+            left < box.left + box.width &&
+            left + width > box.left &&
+            top < box.top + box.height &&
+            top + height > box.top,
+        ) ||
+        obstacles.some(
+          (box) =>
+            left < box.left + box.width &&
+            left + width > box.left &&
+            top < box.top + box.height &&
+            top + height > box.top,
+        );
       if (!overlaps) break;
     }
     const side = sideOf(candidate, chosen.left, width);

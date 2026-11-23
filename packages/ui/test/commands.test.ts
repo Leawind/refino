@@ -86,6 +86,23 @@ describe("command registry", () => {
     ).toBe("app.themeLight");
   });
 
+  it("toggles the display options from the palette", () => {
+    const t = (key: string): string => key;
+    const config = { showMinimap: true, showVirtualRoot: false };
+    const setConfig = vi.fn((patch: Partial<typeof config>) => Object.assign(config, patch));
+    const ctx = { workspace: { state: { config }, setConfig } } as never;
+
+    const minimap = commands.find((command) => command.id === "minimap")!;
+    expect(commandLabel(minimap, ctx, t)).toBe("canvas.minimap: common.on");
+    minimap.run(ctx);
+    expect(config.showMinimap).toBe(false);
+
+    const root = commands.find((command) => command.id === "virtual-root")!;
+    expect(commandLabel(root, ctx, t)).toBe("canvas.virtualRoot: common.off");
+    root.run(ctx);
+    expect(config.showVirtualRoot).toBe(true);
+  });
+
   it("names and toggles the canvas view from the context", () => {
     const t = (key: string): string => key;
     const config: { canvasView: "planar" | "orbit" } = { canvasView: "planar" };

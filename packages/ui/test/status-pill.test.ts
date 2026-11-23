@@ -124,6 +124,17 @@ describe("StatusPill", () => {
     workspace.stop();
   });
 
+  it("closes the issue panel on Escape", async () => {
+    const { wrapper, workspace } = await mountWithIssues([
+      { code: "cycle", message: "依据构成环路", nodeId: "A1B2C3D4" },
+    ]);
+    await wrapper.find(".issue-trigger").trigger("click");
+    await vi.waitFor(() => expect(document.querySelector(".issue-panel")).not.toBeNull());
+    document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await vi.waitFor(() => expect(document.querySelector(".issue-panel")).toBeNull());
+    workspace.stop();
+  });
+
   it("offers no locate for issues without a node", async () => {
     const { wrapper, workspace } = await mountWithIssues([
       { code: "empty", message: "图不含任何决策" },

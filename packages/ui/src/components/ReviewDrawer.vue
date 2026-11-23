@@ -16,6 +16,9 @@ const { t } = useI18n();
 
 function locate(id: string): void {
   workspace.locate(id);
+  // The drawer covers the right side of the canvas; step aside so the node
+  // just located can actually be seen.
+  review.closeDrawer();
 }
 
 /** Entries render by summary; the id is the last resort for nodes the

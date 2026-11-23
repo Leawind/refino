@@ -278,6 +278,30 @@ describe("summary labels", () => {
     }
   });
 
+  it("keeps a label clear of a floating control", () => {
+    const lone = [{ key: "P1@A", id: "P1", x: 580, y: 350, radius: 8, scale: 1 }];
+    const free = placeSummaryLabels({ viewport: VIEWPORT, candidates: lone, focus, summaries })[0]!;
+    const control = {
+      left: free.left,
+      top: free.top,
+      width: free.width,
+      height: free.height,
+    };
+    const label = placeSummaryLabels({
+      viewport: VIEWPORT,
+      candidates: lone,
+      focus,
+      summaries,
+      obstacles: [control],
+    })[0]!;
+    expect(
+      label.left < control.left + control.width &&
+        label.left + label.width > control.left &&
+        label.top < control.top + control.height &&
+        label.top + label.height > control.top,
+    ).toBe(false);
+  });
+
   it("omits stars without a displayed summary", () => {
     const labels = placeSummaryLabels({
       viewport: VIEWPORT,

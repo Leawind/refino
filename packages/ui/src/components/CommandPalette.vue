@@ -36,6 +36,8 @@ const ctx = { store, workspace, nodeOps };
 const query = ref("");
 const active = ref(0);
 const nodes = ref<SearchNode[]>([]);
+/** Query the current node hits came from; stale hits must not be executed. */
+const searchedQuery = ref("");
 const inputEl = ref<HTMLInputElement | null>(null);
 
 const ICONS: Record<string, Component> = {
@@ -106,17 +108,31 @@ const items = computed<Item[]>(() => [
 let searchToken = 0;
 let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
+/** Run the node search immediately, bypassing the debounce. On failure the
+ * previous query's hits are dropped: they no longer answer what was typed,
+ * and leaving them listed would let Enter act on the wrong node. */
+async function searchNow(): Promise<boolean> {
+  clearTimeout(debounceTimer);
+  const token = ++searchToken;
+  const q = query.value.trim();
+  try {
+    const page = await client.search({ q, limit: 8 });
+    if (token !== searchToken) return false;
+    nodes.value = page.nodes;
+    searchedQuery.value = q;
+    return true;
+  } catch {
+    if (token === searchToken) {
+      nodes.value = [];
+      searchedQuery.value = q;
+    }
+    return false;
+  }
+}
+
 function searchNodes(): void {
   clearTimeout(debounceTimer);
-  debounceTimer = setTimeout(async () => {
-    const token = ++searchToken;
-    try {
-      const page = await client.search({ q: query.value.trim(), limit: 8 });
-      if (token === searchToken) nodes.value = page.nodes;
-    } catch {
-      // Node search is best-effort inside the palette.
-    }
-  }, 150);
+  debounceTimer = setTimeout(() => void searchNow(), 150);
 }
 
 // A new query starts over at the first hit; keeping the previous index would
@@ -139,10 +155,18 @@ watch(
     query.value = "";
     active.value = 0;
     nodes.value = [];
+    searchedQuery.value = "";
     searchNodes();
     void Promise.resolve().then(() => inputEl.value?.focus());
   },
 );
+
+function executeActive(): void {
+  const item = items.value[active.value];
+  if (item === undefined) return;
+  closePalette();
+  item.run();
+}
 
 function onKeydown(event: KeyboardEvent): void {
   // Closed, the registry's binding opens the palette; open, this surface
@@ -170,10 +194,17 @@ function onKeydown(event: KeyboardEvent): void {
     active.value = Math.max(active.value - 1, 0);
   } else if (event.key === "Enter") {
     event.preventDefault();
-    const item = items.value[active.value];
-    if (item === undefined) return;
-    closePalette();
-    item.run();
+    // A fast Enter can beat the node-search debounce; stale hits from the
+    // previous query must never be executed. A failed search leaves only the
+    // query-matched actions, so running the first row stays truthful.
+    if (q.value !== searchedQuery.value) {
+      void searchNow().then(() => {
+        active.value = 0;
+        executeActive();
+      });
+      return;
+    }
+    executeActive();
   }
 }
 
@@ -210,7 +241,9 @@ onBeforeUnmount(() => {
                 item.run();
               "
             >
-              <NIcon v-if="item.icon !== undefined" :component="item.icon" class="icon" />
+              <span class="icon-slot">
+                <NIcon v-if="item.icon !== undefined" :component="item.icon" class="icon" />
+              </span>
               <span class="label">{{ item.label }}</span>
               <kbd v-if="item.keys !== undefined" class="keys">{{ item.keys }}</kbd>
               <span v-if="item.kindLabel !== undefined" class="kind">{{ item.kindLabel }}</span>
@@ -293,6 +326,15 @@ onBeforeUnmount(() => {
 
 .item.active {
   background: rgba(24, 160, 88, 0.14);
+}
+
+/* Every row reserves the icon's width, so labels align whether or not the
+ * command has an icon. */
+.icon-slot {
+  flex: none;
+  width: 16px;
+  display: inline-flex;
+  justify-content: center;
 }
 
 .icon {
