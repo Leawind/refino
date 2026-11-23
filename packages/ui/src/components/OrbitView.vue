@@ -12,7 +12,6 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { injectRequired } from "../context";
-import { peekHide, peekMove } from "../peek";
 import { storeKey } from "../store";
 import { workspaceKey } from "../workspace";
 import { setViewportCommands } from "../viewportBridge";
@@ -20,7 +19,6 @@ import type { OverviewSnapshot } from "../graph/render/overview";
 import { buildOrbitScene } from "../graph/orbit/data";
 import { ORBIT_ROOT_ID, OrbitScene } from "../graph/orbit/scene";
 import type { OrbitPick } from "../graph/orbit/scene";
-import type { NodeType } from "../types";
 import CanvasContextMenu from "./CanvasContextMenu.vue";
 import OrbitCallout from "./OrbitCallout.vue";
 
@@ -31,12 +29,6 @@ const { t } = useI18n();
 const hostEl = ref<HTMLElement | null>(null);
 const canvasEl = ref<HTMLCanvasElement | null>(null);
 const failed = ref(false);
-const hoverInfo = ref<{
-  summary: string;
-  type: NodeType;
-  left: number;
-  top: number;
-} | null>(null);
 
 /** The scene instance, once WebGL is up; the callout overlay reads its
  * screen geometry through it. */
@@ -47,17 +39,15 @@ let resizeObserver: ResizeObserver | null = null;
 let signature = "";
 let hadNodes = false;
 let hoveredId: string | null = null;
+/** Copy under the pointer: a premise node may be drawn once per consumer, so
+ * the label belongs to that copy rather than to every copy of the node. */
+let hoveredKey: string | null = null;
 /** An external focus may name a node that the working set has not loaded
  * yet; retry when the scene next receives data. */
 let pendingFocusId: string | null = null;
 /** Bridge subscribers (zoom readout, FOV control): the scene keeps a single
  * camera listener, so the view fans movement out to all of them. */
 const cameraHandlers = new Set<() => void>();
-
-/** Tooltip width cap in CSS pixels, kept in step with the style below. */
-const TIP_WIDTH = 240;
-const TIP_MAX_HEIGHT = 72;
-const TIP_OFFSET = 16;
 
 const byId = computed(
   () => new Map(workspace.displayed.value.map((node) => [node.id, node] as const)),
@@ -106,7 +96,7 @@ function ensureScene(): void {
   }
   scene.value = created;
   created.resize(host.clientWidth, host.clientHeight);
-  created.setState(new Set(workspace.state.selection), workspace.state.hoveredId);
+  created.setState(new Set(workspace.state.selection), workspace.state.hoveredId, hoveredKey);
   created.onCameraChanged(() => {
     for (const handler of cameraHandlers) handler();
   });
@@ -171,21 +161,9 @@ function pick(event: MouseEvent): OrbitPick | null {
   return current.pick(point.x, point.y);
 }
 
-function clampTip(event: MouseEvent): { left: number; top: number } {
-  const host = hostEl.value;
-  const point = localPoint(event);
-  const maxLeft = (host?.clientWidth ?? 0) - TIP_WIDTH - TIP_OFFSET;
-  const maxTop = (host?.clientHeight ?? 0) - TIP_MAX_HEIGHT - TIP_OFFSET;
-  return {
-    left: Math.max(TIP_OFFSET, Math.min(point.x + TIP_OFFSET, maxLeft)),
-    top: Math.max(TIP_OFFSET, Math.min(point.y + TIP_OFFSET, maxTop)),
-  };
-}
-
 function hideHover(): void {
-  if (hoveredId !== null) peekHide(hoveredId);
   hoveredId = null;
-  hoverInfo.value = null;
+  hoveredKey = null;
   scene.value?.setRootHover(false);
   workspace.unhover();
 }
@@ -198,43 +176,27 @@ function setCursor(cursor: string): void {
 function updateHover(event: MouseEvent): void {
   const hit = pick(event);
   const id = hit?.id ?? null;
+  const key = hit?.key ?? null;
   const overRoot = hit !== null && hit.id === null;
   scene.value?.setRootHover(overRoot);
-  if (id === hoveredId) {
-    if (id !== null) {
-      peekMove(id, event.clientX, event.clientY);
-      if (hoverInfo.value !== null) {
-        const point = clampTip(event);
-        hoverInfo.value.left = point.left;
-        hoverInfo.value.top = point.top;
-      }
-    }
+  if (id === hoveredId && key === hoveredKey) {
     // Both the root and empty space have no node id, so the cursor must be
     // decided from the pick rather than from the hovered id.
     setCursor(id !== null || overRoot ? "pointer" : "default");
     return;
   }
-  if (hoveredId !== null) peekHide(hoveredId);
   hoveredId = id;
+  hoveredKey = key;
   if (id === null) {
-    hoverInfo.value = null;
     workspace.unhover();
     // The virtual root is clickable; empty space is not.
     setCursor(overRoot ? "pointer" : "default");
     return;
   }
-  const node = byId.value.get(id);
+  // The hovered star's summary — and, with Alt, its body — is drawn by
+  // OrbitCallout as a satellite label. Keep the shared hover in sync for
+  // highlighting and for the label to find its record.
   workspace.hover(id);
-  peekMove(id, event.clientX, event.clientY);
-  if (node !== undefined) {
-    const point = clampTip(event);
-    hoverInfo.value = {
-      summary: node.summary === "" ? t("node.untitled") : node.summary,
-      type: node.type,
-      left: point.left,
-      top: point.top,
-    };
-  }
   setCursor("pointer");
 }
 
@@ -404,7 +366,10 @@ watch(
 );
 watch(
   () => [workspace.state.selection, workspace.state.hoveredId] as const,
-  ([selection, hovered]) => scene.value?.setState(new Set(selection), hovered),
+  ([selection, hovered]) =>
+    // A hover set outside the canvas has no copy key; only the canvas knows
+    // which planet of a multi-copy premise the pointer is on.
+    scene.value?.setState(new Set(selection), hovered, hovered === hoveredId ? hoveredKey : null),
 );
 // A "locate" from the resource list, selection list, palette or review drawer
 // changes only the shared focus. Bring the orbit center there too; a plain
@@ -422,8 +387,8 @@ onBeforeUnmount(() => {
   cameraHandlers.clear();
   resizeObserver?.disconnect();
   resizeObserver = null;
-  if (hoveredId !== null) peekHide(hoveredId);
   hoveredId = null;
+  hoveredKey = null;
   workspace.unhover();
   scene.value?.dispose();
   scene.value = null;
@@ -444,14 +409,6 @@ onBeforeUnmount(() => {
       @contextmenu="onContextMenu"
       @dblclick="onDoubleClick"
     />
-    <div
-      v-if="hoverInfo !== null"
-      class="hover-tip"
-      :style="{ left: `${hoverInfo.left}px`, top: `${hoverInfo.top}px` }"
-    >
-      <span class="kind">{{ t(`node.${hoverInfo.type}`) }}</span>
-      <span class="summary">{{ hoverInfo.summary }}</span>
-    </div>
     <OrbitCallout v-if="scene !== null" :scene="scene" :node="focusedNode" :summaries="summaries" />
     <CanvasContextMenu
       v-if="menu.open"
@@ -487,37 +444,6 @@ onBeforeUnmount(() => {
   height: 100%;
   outline: none;
   touch-action: none;
-}
-
-.hover-tip {
-  position: absolute;
-  z-index: 6;
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  width: max-content;
-  max-width: 240px;
-  padding: 4px 8px;
-  font-size: 12px;
-  line-height: 1.45;
-  border: 1px solid var(--refino-border);
-  border-radius: 6px;
-  background: var(--refino-surface);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
-  pointer-events: none;
-}
-
-.kind {
-  flex: none;
-  opacity: 0.55;
-}
-
-.summary {
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  overflow-wrap: anywhere;
 }
 
 .empty {

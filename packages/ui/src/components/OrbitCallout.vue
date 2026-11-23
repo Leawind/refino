@@ -33,6 +33,7 @@ import type {
 } from "../graph/orbit/callout";
 import { easeBlend } from "../graph/orbit/camera";
 import type { OrbitScene, OrbitScreenLayout } from "../graph/orbit/scene";
+import { peekState } from "../peek";
 import { renderMarkdown } from "../markdown";
 import type { NodeLite, NodeRecord } from "../types";
 
@@ -43,14 +44,6 @@ const PLACE_INTERVAL_MS = 110;
 const MOVE_TAU_MS = 150;
 /** Space kept between the block and the canvas edge controls. */
 const PANEL_PAD = 10;
-/** At most this many prominent stars get a summary; the focused star's
- * grounds are added on top of them. */
-const MAX_SUMMARY_LABELS = 8;
-/** Full size at the orbit centre; farther stars shrink down to this. */
-const MIN_SUMMARY_SCALE = 0.55;
-/** Grounds of the focused decision read a little smaller than their peers. */
-const GROUND_SUMMARY_SCALE = 0.78;
-
 const props = defineProps<{
   scene: OrbitScene;
   node: NodeLite | null;
@@ -107,6 +100,37 @@ const bodyHtml = computed(() => {
   return body === "" ? "" : renderMarkdown(body);
 });
 
+/** Full record of the hovered star: its label unfolds the body on Alt. The
+ * id travels through the scene's screen layout, so a premise copy shares the
+ * record with every other copy of the same node. */
+const hoveredId = ref<string | null>(null);
+const hoveredRecord = ref<NodeRecord | null>(null);
+let hoverLoadToken = 0;
+
+watch(
+  hoveredId,
+  (id) => {
+    hoveredRecord.value = null;
+    if (id === null) return;
+    const token = ++hoverLoadToken;
+    void client
+      .fetchNode(id)
+      .then((detail) => {
+        if (token !== hoverLoadToken || hoveredId.value !== id) return;
+        hoveredRecord.value = detail.node;
+      })
+      .catch(() => {
+        // The label still shows the summary; the body is best-effort.
+      });
+  },
+  { immediate: true },
+);
+
+const hoveredBodyHtml = computed(() => {
+  const body = hoveredRecord.value?.body ?? "";
+  return body === "" ? "" : renderMarkdown(body);
+});
+
 /** Geometry, all in canvas-local CSS pixels. */
 const shown = { left: 0, top: 0, width: 0 };
 let target: CalloutPlacement | null = null;
@@ -132,6 +156,11 @@ function onFrame(): void {
   frameTime = now;
   const layout = props.scene.screenLayout();
   const obstacles = measureObstacles();
+  // The hovered star's record feeds its label's Alt body. Read it from the
+  // layout so this overlay needs no second hover source.
+  const hovered = layout.nodes.find((node) => node.hovered);
+  const nextHovered = hovered?.id ?? null;
+  if (nextHovered !== hoveredId.value) hoveredId.value = nextHovered;
   // Summaries follow the picture, not the focus: they stay while the camera
   // turns even when no star is focused and the main block is unmounted.
   updateSummaries(layout, obstacles);
@@ -241,40 +270,30 @@ function solve(layout: OrbitScreenLayout, controls: CalloutRect[]): void {
   });
 }
 
-/** Pick the stars that earn a summary and scale their text by distance. */
+/** Pick the stars that earn a summary and scale their text by distance.
+ * Besides the hovered star, only the focus's parent decisions and the
+ * premises it grounds on speak — the picture's other stars stay quiet. */
 function selectSummaryCandidates(layout: OrbitScreenLayout): SummaryLabelCandidate[] {
   const focusId = props.node?.id ?? null;
-  const scored = layout.nodes
-    .filter((node) => node.id !== focusId && props.summaries.has(node.id))
-    .map((node) => ({
-      node,
-      prominence: node.radius + (node.interacted ? 24 : 0) + (node.type === "decision" ? 6 : 0),
-    }));
-  scored.sort((left, right) => right.prominence - left.prominence);
-  const kept = scored.slice(0, MAX_SUMMARY_LABELS);
-  for (const entry of scored) {
-    if (entry.node.ground && !kept.includes(entry)) kept.push(entry);
-  }
-  // The nearest, largest star sets full size; everything farther or smaller
-  // shrinks towards the floor. Normal size is therefore the ceiling.
-  const distances = layout.nodes.map((node) => node.distance);
-  const baseline =
-    distances.length > 0 ? Math.min(...distances) : Math.max(layout.referenceDistance, 1);
-  const largest = Math.max(1e-3, ...layout.nodes.map((node) => node.radius));
+  // The camera distance to the orbit centre is the full-size reference: a
+  // star at that depth reads normal, closer ones cap at normal, farther ones
+  // shrink without a floor.
   const reference = Math.max(layout.referenceDistance, 1);
-  return kept.map(({ node }) => {
-    const distanceScale = Math.min(1, baseline / Math.max(node.distance, 1e-3));
-    const sizeScale = Math.min(1, node.radius / largest, reference / Math.max(node.distance, 1e-3));
-    const distance = Math.max(MIN_SUMMARY_SCALE, Math.min(distanceScale, sizeScale));
-    return {
-      key: node.key,
-      id: node.id,
-      x: node.x,
-      y: node.y,
-      radius: node.radius,
-      scale: distance * (node.ground ? GROUND_SUMMARY_SCALE : 1),
-    };
-  });
+  const kept = layout.nodes.filter(
+    (node) =>
+      node.id !== focusId && props.summaries.has(node.id) && (node.hovered || node.relative),
+  );
+  return kept.map((node) => ({
+    key: node.key,
+    id: node.id,
+    x: node.x,
+    y: node.y,
+    radius: node.radius,
+    // The pointer already singles out the hovered star: it reads at normal
+    // size whatever its depth. Relatives follow distance alone.
+    scale: node.hovered ? 1 : Math.min(1, reference / Math.max(node.distance, 1e-3)),
+    hovered: node.hovered,
+  }));
 }
 
 /** Place and follow the summaries around the picture's prominent stars. */
@@ -286,7 +305,9 @@ function updateSummaries(layout: OrbitScreenLayout, obstacles: readonly CalloutR
     summaries: props.summaries,
     obstacles,
   });
-  const signature = boxes.map((box) => `${box.key}:${box.text}:${box.scale.toFixed(2)}`).join("|");
+  const signature = boxes
+    .map((box) => `${box.key}:${box.text}:${box.scale.toFixed(2)}:${box.hovered ? 1 : 0}`)
+    .join("|");
   if (signature !== summarySignature) {
     summarySignature = signature;
     summaryLabels.value = boxes;
@@ -514,6 +535,7 @@ watch([bodyHtml, () => props.node?.summary], () => {
       v-for="label in summaryLabels"
       :key="label.key"
       class="satellite-label"
+      :class="{ 'is-expanded': label.hovered && peekState.alt && hoveredBodyHtml !== '' }"
       :data-sat-key="label.key"
     >
       <span
@@ -529,6 +551,11 @@ watch([bodyHtml, () => props.node?.summary], () => {
         :style="{ marginTop: `${SUMMARY_RULE_GAP * label.scale}px` }"
         aria-hidden="true"
       ></div>
+      <div
+        v-if="label.hovered && peekState.alt && hoveredBodyHtml !== ''"
+        class="satellite-body"
+        v-html="hoveredBodyHtml"
+      />
     </div>
     <Transition name="callout">
       <div
@@ -598,6 +625,49 @@ watch([bodyHtml, () => props.node?.summary], () => {
   height: 1px;
   margin-top: 6px;
   background: rgba(146, 186, 255, 0.42);
+}
+
+/* Holding Alt unfolds the hovered star's body under its rule. It keeps the
+ * label's borderless look and follows the same markdown styling as the main
+ * block; the pointer is captured only while expanded so the body can scroll. */
+.satellite-label.is-expanded {
+  pointer-events: auto;
+  z-index: 2;
+}
+
+.satellite-body {
+  max-height: 140px;
+  margin-top: 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  color: rgba(202, 218, 242, 0.86);
+  font-size: 11px;
+  line-height: 1.6;
+  text-shadow: 0 1px 5px rgba(0, 0, 0, 0.8);
+  overflow-wrap: anywhere;
+  scrollbar-width: none;
+}
+
+.satellite-body::-webkit-scrollbar {
+  display: none;
+}
+
+.satellite-body :deep(p) {
+  margin: 0 0 6px;
+}
+
+.satellite-body :deep(p:last-child) {
+  margin-bottom: 0;
+}
+
+.satellite-body :deep(ul),
+.satellite-body :deep(ol) {
+  margin: 0 0 6px;
+  padding-left: 16px;
+}
+
+.satellite-body :deep(a) {
+  color: #9ec8ff;
 }
 
 .callout {

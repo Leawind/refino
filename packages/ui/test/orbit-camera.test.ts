@@ -8,7 +8,9 @@ import {
   logGlowScale,
   MAX_FOV,
   MIN_FOV,
+  pinchDistance,
   scaleAtDistance,
+  uprightUp,
   wheelFov,
   wheelTargetDistance,
   zoomDistance,
@@ -130,5 +132,40 @@ describe("orbit camera", () => {
       expect(limitingFov(fovForLimiting(MIN_FOV, aspect), aspect)).toBeCloseTo(MIN_FOV, 6);
       expect(limitingFov(fovForLimiting(MAX_FOV, aspect), aspect)).toBeCloseTo(MAX_FOV, 6);
     }
+  });
+
+  it("drops the roll of a trackball view when it looks from a distance", () => {
+    const upright = uprightUp({ x: 0.55, y: 0.42, z: 1 });
+    expect(upright).not.toBeNull();
+    const up = upright!;
+    // Square to the view, unit length, and pointing as far up as it can.
+    expect(up.x * 0.55 + up.y * 0.42 + up.z * 1).toBeCloseTo(0, 6);
+    expect(Math.hypot(up.x, up.y, up.z)).toBeCloseTo(1, 6);
+    expect(up.y).toBeGreaterThan(0.5);
+    // A side-on view keeps the plain world up.
+    const side = uprightUp({ x: 1, y: 0, z: 0 })!;
+    expect(side.y).toBeCloseTo(1, 6);
+    expect(Math.abs(side.x)).toBeCloseTo(0, 6);
+    expect(Math.abs(side.z)).toBeCloseTo(0, 6);
+  });
+
+  it("pinches the camera distance with the finger spread", () => {
+    // Spreading the fingers halves the distance, pinching them doubles it.
+    expect(pinchDistance(20, 100, 200, 2.5, 4000)).toBeCloseTo(10, 6);
+    expect(pinchDistance(20, 200, 100, 2.5, 4000)).toBeCloseTo(40, 6);
+    // The zoom limits still hold, and a degenerate gesture changes nothing.
+    expect(pinchDistance(20, 100, 1000, 2.5, 4000)).toBe(2.5);
+    expect(pinchDistance(200, 100, 1, 2.5, 4000)).toBe(4000);
+    expect(pinchDistance(20, 0, 100, 2.5, 4000)).toBe(20);
+    expect(pinchDistance(20, 100, 100, 2.5, 4000)).toBe(20);
+  });
+
+  it("keeps the roll when the view looks along the up axis", () => {
+    // Every up axis is equally upright when looking straight up or down, and
+    // within a degree of the axis the projection is numerical noise.
+    expect(uprightUp({ x: 0, y: 1, z: 0 })).toBeNull();
+    expect(uprightUp({ x: 0, y: -1, z: 0 })).toBeNull();
+    expect(uprightUp({ x: 0.002, y: 1, z: 0 })).toBeNull();
+    expect(uprightUp({ x: 0, y: 0, z: 0 })).toBeNull();
   });
 });

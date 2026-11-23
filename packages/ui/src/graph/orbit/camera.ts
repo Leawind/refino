@@ -126,3 +126,40 @@ export function pointDistance(
 ): number {
   return Math.hypot(left.x - right.x, left.y - right.y, left.z - right.z);
 }
+
+/** Camera distance after a pinch: the fingers' spread scales the distance
+ * inversely, so spreading them zooms in. Clamped to the zoom limits. */
+export function pinchDistance(
+  distance: number,
+  spread: number,
+  nextSpread: number,
+  min: number,
+  max: number,
+): number {
+  if (!(spread > 0) || !(nextSpread > 0) || !Number.isFinite(distance)) return distance;
+  return Math.min(max, Math.max(min, distance * (spread / nextSpread)));
+}
+
+/** Up axis without roll: the world up projected onto the plane square to the
+ * viewing direction, so the view comes out upright after a trackball drag.
+ * Null when the view looks along the world up axis, where every roll is
+ * equally upright and the current one should stand. */
+export function uprightUp(direction: {
+  x: number;
+  y: number;
+  z: number;
+}): { x: number; y: number; z: number } | null {
+  const length = Math.hypot(direction.x, direction.y, direction.z);
+  if (!(length > 0)) return null;
+  const along = direction.y / length;
+  const lengthSq = 1 - along * along;
+  // Within about a degree of the axis the projection comes out numerically
+  // meaningless; the caller keeps its roll instead.
+  if (!(lengthSq > 1e-4)) return null;
+  const scale = 1 / Math.sqrt(lengthSq);
+  return {
+    x: -along * (direction.x / length) * scale,
+    y: lengthSq * scale,
+    z: -along * (direction.z / length) * scale,
+  };
+}

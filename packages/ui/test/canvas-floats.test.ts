@@ -96,15 +96,24 @@ describe("canvas floats manifest", () => {
     // does not descend into reliably.
     expect(wrapper.find(".graph-float.top-right").element.children).toHaveLength(0);
     expect(document.querySelector(".graph-float.top-left .minimap .map")).not.toBeNull();
-    // The bottom-right corner is one grouped control built from compact
-    // rows, so no lone button leaves a gap next to the edge.
+    // The bottom-right corner is one grouped control laid out along the two
+    // edges it touches, so no control floats in the canvas interior.
     expect(document.querySelectorAll(".graph-float.bottom-right > *")).toHaveLength(1);
     expect(document.querySelector(".graph-float.bottom-right .canvas-controls")).not.toBeNull();
-    expect(document.querySelector(".graph-float.bottom-right .style-settings")).not.toBeNull();
-    expect(document.querySelector(".graph-float.bottom-right .node-size")).not.toBeNull();
-    expect(document.querySelector(".graph-float.bottom-right .layout-controls")).not.toBeNull();
-    expect(document.querySelector(".graph-float.bottom-right .view-toggle")).not.toBeNull();
-    expect(document.querySelector(".graph-float.bottom-right .zoom-controls")).not.toBeNull();
+    // Square controls stack up the right edge, nearest the corner first.
+    const stack = document.querySelector(".graph-float.bottom-right .canvas-controls .stack");
+    expect([...(stack?.children ?? [])].map((child) => child.className.split(" ").at(0))).toEqual([
+      "node-size",
+      "style-settings",
+    ]);
+    // Wide controls run left along the bottom edge; the view switch keeps the
+    // corner itself, last in the strip.
+    const strip = document.querySelector(".graph-float.bottom-right .canvas-controls .strip");
+    expect([...(strip?.children ?? [])].map((child) => child.className.split(" ").at(-1))).toEqual([
+      "layout-controls",
+      "zoom-controls",
+      "view-toggle",
+    ]);
     // The field-of-view control belongs to the orbit view.
     expect(document.querySelector(".graph-float.bottom-right .fov-control")).toBeNull();
     expect(document.querySelector(".graph-float.bottom-left .status-pill")).not.toBeNull();
@@ -122,7 +131,16 @@ describe("canvas floats manifest", () => {
     expect(document.querySelectorAll(".graph-float.bottom-right > *")).toHaveLength(1);
     expect(document.querySelector(".graph-float.bottom-right .view-toggle")).not.toBeNull();
     expect(document.querySelector(".graph-float.bottom-right .zoom-controls")).not.toBeNull();
-    expect(document.querySelector(".graph-float.bottom-right .fov-control")).not.toBeNull();
+    // The orbit view keeps only its own square control in the right stack.
+    const stack = document.querySelector(".graph-float.bottom-right .canvas-controls .stack");
+    expect([...(stack?.children ?? [])].map((child) => child.className.split(" ").at(0))).toEqual([
+      "fov-control",
+    ]);
+    const strip = document.querySelector(".graph-float.bottom-right .canvas-controls .strip");
+    expect([...(strip?.children ?? [])].map((child) => child.className.split(" ").at(-1))).toEqual([
+      "zoom-controls",
+      "view-toggle",
+    ]);
     expect(document.querySelector(".graph-float.bottom-right .layout-controls")).toBeNull();
     expect(document.querySelector(".graph-float.bottom-right .style-settings")).toBeNull();
     expect(document.querySelector(".graph-float.bottom-left .status-pill")).not.toBeNull();

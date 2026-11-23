@@ -6,6 +6,7 @@ import OrbitView from "../src/components/OrbitView.vue";
 import { createRefinoI18n } from "../src/i18n";
 import { setViewportCommands, viewportBridge } from "../src/viewportBridge";
 import { clientKey } from "../src/api";
+import { peekState } from "../src/peek";
 import { storeKey } from "../src/store";
 import { workspaceKey } from "../src/workspace";
 
@@ -36,6 +37,8 @@ const orbit = vi.hoisted(() => ({
   pick: vi.fn((): FakePick | null => ({ key: "A", id: "A" })),
   /** Mirrors the real scene's focus for the callout overlay. */
   focus: null as { key: string; id: string | null } | null,
+  /** Mirrors the real scene's hovered node for the summary labels. */
+  hovered: null as string | null,
   focusHandler: null as (() => void) | null,
   frameHandler: null as (() => void) | null,
   setFocus: vi.fn((focus: { key: string; id: string | null } | null) => {
@@ -43,6 +46,10 @@ const orbit = vi.hoisted(() => ({
     orbit.focusHandler?.();
   }),
 }));
+
+function idIsHovered(id: string): boolean {
+  return orbit.hovered === id;
+}
 
 vi.mock("../src/graph/orbit/scene", () => {
   class FakeScene {
@@ -93,8 +100,9 @@ vi.mock("../src/graph/orbit/scene", () => {
             y: 300,
             radius: 12,
             distance: 20,
-            interacted: false,
-            ground: false,
+            interacted: idIsHovered("A"),
+            hovered: idIsHovered("A"),
+            relative: false,
           },
           {
             key: "P@A",
@@ -103,9 +111,13 @@ vi.mock("../src/graph/orbit/scene", () => {
             x: 470,
             y: 300,
             radius: 8,
-            distance: 20,
-            interacted: false,
-            ground: true,
+            // Farther than the orbit-centre reference: the relative label
+            // should read at half size.
+            distance: 40,
+            interacted: idIsHovered("P"),
+            hovered: idIsHovered("P"),
+            // This premise orbits A, so it is a relative only while A is the focus.
+            relative: orbit.focus?.key === "A",
           },
         ],
         referenceDistance: 20,
@@ -224,6 +236,7 @@ beforeEach(() => {
   orbit.beginDrag.mockReturnValue(true);
   orbit.pick.mockReturnValue({ key: "A", id: "A" });
   orbit.focus = null;
+  orbit.hovered = null;
   orbit.focusHandler = null;
   orbit.frameHandler = null;
   vi.stubGlobal(
@@ -239,6 +252,8 @@ beforeEach(() => {
 afterEach(() => {
   wrapper?.unmount();
   wrapper = null;
+  peekState.alt = false;
+  peekState.id = null;
   setViewportCommands(null);
   vi.unstubAllGlobals();
 });
@@ -287,6 +302,65 @@ describe("orbit view focus", () => {
     );
     expect(orbit.rootHover).toHaveBeenLastCalledWith(false);
     expect(canvas.style.cursor).toBe("default");
+  });
+
+  it("shows only the satellite summary on hover, at normal size", async () => {
+    const workspace = fakeWorkspace();
+    mountOrbit(workspace);
+    const canvas = wrapper!.find("canvas").element as HTMLCanvasElement;
+    await flushPromises();
+    orbit.hovered = "A";
+    canvas.dispatchEvent(
+      new MouseEvent("pointermove", { clientX: 24, clientY: 32, bubbles: true }),
+    );
+    orbit.frameHandler?.();
+    await nextTick();
+    // No second, 2D-style tooltip box beside the star.
+    expect(wrapper!.find(".hover-tip").exists()).toBe(false);
+    // Only the hovered star speaks with no focus, and it reads at full size.
+    const labels = wrapper!.findAll(".satellite-label");
+    expect(labels).toHaveLength(1);
+    expect(labels[0]!.find(".summary").text()).toBe("Alpha");
+    expect(
+      Number(
+        labels[0]!
+          .find(".summary")
+          .attributes("style")
+          ?.match(/font-size: ([\d.]+)px/)?.[1],
+      ),
+    ).toBe(13);
+  });
+
+  it("unfolds the hovered star's body under its rule only while Alt is held", async () => {
+    const workspace = fakeWorkspace();
+    mountOrbit(workspace);
+    const canvas = wrapper!.find("canvas").element as HTMLCanvasElement;
+    await flushPromises();
+    orbit.hovered = "A";
+    canvas.dispatchEvent(
+      new MouseEvent("pointermove", { clientX: 24, clientY: 32, bubbles: true }),
+    );
+    orbit.frameHandler?.();
+    await flushPromises();
+    await nextTick();
+    // Without Alt, the label is just the summary and the rule.
+    expect(wrapper!.find(".satellite-body").exists()).toBe(false);
+
+    peekState.alt = true;
+    await nextTick();
+    const body = wrapper!.find(".satellite-body");
+    expect(body.exists()).toBe(true);
+    expect(body.text()).toContain("Body from the record.");
+    // The expanded body sits under the hovered label's rule.
+    const hovered = wrapper!
+      .findAll(".satellite-label")
+      .find((l) => l.find(".summary").text() === "Alpha");
+    expect(hovered!.find(".satellite-body").exists()).toBe(true);
+    expect(hovered!.classes()).toContain("is-expanded");
+
+    peekState.alt = false;
+    await nextTick();
+    expect(wrapper!.find(".satellite-body").exists()).toBe(false);
   });
 
   it("does not re-center when a Ctrl-click removes the star from the selection", () => {
@@ -459,7 +533,7 @@ describe("orbit callout", () => {
     );
   });
 
-  it("labels prominent stars whether or not a star is focused", async () => {
+  it("labels only the focus's relatives, and nothing when focus leaves", async () => {
     const workspace = fakeWorkspace();
     mountOrbit(workspace);
     clickOnStar();
@@ -471,7 +545,7 @@ describe("orbit callout", () => {
     expect(labels[0]!.find(".summary").text()).toBe("Fact");
     expect(labels[0]!.find(".satellite-rule").exists()).toBe(true);
     expect(wrapper!.findAll("[data-sat-line]")).toHaveLength(1);
-    // The ground's label reads smaller than a full-size summary.
+    // The relative's label scales with camera distance, capped below full size.
     expect(
       Number(
         labels[0]!
@@ -484,9 +558,7 @@ describe("orbit callout", () => {
     await nextTick();
     orbit.frameHandler?.();
     await nextTick();
-    // With no focus, the formerly focused decision competes on prominence too.
-    const after = wrapper!.findAll(".satellite-label");
-    expect(after).toHaveLength(2);
-    expect(after.map((label) => label.find(".summary").text())).toEqual(["Alpha", "Fact"]);
+    // With no focus, neither the decision nor its premise is a relative.
+    expect(wrapper!.findAll(".satellite-label")).toHaveLength(0);
   });
 });

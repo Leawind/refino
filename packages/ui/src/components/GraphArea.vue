@@ -1,8 +1,9 @@
 <script setup lang="ts">
 // The canvas pane: the WebGL graph host plus everything floating over it —
-// the edge controls (via the float manifest) and the cursor-following peek
-// card. Owns the host's render-culling feedback, which the status pill
-// reads from the shared render state.
+// the edge controls (via the float manifest). The cursor-following peek card
+// belongs to the planar canvas only: the orbit view reads its body from the
+// hovered star's own summary label instead. Owns the host's render-culling
+// feedback, which the status pill reads from the shared render state.
 import { computed, defineAsyncComponent, watch } from "vue";
 import DecisionGraph from "./DecisionGraph.vue";
 import GraphFloats from "./GraphFloats.vue";
@@ -39,7 +40,7 @@ watch(orbit, (value) => {
     />
     <OrbitView v-else />
     <GraphFloats />
-    <NodePeek />
+    <NodePeek v-if="!orbit" />
   </div>
 </template>
 

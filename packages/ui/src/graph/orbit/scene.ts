@@ -31,12 +31,11 @@ import {
   Sprite,
   SpriteMaterial,
   SRGBColorSpace,
-  TOUCH,
   Vector2,
   Vector3,
   WebGLRenderer,
 } from "three";
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { TrackballControls } from "three/addons/controls/TrackballControls.js";
 import type { RGBA } from "../render/renderer";
 import {
   clampLimitingFov,
@@ -50,7 +49,9 @@ import {
   MAX_FOV,
   MIN_FOV,
   pointDistance,
+  pinchDistance,
   scaleAtDistance,
+  uprightUp,
   wheelFov,
   wheelTargetDistance,
   zoomDistance,
@@ -134,8 +135,10 @@ export interface OrbitScreenNode extends OrbitScreenStar {
   distance: number;
   /** Hovered or selected: an extra claim on the viewer's attention. */
   interacted: boolean;
-  /** A ground of the focused decision (the copy on its own ring for premises). */
-  ground: boolean;
+  /** Hovered right now: its summary reads at normal size, whatever its depth. */
+  hovered: boolean;
+  /** Parent decision of the focus, or a premise the focus grounds on. */
+  relative: boolean;
 }
 
 /** Everything a screen-space overlay needs to place itself around the
@@ -184,8 +187,9 @@ const HALO_TAU_MS = 110;
 /** Wheel/zoom commands ease the distance in. */
 const ZOOM_TAU_MS = 70;
 /** One satellite revolution takes this long; all rings share the speed so
- * their formation never drifts apart. */
-const SATELLITE_PERIOD_MS = 26000;
+ * their formation never drifts apart. Deliberately slow: the motion should
+ * read as a quiet drift, not draw the eye away from the decisions. */
+const SATELLITE_PERIOD_MS = 50000;
 const SATELLITE_SPEED = (Math.PI * 2) / SATELLITE_PERIOD_MS;
 /** The focused system's ring is only a hint, never a highlight. */
 const TRACK_OPACITY = 0.12;
@@ -330,7 +334,7 @@ export class OrbitScene {
   readonly #renderer: WebGLRenderer;
   readonly #scene = new Scene();
   readonly #camera: PerspectiveCamera;
-  readonly #controls: OrbitControls;
+  readonly #controls: TrackballControls;
   readonly #starCanvas = starTexture();
   readonly #haloCanvas = haloTexture();
   readonly #starMaterial = new PointsMaterial({
@@ -440,7 +444,11 @@ export class OrbitScene {
   #rootRayLengths = new Float32Array(0);
   #rootIds: string[] = [];
   #selection = new Set<string>();
+  /** Hovered node id: every copy of a premise lights up with it. */
   #hovered: string | null = null;
+  /** Copy the pointer actually sits on. A premise drawn once per consumer
+   * has several copies; only this one carries the label. */
+  #hoveredKey: string | null = null;
   #halos = new Map<string, HaloState>();
   /** Scene key the orbit center is gliding to; null when idle. */
   #focusKey: string | null = null;
@@ -475,6 +483,14 @@ export class OrbitScene {
   /** FOV the current fit distance was computed for. */
   #fitFov = DEFAULT_FOV;
   readonly #wheelHandler: (event: WheelEvent) => void;
+  /** Touch pointers currently on the canvas, for the two-finger zoom. */
+  readonly #touches = new Map<number, { x: number; y: number }>();
+  /** Finger spread and camera distance when a pinch began; null between
+   * pinches. */
+  #pinch: { spread: number; distance: number } | null = null;
+  readonly #onTouchDown: (event: PointerEvent) => void;
+  readonly #onTouchMove: (event: PointerEvent) => void;
+  readonly #onTouchUp: (event: PointerEvent) => void;
   /** Ctrl state tracked from key events: some hosts deliver Ctrl+wheel with
    * `ctrlKey` cleared, so the wheel alone is not reliable. */
   #ctrlHeld = false;
@@ -500,21 +516,61 @@ export class OrbitScene {
     this.#renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.#camera = new PerspectiveCamera(DEFAULT_FOV, 1, 0.1, 20000);
     this.#camera.position.set(0.55, 0.42, 1).normalize().multiplyScalar(20);
-    this.#controls = new OrbitControls(this.#camera, canvas);
-    this.#controls.enableDamping = true;
-    this.#controls.dampingFactor = 0.08;
-    this.#controls.enablePan = false;
-    this.#controls.rotateSpeed = 0.8;
-    this.#controls.zoomSpeed = 0.9;
+    // Rotation is a trackball: a drag composes rotations around the axes under
+    // the pointer, so the camera rolls over the poles instead of gimbal
+    // locking against a fixed up axis and flipping past them.
+    this.#controls = new TrackballControls(this.#camera, canvas);
+    this.#controls.staticMoving = false;
+    this.#controls.dynamicDampingFactor = 0.15;
+    // The trackball measures drags in half-canvas widths; this brings a drag
+    // across most of the canvas to roughly two thirds of a turn.
+    this.#controls.rotateSpeed = 2;
     this.#controls.minDistance = MIN_DISTANCE;
     this.#controls.maxDistance = 4000;
-    // Middle-drag dolly duplicates the wheel; leave it inert.
-    this.#controls.mouseButtons = { LEFT: null, MIDDLE: null, RIGHT: MOUSE.ROTATE };
+    // Panning would drag the orbit center off the graph; the root star and
+    // the selection fits move it deliberately instead.
+    this.#controls.noPan = true;
     // Wheel zoom is ours: it eases towards a target distance with a coarse
-    // step per notch. OrbitControls would snap on every event.
-    this.#controls.enableZoom = false;
+    // step per notch, and Ctrl+wheel changes the field of view instead.
+    this.#controls.noZoom = true;
+    // A/S/D must not arm a drag mode: the canvas only rotates while a drag is
+    // actually in progress.
+    this.#controls.keys = ["", "", ""];
+    // Middle-drag dolly duplicates the wheel; leave it and the picking button
+    // inert, so only a right drag rotates.
+    this.#controls.mouseButtons = { LEFT: null, MIDDLE: null, RIGHT: MOUSE.ROTATE };
     this.#wheelHandler = (event) => this.#onWheel(event);
     canvas.addEventListener("wheel", this.#wheelHandler, { passive: false });
+    // The controls leave touch zoom out with the wheel zoom, so two fingers
+    // pinch the camera distance while one finger keeps rotating.
+    this.#onTouchDown = (event) => {
+      if (event.pointerType !== "touch") return;
+      this.#touches.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      this.#startPinch();
+    };
+    this.#onTouchMove = (event) => {
+      if (event.pointerType !== "touch" || !this.#touches.has(event.pointerId)) return;
+      this.#touches.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      const pinch = this.#pinch;
+      if (pinch === null || this.#touches.size !== 2) return;
+      this.#autoFit = false;
+      this.#zoomTarget = pinchDistance(
+        pinch.distance,
+        pinch.spread,
+        this.#spread(),
+        this.#controls.minDistance,
+        this.#controls.maxDistance,
+      );
+      this.#queue();
+    };
+    this.#onTouchUp = (event) => {
+      if (!this.#touches.delete(event.pointerId)) return;
+      this.#startPinch();
+    };
+    canvas.addEventListener("pointerdown", this.#onTouchDown);
+    canvas.addEventListener("pointermove", this.#onTouchMove);
+    canvas.addEventListener("pointerup", this.#onTouchUp);
+    canvas.addEventListener("pointercancel", this.#onTouchUp);
     this.#onKeyDown = (event) => {
       if (event.key === "Control") this.#ctrlHeld = true;
     };
@@ -529,7 +585,6 @@ export class OrbitScene {
     window.addEventListener("keydown", this.#onKeyDown);
     window.addEventListener("keyup", this.#onKeyUp);
     window.addEventListener("blur", this.#onWindowBlur);
-    this.#controls.touches = { ONE: TOUCH.ROTATE, TWO: TOUCH.DOLLY_ROTATE };
     this.#controls.addEventListener("change", () => {
       this.#notifyCamera();
       // Wheel and damping updates arrive outside the render loop; a change
@@ -640,9 +695,14 @@ export class OrbitScene {
     this.#queue();
   }
 
-  setState(selection: ReadonlySet<string>, hovered: string | null): void {
+  setState(
+    selection: ReadonlySet<string>,
+    hovered: string | null,
+    hoveredKey: string | null = null,
+  ): void {
     this.#selection = new Set(selection);
     this.#hovered = hovered;
+    this.#hoveredKey = hovered === null ? null : hoveredKey;
     this.#applyPointColors();
     // Every edge is always drawn; interaction only brightens the related
     // ones.
@@ -710,6 +770,8 @@ export class OrbitScene {
     );
     this.#camera.updateProjectionMatrix();
     this.#renderer.setSize(width, height, false);
+    // The trackball maps pointer positions through the canvas rectangle.
+    this.#controls.handleResize();
     this.#notifyCamera();
     this.#queue();
   }
@@ -720,8 +782,15 @@ export class OrbitScene {
     const distance = fitDistance(this.#boundsRadius, this.#camera.fov, this.#camera.aspect, 0.96);
     const direction = this.#camera.position.clone().sub(this.#controls.target);
     if (direction.lengthSq() < 1e-9) direction.set(0.55, 0.42, 1);
+    direction.normalize();
     this.#controls.target.set(0, 0, 0);
-    this.#camera.position.copy(direction.normalize().multiplyScalar(distance));
+    // Fitting the whole graph also drops any roll the trackball picked up: the
+    // up axis is set to the one closest to world up that is still square to
+    // the view. Looking straight down that axis has no upright roll, so such a
+    // view keeps the roll it had.
+    const upright = uprightUp(direction);
+    if (upright !== null) this.#camera.up.set(upright.x, upright.y, upright.z);
+    this.#camera.position.copy(direction.multiplyScalar(distance));
     this.#zoomTarget = null;
     this.#setFocus(null);
     this.#fitReference = distance;
@@ -817,8 +886,13 @@ export class OrbitScene {
     const stars: OrbitScreenStar[] = [];
     const nodes: OrbitScreenNode[] = [];
     let anchor: OrbitScreenStar | null = null;
+    const focusItem = this.#focusKey === null ? undefined : this.#itemByKey.get(this.#focusKey);
+    // A focused decision names its direct grounds. A focused premise copy —
+    // one planet of a node that may orbit several decisions — names the
+    // decision whose ring carries it instead: a premise has no grounds.
+    const focusHost = focusItem?.satellite?.host ?? null;
     const groundIds = new Set(
-      this.#focusKey === null
+      focusItem === undefined || focusItem.satellite !== null
         ? []
         : this.#edges.filter((edge) => edge.to === this.#focusKey).map((edge) => edge.from),
     );
@@ -836,10 +910,15 @@ export class OrbitScene {
         type: item.satellite === null ? "decision" : "premise",
         distance: this.#camera.position.distanceTo(position),
         interacted: this.#selection.has(item.id) || item.id === this.#hovered,
-        ground:
+        hovered: item.key === this.#hoveredKey,
+        // Decisions: a direct ground of the focus, or the host of the focused
+        // premise copy. Premises: the copies on the focused decision's ring —
+        // the same premise may also orbit other decisions, and those copies
+        // are not relatives of this focus.
+        relative:
           item.satellite === null
-            ? groundIds.has(item.id)
-            : item.satellite.host === this.#focusKey && groundIds.has(item.id),
+            ? groundIds.has(item.id) || item.id === focusHost
+            : item.satellite.host === this.#focusKey,
       });
     }
     // The virtual root is drawn too, and is worth keeping clear of.
@@ -1002,6 +1081,10 @@ export class OrbitScene {
     this.#track?.geometry.dispose();
     this.#track = null;
     this.#canvas.removeEventListener("wheel", this.#wheelHandler);
+    this.#canvas.removeEventListener("pointerdown", this.#onTouchDown);
+    this.#canvas.removeEventListener("pointermove", this.#onTouchMove);
+    this.#canvas.removeEventListener("pointerup", this.#onTouchUp);
+    this.#canvas.removeEventListener("pointercancel", this.#onTouchUp);
     window.removeEventListener("keydown", this.#onKeyDown);
     window.removeEventListener("keyup", this.#onKeyUp);
     window.removeEventListener("blur", this.#onWindowBlur);
@@ -1115,6 +1198,30 @@ export class OrbitScene {
     if (!Number.isFinite(next)) return;
     this.#zoomTarget = next;
     this.#queue();
+  }
+
+  /** Current distance between the two touching fingers; the pinch measures
+   * against this, so a gesture that started with one finger needs no rework
+   * when the second one lands. */
+  #spread(): number {
+    const [first, second] = [...this.#touches.values()];
+    if (first === undefined || second === undefined) return 0;
+    return Math.max(1, Math.hypot(first.x - second.x, first.y - second.y));
+  }
+
+  /** Start or rebaseline a pinch: two fingers scale the distance they found.
+   * A star being dragged goes back to the forces, because the pinch is a
+   * camera gesture, not a node one. */
+  #startPinch(): void {
+    if (this.#touches.size !== 2) {
+      this.#pinch = null;
+      return;
+    }
+    this.endDrag();
+    this.#pinch = {
+      spread: this.#spread(),
+      distance: this.#zoomTarget ?? this.#distance(),
+    };
   }
 
   #applySmoothZoom(delta: number): boolean {
@@ -1769,32 +1876,23 @@ export class OrbitScene {
       this.#updateBounds();
       this.#syncDistanceLimits();
     }
-    const framing = this.#applyAutoFit();
-    const revolving = this.#updateSatellitePositions(delta);
+    this.#applyAutoFit();
+    this.#updateSatellitePositions(delta);
     this.#writeItemPositions();
-    const centering = this.#applySmoothCenter(delta);
-    const glowing = this.#applySmoothHalos(delta);
-    const rootGlow = this.#applyRootGlow(delta);
-    const zooming = this.#applySmoothZoom(delta);
-    const fovChanging = this.#applySmoothFov(delta);
-    const cameraMoved = this.#controls.update();
+    this.#applySmoothCenter(delta);
+    this.#applySmoothHalos(delta);
+    this.#applyRootGlow(delta);
+    this.#applySmoothZoom(delta);
+    this.#applySmoothFov(delta);
+    this.#controls.update();
     this.#syncFog();
     if (this.#width > 1) this.#renderer.render(this.#scene, this.#camera);
     this.#frameListener?.();
-    if (
-      simulating ||
-      framing ||
-      revolving ||
-      centering ||
-      glowing ||
-      rootGlow ||
-      zooming ||
-      fovChanging ||
-      cameraMoved
-    ) {
-      this.#queue();
-    } else {
-      this.#lastTime = 0;
-    }
+    // The edge pulses are a persistent animation (ui DESIGN.md, "三维视图"):
+    // the loop must stay alive even when the working set has no satellites,
+    // otherwise both the flow and the frame overlays freeze whenever the
+    // decisions happen to have no premises. The browser throttles rAF in
+    // background tabs, so keeping it queued here costs nothing when hidden.
+    this.#queue();
   };
 }

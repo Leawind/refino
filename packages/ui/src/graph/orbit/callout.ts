@@ -346,6 +346,8 @@ export interface SummaryLabelCandidate extends CalloutStar {
   id: string;
   /** Text size multiplier; 1 is the normal, maximum size. */
   scale: number;
+  /** Hovered right now: its label may unfold the body under the rule. */
+  hovered: boolean;
 }
 
 export interface SummaryLabelInput {
@@ -361,9 +363,13 @@ export interface SummaryLabelInput {
 
 export interface SummaryLabelPlacement extends CalloutRect {
   key: string;
+  /** Data node id, for the hovered label's body. */
+  id: string;
   text: string;
   /** Text size multiplier, mirrored into the DOM. */
   scale: number;
+  /** Hovered now: the Alt key unfolds this label's body. */
+  hovered: boolean;
   /** Where the rule sits inside the box; the leader ends at its near tip. */
   ruleOffset: number;
   /** Side of the box facing the star. */
@@ -385,7 +391,8 @@ export function placeSummaryLabels(input: SummaryLabelInput): SummaryLabelPlacem
   for (const candidate of input.candidates) {
     const text = summaries.get(candidate.id);
     if (text === undefined || text === "") continue;
-    const scale = Math.min(1, Math.max(0.35, candidate.scale));
+    // Upper bound only: distance alone decides how small a label gets.
+    const scale = Math.min(1, candidate.scale);
     const width = Math.min(SUMMARY_LABEL_WIDTH, viewport.width - 2 * CALLOUT_PAD) * scale;
     if (width <= 0) continue;
     const lines = Math.min(SUMMARY_LABEL_LINES, Math.max(1, Math.ceil(text.length / 12)));
@@ -460,8 +467,10 @@ export function placeSummaryLabels(input: SummaryLabelInput): SummaryLabelPlacem
     });
     result.push({
       key: candidate.key,
+      id: candidate.id,
       text,
       scale,
+      hovered: candidate.hovered,
       ...chosen,
       width,
       height,

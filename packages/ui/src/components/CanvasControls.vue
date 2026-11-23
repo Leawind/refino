@@ -1,8 +1,10 @@
 <script setup lang="ts">
-// Bottom-right canvas controls as compact rows (ui DESIGN.md, "布局"):
-// style, node size and layout belong to the planar canvas; the view switch
-// stays next to the zoom bar so no row is left half empty, in either view,
-// and the orbit view adds its field-of-view control in the same row.
+// Bottom-right canvas controls, laid out along the two edges that meet at
+// the corner (ui DESIGN.md, "布局"): the corner itself holds the view switch
+// — the one control that changes what the canvas *is* — with the square
+// buttons stacked up the right edge above it and the wide bars running left
+// along the bottom. Every control therefore touches an edge; nothing floats
+// in the canvas interior.
 import { computed } from "vue";
 import { injectRequired } from "../context";
 import { workspaceKey } from "../workspace";
@@ -20,15 +22,17 @@ const orbit = computed(() => workspace.state.config.canvasView === "orbit");
 
 <template>
   <div class="canvas-controls">
-    <div v-if="!orbit" class="row">
-      <CanvasStyleSettings />
-      <NodeSizeControl />
-      <LayoutControls />
-    </div>
-    <div class="row">
-      <ViewToggle />
-      <ZoomControls />
+    <!-- Square controls climb the right edge, closest to the corner first. -->
+    <div class="stack">
+      <NodeSizeControl v-if="!orbit" />
+      <CanvasStyleSettings v-if="!orbit" />
       <FovControl v-if="orbit" />
+    </div>
+    <!-- Wide controls run left along the bottom edge, nearest the corner last. -->
+    <div class="strip">
+      <LayoutControls v-if="!orbit" />
+      <ZoomControls />
+      <ViewToggle />
     </div>
   </div>
 </template>
@@ -41,7 +45,14 @@ const orbit = computed(() => workspace.state.config.canvasView === "orbit");
   gap: 8px;
 }
 
-.row {
+.stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.strip {
   display: flex;
   align-items: center;
   gap: 8px;

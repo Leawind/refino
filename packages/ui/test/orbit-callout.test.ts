@@ -197,9 +197,9 @@ describe("callout sizing", () => {
 describe("summary labels", () => {
   const focus = { x: 500, y: 350, radius: 18 };
   const candidates = [
-    { key: "P1@A", id: "P1", x: 580, y: 350, radius: 8, scale: 1 },
-    { key: "P2@A", id: "P2", x: 420, y: 350, radius: 8, scale: 1 },
-    { key: "D3", id: "D3", x: 500, y: 250, radius: 12, scale: 0.6 },
+    { key: "P1@A", id: "P1", x: 580, y: 350, radius: 8, scale: 1, hovered: false },
+    { key: "P2@A", id: "P2", x: 420, y: 350, radius: 8, scale: 1, hovered: false },
+    { key: "D3", id: "D3", x: 500, y: 250, radius: 12, scale: 0.6, hovered: false },
   ];
   const summaries = new Map([
     ["P1", "Short fact"],
@@ -241,11 +241,23 @@ describe("summary labels", () => {
     expect(far.height).toBeLessThan(near.height);
   });
 
+  it("has an upper bound but no floor on label scale", () => {
+    const tiny = [{ key: "D9", id: "D9", x: 500, y: 200, radius: 12, scale: 0.06, hovered: false }];
+    const capped = [{ key: "D9", id: "D9", x: 500, y: 200, radius: 12, scale: 5, hovered: false }];
+    const s = new Map([["D9", "Tiny"]]);
+    expect(
+      placeSummaryLabels({ viewport: VIEWPORT, candidates: tiny, focus, summaries: s })[0]!.scale,
+    ).toBe(0.06);
+    expect(
+      placeSummaryLabels({ viewport: VIEWPORT, candidates: capped, focus, summaries: s })[0]!.scale,
+    ).toBe(1);
+  });
+
   it("keeps every label on the page and clear of the others", () => {
     const crowded = [
-      { key: "P1@A", id: "P1", x: 540, y: 350, radius: 8, scale: 1 },
-      { key: "P2@A", id: "P2", x: 540, y: 354, radius: 8, scale: 1 },
-      { key: "P3@A", id: "P3", x: 540, y: 358, radius: 8, scale: 1 },
+      { key: "P1@A", id: "P1", x: 540, y: 350, radius: 8, scale: 1, hovered: false },
+      { key: "P2@A", id: "P2", x: 540, y: 354, radius: 8, scale: 1, hovered: false },
+      { key: "P3@A", id: "P3", x: 540, y: 358, radius: 8, scale: 1, hovered: false },
     ];
     const labels = placeSummaryLabels({
       viewport: VIEWPORT,
@@ -279,7 +291,7 @@ describe("summary labels", () => {
   });
 
   it("keeps a label clear of a floating control", () => {
-    const lone = [{ key: "P1@A", id: "P1", x: 580, y: 350, radius: 8, scale: 1 }];
+    const lone = [{ key: "P1@A", id: "P1", x: 580, y: 350, radius: 8, scale: 1, hovered: false }];
     const free = placeSummaryLabels({ viewport: VIEWPORT, candidates: lone, focus, summaries })[0]!;
     const control = {
       left: free.left,
