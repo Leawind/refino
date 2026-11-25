@@ -45,10 +45,8 @@ describe("pendingReview", () => {
 });
 
 describe("HarnessSession", () => {
-  const ctx = { anchors: [A1], frozen: [Z9] };
-
   it("batch queries return partial results with per-id errors", () => {
-    const session = new HarnessSession(graphOf(), ctx);
+    const session = new HarnessSession(graphOf(), [A1]);
     const groups = session.dependents([A1, "9M8N7P6Q"]);
     expect(groups[0]).toEqual({
       id: A1,
@@ -64,20 +62,20 @@ describe("HarnessSession", () => {
     ]);
   });
 
-  it("updateContext returns the incremental delta and switches the context", () => {
-    const session = new HarnessSession(graphOf(), ctx);
-    const delta = session.updateContext({ anchors: [A1], frozen: [Z9, D4] });
-    // Delta events act on the declared frontier only: freezing D4 covers its
-    // ancestor A1 semantically, but the closure is not evented. Z9 was
-    // already frozen, so only D4 is new.
-    expect(delta).toEqual([{ type: "frozen_added", id: D4 }]);
-    expect(session.authorizationContext.frozen).toEqual([Z9, D4]);
-    expect(session.blocks().map((b) => b.id)).toContain(`anchor:${A1}`);
+  it("carries the anchor set of the task", () => {
+    const session = new HarnessSession(graphOf(), [A1, D4]);
+    expect(session.anchorIds).toEqual([A1, D4]);
+    expect(session.blocks().map((b) => b.id)).toEqual([`anchor:${A1}`, `anchor:${D4}`]);
   });
 
-  it("checkModification applies the current context", () => {
-    const session = new HarnessSession(graphOf(), ctx);
-    expect(session.checkModification([Z9])[0]).toMatchObject({ zone: "frozen", allowed: false });
-    expect(session.checkModification([E5])[0]).toMatchObject({ zone: "modifiable", allowed: true });
+  it("lists nodes by type in id order", () => {
+    const session = new HarnessSession(graphOf(), []);
+    expect(session.listNodes("premise").map((n) => n.id)).toEqual(["1A2B3C4D"]);
+    expect(session.listNodes().map((n) => n.id)).toEqual(["1A2B3C4D", A1, D4, Z9, E5].sort());
+  });
+
+  it("derives the pending-review set of a change", () => {
+    const session = new HarnessSession(graphOf(), []);
+    expect(session.pendingReview(["1A2B3C4D"]).map((n) => n.id)).toEqual([D4, Z9]);
   });
 });

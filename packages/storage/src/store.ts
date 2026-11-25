@@ -720,6 +720,7 @@ function sameResidentFields(previous: RefinoNode, read: RefinoNode): boolean {
     previous.type === "decision" &&
     read.type === "decision" &&
     sameGrounds(previous.grounds, read.grounds) &&
+    previous.reviewed === read.reviewed &&
     (previous.exploring === true) === (read.exploring === true)
   );
 }

@@ -27,6 +27,7 @@ pub fn decision(id: &str, grounds: &[&str]) -> RefinoNode {
         summary: "Body.".to_string(),
         grounds: grounds.iter().map(|g| g.to_string()).collect(),
         exploring: None,
+        reviewed: None,
     })
 }
 
@@ -36,6 +37,17 @@ pub fn exploring_decision(id: &str, grounds: &[&str]) -> RefinoNode {
         summary: "Body.".to_string(),
         grounds: grounds.iter().map(|g| g.to_string()).collect(),
         exploring: Some(true),
+        reviewed: None,
+    })
+}
+
+pub fn reviewed_decision(id: &str, grounds: &[&str], reviewed: i64) -> RefinoNode {
+    RefinoNode::Decision(DecisionNode {
+        id: id.to_string(),
+        summary: "Body.".to_string(),
+        grounds: grounds.iter().map(|g| g.to_string()).collect(),
+        exploring: None,
+        reviewed: Some(reviewed),
     })
 }
 

@@ -191,6 +191,7 @@ fn last_node_wins_on_duplicate_ids() {
             summary: "Decision.".to_string(),
             grounds: vec![],
             exploring: None,
+            reviewed: None,
         }),
     ]);
     assert!(graph.nodes["A1B2C3D4"].as_decision().is_some());
@@ -207,4 +208,24 @@ fn is_valid_id_rule_shape() {
 fn refino_error_displays_message() {
     let error = RefinoError::new(IssueCode::NODE_NOT_FOUND, "boom");
     assert_eq!(error.to_string(), "boom");
+}
+
+#[test]
+fn update_node_replaces_the_decision_reviewed_mark() {
+    let mut graph = build_graph(vec![decision("A1B2C3D4", &[])]);
+    let mut reviewed = decision("A1B2C3D4", &[]);
+    if let RefinoNode::Decision(node) = &mut reviewed {
+        node.reviewed = Some(1_777_593_600_000);
+    }
+    update_node(&mut graph, reviewed).unwrap();
+    assert_eq!(
+        graph.nodes["A1B2C3D4"].as_decision().unwrap().reviewed,
+        Some(1_777_593_600_000)
+    );
+    // An update clears the mark when the fresh record has none.
+    update_node(&mut graph, decision("A1B2C3D4", &[])).unwrap();
+    assert_eq!(
+        graph.nodes["A1B2C3D4"].as_decision().unwrap().reviewed,
+        None
+    );
 }

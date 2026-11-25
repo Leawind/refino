@@ -55,6 +55,10 @@ pub struct DecisionNode {
     /// time by `effective_exploring`, never stored per node.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exploring: Option<bool>,
+    /// Last review time as epoch milliseconds; the storage layer converts to
+    /// and from the file's RFC 3339 form. `None` means never reviewed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reviewed: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

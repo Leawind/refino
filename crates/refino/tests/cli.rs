@@ -601,6 +601,12 @@ fn update_tri_states_the_mark_and_derives_effect() {
         "--body",
         "无关决策。",
     ]);
+    // Root decisions default to exploring; settle both roots so the fixture
+    // starts from a settled baseline.
+    run(&["--root", r.as_str(), "update", "A1B2C3D4", "--no-exploring"]);
+    run(&["--root", r.as_str(), "update", "E5F6G7H8", "--no-exploring"]);
+    let (_, before, _) = run(&["--root", r.as_str(), "list"]);
+    assert!(!before.contains("[探索]"), "{before}");
 
     // Marking the upstream explores the downstream too (derived, no stored mark).
     let (code, _, _) = run(&["--root", r.as_str(), "update", "A1B2C3D4", "--exploring"]);
@@ -2162,4 +2168,285 @@ fn show_reports_direct_dependents_as_children() {
     );
     assert!(json.contains("\"children\":[\"D4E5F6G7\"]"), "{json}");
     assert!(leaf_json.contains("\"children\":[]"), "{leaf_json}");
+}
+
+#[test]
+fn search_matches_body_and_rationale_case_insensitively() {
+    let root = create_refino(&[
+        file(
+            "nodes/1A/2B3C4D-premise.md",
+            "---\nsummary: 部署环境\n---\n\n集群位于内网，运行 Kubernetes 1.30。\n",
+        ),
+        file(
+            "nodes/D4/E5F6G7-decision.md",
+            "---\nsummary: 事件存储选型\ngrounds: [1A2B3C4D]\nrationale: 选择 Event Sourcing 以保留完整历史。\n---\n\n正文提到 Kafka 作为传输层。\n",
+        ),
+    ]);
+    let r = root_arg(&root);
+    // Body-only term of a premise whose explicit summary does not contain it.
+    let (code, body_hit, _) = run(&["--root", r.as_str(), "search", "KUBERNETES"]);
+    // Rationale-only term.
+    let (_, rationale_hit, _) = run(&["--root", r.as_str(), "search", "event sourcing"]);
+    // Body-only term of the decision.
+    let (_, decision_body_hit, _) = run(&["--root", r.as_str(), "search", "kafka"]);
+    // Summary matching still works.
+    let (_, summary_hit, _) = run(&["--root", r.as_str(), "search", "事件存储"]);
+    let (_, miss, _) = run(&["--root", r.as_str(), "search", "nonexistent"]);
+    let (_, json, _) = run(&["--root", r.as_str(), "search", "kafka", "--json"]);
+    remove_refino(&root);
+
+    assert_eq!(code, 0);
+    assert!(body_hit.contains("1A2B3C4D"), "{body_hit}");
+    assert!(rationale_hit.contains("D4E5F6G7"), "{rationale_hit}");
+    assert!(
+        decision_body_hit.contains("D4E5F6G7"),
+        "{decision_body_hit}"
+    );
+    assert!(summary_hit.contains("D4E5F6G7"), "{summary_hit}");
+    assert!(miss.contains("(no matches)"), "{miss}");
+    // The page shape is unchanged: query echo, id/type/summary rows.
+    assert!(json.contains("\"query\":\"kafka\""), "{json}");
+    assert!(
+        json.contains("\"id\":\"D4E5F6G7\"") && json.contains("\"type\":\"decision\""),
+        "{json}"
+    );
+    assert!(!json.contains("next_cursor"), "{json}");
+}
+
+#[test]
+fn update_reviewed_records_and_clears_the_decision_timestamp() {
+    let root = create_refino(&[]);
+    let r = root_arg(&root);
+    run(&["--root", r.as_str(), "init"]);
+    run(&[
+        "--root",
+        r.as_str(),
+        "new",
+        "premise",
+        "--id",
+        "1A2B3C4D",
+        "--body",
+        "Fact.",
+    ]);
+    run(&[
+        "--root",
+        r.as_str(),
+        "new",
+        "decision",
+        "--id",
+        "D4E5F6G7",
+        "--body",
+        "Decision.",
+        "--grounds",
+        "1A2B3C4D",
+    ]);
+
+    let (code, _, _) = run(&[
+        "--root",
+        r.as_str(),
+        "update",
+        "D4E5F6G7",
+        "--reviewed",
+        "2026-05-01T12:00:00+08:00",
+    ]);
+    let (_, shown, _) = run(&["--root", r.as_str(), "show", "D4E5F6G7"]);
+    // 2026-05-01T04:00:00Z in the canonical UTC form.
+    assert_eq!(code, 0);
+    assert!(
+        shown.contains("reviewed: 2026-05-01T04:00:00.000Z"),
+        "{shown}"
+    );
+    // The show JSON carries the epoch-millisecond value, like `confirmed`.
+    let (_, shown_json, _) = run(&["--root", r.as_str(), "show", "D4E5F6G7", "--json"]);
+    assert!(
+        shown_json.contains("\"reviewed\":1777608000000"),
+        "{shown_json}"
+    );
+
+    // An empty argument clears the timestamp, removing the frontmatter field.
+    let (code_clear, _, _) = run(&["--root", r.as_str(), "update", "D4E5F6G7", "--reviewed", ""]);
+    let (_, cleared, _) = run(&["--root", r.as_str(), "show", "D4E5F6G7"]);
+    let source = std::fs::read_to_string(
+        root.join(".refino")
+            .join("nodes")
+            .join("D4")
+            .join("E5F6G7-decision.md"),
+    )
+    .unwrap();
+    assert_eq!(code_clear, 0);
+    assert!(!cleared.contains("reviewed:"), "{cleared}");
+    assert!(!source.contains("reviewed"), "{source}");
+
+    // Malformed timestamps are rejected before touching the file.
+    let (code_bad, _, err_bad) = run(&[
+        "--root",
+        r.as_str(),
+        "update",
+        "D4E5F6G7",
+        "--reviewed",
+        "2026-05-01",
+    ]);
+    assert_eq!(code_bad, 1);
+    assert!(err_bad.contains("RFC 3339"), "{err_bad}");
+
+    // The option belongs to decisions only.
+    let (code_misplaced, _, err_misplaced) = run(&[
+        "--root",
+        r.as_str(),
+        "update",
+        "1A2B3C4D",
+        "--reviewed",
+        "2026-05-01T00:00:00Z",
+    ]);
+    remove_refino(&root);
+    assert_eq!(code_misplaced, 1);
+    assert!(
+        err_misplaced.contains("--reviewed only applies to decisions"),
+        "{err_misplaced}"
+    );
+}
+
+#[test]
+fn new_root_decision_defaults_to_exploring_with_a_hint() {
+    let root = create_refino(&[]);
+    let r = root_arg(&root);
+    run(&["--root", r.as_str(), "init"]);
+
+    // A root decision (no grounds) with no explicit mark is a trial commitment.
+    let (code, out, _) = run(&[
+        "--root",
+        r.as_str(),
+        "new",
+        "decision",
+        "--id",
+        "A1B2C3D4",
+        "--body",
+        "根决策。",
+    ]);
+    let root_source = std::fs::read_to_string(
+        root.join(".refino")
+            .join("nodes")
+            .join("A1")
+            .join("B2C3D4-decision.md"),
+    )
+    .unwrap();
+    assert_eq!(code, 0);
+    assert!(out.contains("提示：根决策默认标记为探索中"), "{out}");
+    assert!(root_source.contains("exploring: true"), "{root_source}");
+
+    // An explicit mark suppresses the default hint.
+    let (_, explicit, _) = run(&[
+        "--root",
+        r.as_str(),
+        "new",
+        "decision",
+        "--id",
+        "E5F6G7H8",
+        "--body",
+        "显式试行。",
+        "--exploring",
+    ]);
+    assert!(!explicit.contains("提示："), "{explicit}");
+
+    // A grounded decision starts settled and gets no hint.
+    run(&[
+        "--root",
+        r.as_str(),
+        "new",
+        "premise",
+        "--id",
+        "1A2B3C4D",
+        "--body",
+        "Fact.",
+    ]);
+    let (_, grounded, _) = run(&[
+        "--root",
+        r.as_str(),
+        "new",
+        "decision",
+        "--id",
+        "D4E5F6G7",
+        "--body",
+        "细化决策。",
+        "--grounds",
+        "1A2B3C4D",
+    ]);
+    let grounded_file = root
+        .join(".refino")
+        .join("nodes")
+        .join("D4")
+        .join("E5F6G7-decision.md");
+    let grounded_source = std::fs::read_to_string(&grounded_file).unwrap();
+    assert!(!grounded.contains("提示："), "{grounded}");
+    assert!(!grounded_source.contains("exploring"), "{grounded_source}");
+
+    // Update never adds the root default and never settles by making grounds empty.
+    let (code_empty, _, _) = run(&["--root", r.as_str(), "update", "D4E5F6G7", "--grounds", ""]);
+    let after_grounds = std::fs::read_to_string(&grounded_file).unwrap();
+    assert_eq!(code_empty, 0);
+    assert!(!after_grounds.contains("exploring"), "{after_grounds}");
+
+    // An existing mark survives an empty-grounds update.
+    run(&["--root", r.as_str(), "update", "D4E5F6G7", "--exploring"]);
+    run(&["--root", r.as_str(), "update", "D4E5F6G7", "--grounds", ""]);
+    let (_, shown, _) = run(&["--root", r.as_str(), "show", "D4E5F6G7"]);
+    remove_refino(&root);
+    assert!(shown.contains("exploring: true"), "{shown}");
+}
+
+#[test]
+fn stale_lists_overdue_and_never_reviewed_nodes() {
+    const DAY_MS: i64 = 86_400_000;
+    // The fixtures are dated relative to the real clock the CLI reads; the
+    // age arithmetic itself is covered deterministically by the engine unit test.
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+    let old_decision = refino_storage::confirmed_to_rfc3339(now - 200 * DAY_MS).unwrap();
+    let old_premise = refino_storage::confirmed_to_rfc3339(now - 100 * DAY_MS).unwrap();
+    let future = refino_storage::confirmed_to_rfc3339(now + 5 * DAY_MS).unwrap();
+    let root = create_refino(&[
+        file(
+            "nodes/1A/2B3C4D-premise.md",
+            &format!("---\nconfirmed: {old_premise}\n---\n\n旧前提。\n"),
+        ),
+        file("nodes/2B/3C4D5E-premise.md", "尚未确认的前提。\n"),
+        file(
+            "nodes/A1/B2C3D4-decision.md",
+            &format!("---\nreviewed: {old_decision}\n---\n\n旧决策。\n"),
+        ),
+        file("nodes/D4/E5F6G7-decision.md", "尚未复核的决策。\n"),
+        file(
+            "nodes/H7/J8K9M0-decision.md",
+            &format!("---\nreviewed: {future}\n---\n\n未来复核的决策。\n"),
+        ),
+    ]);
+    let r = root_arg(&root);
+    let (code, out, _) = run(&["--root", r.as_str(), "stale"]);
+    let (_, all_fresh, _) = run(&["--root", r.as_str(), "stale", "--days", "100000"]);
+    let (_, json, _) = run(&["--root", r.as_str(), "stale", "--json"]);
+    remove_refino(&root);
+
+    assert_eq!(code, 0);
+    let (overdue, never) = out.split_once("从未复核：").expect("two groups");
+    // The 200-day decision is older than the 100-day premise: age-descending.
+    let decision_at = overdue.find("A1B2C3D4").expect("old decision");
+    let premise_at = overdue.find("1A2B3C4D").expect("old premise");
+    assert!(decision_at < premise_at, "{overdue}");
+    // An unreviewed decision and an unconfirmed premise are never-reviewed.
+    assert!(never.contains("D4E5F6G7"), "{never}");
+    assert!(never.contains("2B3C4D5E"), "{never}");
+    assert!(never.contains("从未"), "{never}");
+    // A timestamp in the future counts as reviewed today, in neither group.
+    assert!(!out.contains("H7J8K9M0"), "{out}");
+    // The threshold is a strict age bound.
+    assert!(all_fresh.contains("（无）"), "{all_fresh}");
+    assert!(all_fresh.contains("D4E5F6G7"), "{all_fresh}");
+    // Structured shape: two arrays with the threshold echoed.
+    assert!(json.contains("\"days\":90"), "{json}");
+    assert!(json.contains("\"overdue\":["), "{json}");
+    assert!(json.contains("\"never_reviewed\":["), "{json}");
+    assert!(json.contains("\"type\":\"decision\""), "{json}");
+    assert!(json.contains("\"age_days\":"), "{json}");
 }

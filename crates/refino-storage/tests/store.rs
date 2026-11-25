@@ -64,7 +64,8 @@ fn create_decision_rejects_unknown_grounds_without_touching_disk() {
             base: opts("Decision."),
             grounds: Some(vec!["Z9Y8X7W6".to_string()]),
             rationale: None,
-            exploring: false,
+            reviewed: None,
+            exploring: Some(false),
         })
         .unwrap_err();
     let StoreError::Rejected(rejected) = error else {
@@ -121,7 +122,8 @@ fn delete_leaves_dangling_grounds_and_rechecks_affected_issues() {
             base: opts("Decision."),
             grounds: Some(vec![premise.id.clone()]),
             rationale: None,
-            exploring: false,
+            reviewed: None,
+            exploring: Some(false),
         })
         .unwrap();
     assert!(store.issues().is_empty());
@@ -460,7 +462,8 @@ fn update_through_store_reports_affected_dependents() {
             base: opts("Decision."),
             grounds: Some(vec![premise.id.clone()]),
             rationale: None,
-            exploring: false,
+            reviewed: None,
+            exploring: Some(false),
         })
         .unwrap();
     let outcome = store
@@ -491,6 +494,7 @@ fn update_through_store_reports_affected_dependents() {
             },
             grounds: Some(vec![]),
             rationale: None,
+            reviewed: None,
             exploring: false,
         },
     )
@@ -498,4 +502,48 @@ fn update_through_store_reports_affected_dependents() {
     let read = read_node(&io, &refino_dir(&root), &decision.id).unwrap();
     assert_eq!(read.content.unwrap().body, "Decision v2.");
     let _ = load_graph(&io, &refino_dir(&root)).unwrap();
+}
+
+#[test]
+fn external_reviewed_changes_bump_the_revision() {
+    let io = FakeIo::new();
+    let root = create_refino(&io, &[]);
+    let random = rand();
+    let mut store = RefinoStore::new(io.clone(), random, refino_dir(&root));
+    store.ready().unwrap();
+    let outcome = store
+        .create_decision(&CreateDecisionOptions {
+            base: opts("Decision."),
+            grounds: None,
+            rationale: None,
+            reviewed: None,
+            exploring: Some(false),
+        })
+        .unwrap();
+    let id = outcome.id.clone();
+    let revision = store.revision();
+    let file = refino_dir(&root).join(format!("nodes/{}/{}-decision.md", &id[..2], &id[2..]));
+    let mtime = io.mtime_of(&file);
+    io.seed_file(
+        &file,
+        "---\nreviewed: 2026-05-01T00:00:00Z\n---\n\nDecision.\n",
+    );
+    // Keep the mtime identical: only the resident `reviewed` field changed.
+    io.set_mtime(&file, mtime);
+    let change = store
+        .apply_change(std::slice::from_ref(&id), &[], &[], Some(Origin::File))
+        .unwrap()
+        .expect("change");
+    assert_eq!(change.changed, vec![id.clone()]);
+    assert!(store.revision() > revision);
+    assert_eq!(
+        store
+            .entry(&id)
+            .unwrap()
+            .node
+            .as_decision()
+            .unwrap()
+            .reviewed,
+        Some(1_777_593_600_000)
+    );
 }

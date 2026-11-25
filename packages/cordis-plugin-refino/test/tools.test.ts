@@ -148,6 +148,25 @@ describe("query tools", () => {
     expect(typed.nodes.map((node) => node.id)).toEqual(["P1PREMISE"]);
   });
 
+  it("refino_search reaches node bodies and rationales", async () => {
+    const ws = await fixtureWorkspace();
+    const tools = toolset(ws);
+    // An explicit summary keeps the body distinct from it, so a hit can only
+    // come from the body scan.
+    await run(tools.refino_update_node, {
+      id: "C2GRAND",
+      summary: "孙决策摘要",
+      body: "正文含独特词汇：速率限制",
+    });
+    const byBody = await run<{ nodes: { id: string }[] }>(tools.refino_search, { q: "速率限制" });
+    expect(byBody.nodes.map((node) => node.id)).toEqual(["C2GRAND"]);
+    // C1CHILD's rationale is the fixture's only rationale.
+    const byRationale = await run<{ nodes: { id: string }[] }>(tools.refino_search, {
+      q: "如此要求",
+    });
+    expect(byRationale.nodes.map((node) => node.id)).toEqual(["C1CHILD"]);
+  });
+
   it("refino_siblings ranks by shared direct grounds and honors the limit", async () => {
     const ws = await fixtureWorkspace();
     const tools = toolset(ws);
@@ -251,16 +270,15 @@ describe("write tools", () => {
     expect(after.results[0]!.node!.exploring).toBeUndefined();
   });
 
-  it("refino_update_node escalates for frozen targets and updates modifiable ones", async () => {
+  it("refino_update_node updates any node and reports the pending set", async () => {
     const ws = await fixtureWorkspace();
     const tools = toolset(ws);
-    const frozen = await run<{
-      ok: boolean;
-      escalation?: { reason: string; affected: { id: string }[] };
-    }>(tools.refino_update_node, { id: "R1ROOT", summary: "改根决策", body: "改根决策" });
-    expect(frozen.ok).toBe(false);
-    expect(frozen.escalation!.reason).toBe("node_frozen");
-    expect(frozen.escalation!.affected.map((a) => a.id).sort()).toEqual(["C1CHILD", "C2GRAND"]);
+    const root = await run<{ ok: boolean }>(tools.refino_update_node, {
+      id: "R1ROOT",
+      summary: "改根决策",
+      body: "改根决策",
+    });
+    expect(root.ok).toBe(true);
     // Partial semantics: grounds omitted keep the current ones.
     const bodyOnly = await run<{ ok: boolean; pending: { id: string }[] }>(
       tools.refino_update_node,
@@ -334,15 +352,9 @@ describe("write tools", () => {
     expect(emptied.content?.body).toBe("");
   });
 
-  it("refino_delete_node refuses frozen targets and nodes with dependents", async () => {
+  it("refino_delete_node refuses nodes with dependents and deletes leaves", async () => {
     const ws = await fixtureWorkspace();
     const tools = toolset(ws);
-    const frozen = await run<{ ok: boolean; escalation?: { reason: string } }>(
-      tools.refino_delete_node,
-      { id: "R1ROOT" },
-    );
-    expect(frozen.ok).toBe(false);
-    expect(frozen.escalation!.reason).toBe("node_frozen");
     const hasDependents = await run<{ ok: boolean; dependents: { id: string }[] }>(
       tools.refino_delete_node,
       { id: "C1CHILD" },
@@ -352,5 +364,27 @@ describe("write tools", () => {
     const ok = await run<{ ok: boolean }>(tools.refino_delete_node, { id: "C2GRAND" });
     expect(ok.ok).toBe(true);
     expect(ws.graph.nodes.has("C2GRAND")).toBe(false);
+    // C1CHILD lost its only dependent with C2GRAND gone: the chain unwinds.
+    expect((await run<{ ok: boolean }>(tools.refino_delete_node, { id: "C1CHILD" })).ok).toBe(true);
+    expect((await run<{ ok: boolean }>(tools.refino_delete_node, { id: "R1ROOT" })).ok).toBe(true);
+  });
+
+  it("refino_stale reports overdue and never-reviewed nodes", async () => {
+    const ws = await fixtureWorkspace();
+    const tools = toolset(ws);
+    const report = await run<{
+      days: number;
+      overdue: { id: string; age_days?: number }[];
+      never: { id: string }[];
+    }>(tools.refino_stale, {});
+    expect(report.days).toBe(90);
+    // The fixture carries no review/confirmation timestamps at all.
+    expect(report.overdue).toEqual([]);
+    expect(report.never.map((node) => node.id).sort()).toEqual([
+      "C1CHILD",
+      "C2GRAND",
+      "P1PREMISE",
+      "R1ROOT",
+    ]);
   });
 });

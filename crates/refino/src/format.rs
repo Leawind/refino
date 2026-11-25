@@ -196,11 +196,11 @@ pub fn render_node_heading(node: &RefinoNode, children: &[String]) -> String {
 
 /// Full human-readable record: heading line (identity, grounds and direct
 /// dependents), labeled attributes, then the body. Optional attributes
-/// (rationale, confirmed, exploring) only occupy a line when present,
-/// mirroring the JSON shape. Confirmed is stored as epoch milliseconds and
-/// rendered in its RFC 3339 (UTC) form. The exploring line shows the stored
-/// trial mark, or the derived effective status (no stored mark but an
-/// exploring ground) when `effective` says so.
+/// (rationale, confirmed, reviewed, exploring) only occupy a line when
+/// present, mirroring the JSON shape. Confirmed and reviewed are stored as
+/// epoch milliseconds and rendered in their RFC 3339 (UTC) form. The
+/// exploring line shows the stored trial mark, or the derived effective
+/// status (no stored mark but an exploring ground) when `effective` says so.
 pub fn render_full_record(
     node: &RefinoNode,
     content: Option<&refino_storage::NodeContent>,
@@ -223,6 +223,11 @@ pub fn render_full_record(
             }
         }
         RefinoNode::Decision(decision) => {
+            if let Some(reviewed) = decision.reviewed
+                && let Ok(iso) = refino_storage::confirmed_to_rfc3339(reviewed)
+            {
+                lines.push(format!("reviewed: {iso}"));
+            }
             if decision.exploring == Some(true) {
                 lines.push("exploring: true".to_string());
             } else if effective {
@@ -239,3 +244,47 @@ pub fn render_full_record(
 
 use refino_core::RefinoNode;
 use refino_storage::StoreIssue;
+
+/// One row of the `stale` report: id, type, a pre-rendered age (`从未` for a
+/// node without a review timestamp) and summary.
+pub struct StaleTableRow {
+    pub id: String,
+    pub node_type: String,
+    pub age: String,
+    pub summary: String,
+}
+
+/// The stale report's table: `id  type  age  summary` columns, aligned across
+/// the batch. Ages are pre-rendered because "never reviewed" is not a number.
+pub fn render_stale_table(rows: &[StaleTableRow]) -> String {
+    let id_width = rows
+        .iter()
+        .map(|r| r.id.chars().count())
+        .max()
+        .unwrap_or(2)
+        .max(2);
+    let type_width = rows
+        .iter()
+        .map(|r| r.node_type.chars().count())
+        .max()
+        .unwrap_or(2)
+        .max(2);
+    let age_width = rows
+        .iter()
+        .map(|r| r.age.chars().count())
+        .max()
+        .unwrap_or(2)
+        .max(2);
+    rows.iter()
+        .map(|r| {
+            format!(
+                "{}  {}  {}  {}",
+                pad_end(&r.id, id_width),
+                pad_end(&r.node_type, type_width),
+                pad_end(&r.age, age_width),
+                truncate(&r.summary, 80)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}

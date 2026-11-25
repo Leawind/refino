@@ -1,25 +1,28 @@
 //! RFC 3339 timestamp handling at the file boundary, replacing the
-//! JavaScript `Date.parse` / `toISOString` pair. The supported file form is
-//! fixed: `YYYY-MM-DDTHH:MM:SS(.fraction)?(Z|±HH:MM)`; the canonical output
-//! form is the UTC `Z` shape with exactly three fractional digits (the
+//! JavaScript `Date.parse` / `toISOString` pair. Premise `confirmed` and
+//! decision `reviewed` share one file timestamp form, so they share these
+//! conversions. The supported file form is fixed:
+//! `YYYY-MM-DDTHH:MM:SS(.fraction)?(Z|±HH:MM)`; the canonical output form is
+//! the UTC `Z` shape with exactly three fractional digits (the
 //! `toISOString` shape).
 
 use refino_core::RefinoError;
 
-/// Whether the value is a valid premise `confirmed` timestamp in its file form.
+/// Whether the value is a valid frontmatter timestamp (`confirmed` on
+/// premises, `reviewed` on decisions) in its file form.
 pub fn is_valid_confirmed(value: &str) -> bool {
     parse_rfc3339_ms(value).is_some()
 }
 
-/// The file's RFC 3339 `confirmed` form as epoch milliseconds. `None` when
-/// the value does not parse (callers validate first via `is_valid_confirmed`
-/// and report an issue instead).
+/// The file's RFC 3339 timestamp form as epoch milliseconds. `None` when the
+/// value does not parse (callers validate first via `is_valid_confirmed` and
+/// report an issue instead).
 pub fn confirmed_to_ms(value: &str) -> Option<i64> {
     parse_rfc3339_ms(value)
 }
 
-/// The epoch-millisecond `confirmed` form as the file's RFC 3339 form (UTC,
-/// `Z` offset, `toISOString` shape). Errors on a non-finite input.
+/// The epoch-millisecond timestamp form as the file's RFC 3339 form (UTC, `Z`
+/// offset, `toISOString` shape). Errors on a non-finite input.
 pub fn confirmed_to_rfc3339(ms: i64) -> Result<String, RefinoError> {
     // i64 has no NaN/Infinity; the guard mirrors the TS finite check.
     Ok(to_iso_utc(ms))

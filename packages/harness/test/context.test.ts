@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildGraph } from "refino";
 import type { Graph, NodeType, RefinoNode } from "refino";
-import { contextBlocks, diffContext, estimateContext, renderContext } from "../src/context.js";
-import { EXPLORING_PROTOCOL, ZONE_PROTOCOL } from "../src/context.js";
-import type { AuthorizationContext } from "../src/types.js";
+import { EXPLORING_PROTOCOL, contextBlocks, diffAnchors, renderContext } from "../src/context.js";
 
 function node(id: string, type: NodeType, grounds?: string[], exploring?: boolean): RefinoNode {
   const base = {
@@ -31,132 +29,59 @@ function graphOf(exploringId?: string): Graph {
 }
 
 describe("contextBlocks", () => {
-  it("renders anchors and all premises with stable ids; no frozen blocks", () => {
-    const blocks = contextBlocks(graphOf(), { anchors: [A1], frozen: [E5] });
-    expect(blocks.map((b) => b.id)).toEqual([`anchor:${A1}`, `premise:${P1}`]);
+  it("renders anchors with stable ids, in anchor order and never twice", () => {
+    const blocks = contextBlocks(graphOf(), [A1, P1, A1]);
+    expect(blocks.map((b) => b.id)).toEqual([`anchor:${A1}`, `anchor:${P1}`]);
     expect(blocks[0]!.text).toContain("A1B2C3D4 summary.");
   });
 
-  it("marks frozen nodes on their line, anchors and premises alike", () => {
-    const blocks = contextBlocks(graphOf(), { anchors: [A1], frozen: [E5] });
-    // A1 anchors the context and sits in E5's ancestor closure: its block is
-    // the only place the read-only annotation can live.
-    expect(blocks[0]!.text).toContain("[冻结]");
-    // P1 is not in the zone: unfrozen nodes carry no mark.
-    expect(blocks[1]!.text).not.toContain("[冻结]");
+  it("drops ids that no longer resolve", () => {
+    const blocks = contextBlocks(graphOf(), [A1, "9M8N7P6Q"]);
+    expect(blocks.map((b) => b.nodeId)).toEqual([A1]);
   });
 
-  it("marks effectively exploring anchors after the frozen mark, derived downstream included", () => {
+  it("marks effectively exploring anchors, derived downstream included", () => {
     // A1 carries the stored mark; D4 anchors with no mark of its own but an
     // exploring ground, so the annotation must come from the closure.
-    const blocks = contextBlocks(graphOf(A1), { anchors: [A1, D4], frozen: [A1] });
-    expect(blocks[0]!.text).toBe(`- ${A1} [decision] [冻结] [探索] ${A1} summary.`);
+    const blocks = contextBlocks(graphOf(A1), [A1, D4]);
+    expect(blocks[0]!.text).toBe(`- ${A1} [decision] [探索] ${A1} summary.`);
     expect(blocks[1]!.text).toContain("[探索]");
-    const plain = contextBlocks(graphOf(), { anchors: [A1], frozen: [] });
+    const plain = contextBlocks(graphOf(), [A1]);
     expect(plain[0]!.text).not.toContain("[探索]");
     // Premises are never exploring.
-    const premiseAnchor = contextBlocks(graphOf(A1), { anchors: [P1], frozen: [] });
+    const premiseAnchor = contextBlocks(graphOf(A1), [P1]);
     expect(premiseAnchor[0]!.text).not.toContain("[探索]");
-  });
-
-  it("injects premises by default even when unreferenced", () => {
-    const blocks = contextBlocks(graphOf(), { anchors: [], frozen: [] });
-    expect(blocks.map((b) => b.id)).toEqual([`premise:${P1}`]);
-  });
-
-  it("does not duplicate a premise selected as an anchor", () => {
-    const blocks = contextBlocks(graphOf(), { anchors: [P1], frozen: [] });
-    expect(blocks.map((b) => b.id)).toEqual([`anchor:${P1}`]);
-  });
-
-  it("does not enumerate the frozen zone: only anchors and premises are listed", () => {
-    const blocks = contextBlocks(graphOf(), { anchors: [], frozen: [D4] });
-    expect(blocks.map((b) => b.id)).toEqual([`premise:${P1}`]);
-    expect(blocks.some((b) => b.nodeId === A1)).toBe(false);
-    expect(blocks.some((b) => b.nodeId === D4)).toBe(false);
-    expect(blocks.some((b) => b.nodeId === E5)).toBe(false);
   });
 });
 
 describe("renderContext", () => {
-  it("groups blocks into anchors and premises, without a frozen section", () => {
-    const text = renderContext(graphOf(), { anchors: [A1], frozen: [E5] });
+  it("groups anchors under one heading and closes with the protocol statement", () => {
+    const text = renderContext(graphOf(), [A1]);
     expect(text).toContain("## 作用域锚点");
-    expect(text).toContain("## 项目前提（客观事实）");
-    expect(text.indexOf("作用域锚点")).toBeLessThan(text.indexOf("项目前提"));
-    expect(text).not.toContain("## 冻结区");
-  });
-
-  it("closes with the frozen-marking protocol statement", () => {
-    const text = renderContext(graphOf(), { anchors: [], frozen: [E5] });
-    expect(text).toContain(ZONE_PROTOCOL);
-    expect(text).toContain("标注 [冻结] 者只读");
-    expect(text).toContain("未列出者均属修改空间");
-  });
-
-  it("closes with the exploring protocol statement", () => {
-    const text = renderContext(graphOf(), { anchors: [], frozen: [E5] });
+    expect(text).toContain(`- ${A1} [decision] ${A1} summary.`);
     expect(text).toContain(EXPLORING_PROTOCOL);
-    expect(text).toContain("标注 [探索] 者为试行承诺");
-    expect(text).toContain("未标注者为定案决策");
+    expect(text).not.toContain("预先冻结");
+  });
+
+  it("renders only the protocol statement for an empty anchor set", () => {
+    const text = renderContext(graphOf(), []);
+    expect(text).toBe(EXPLORING_PROTOCOL);
+  });
+
+  it("cites summaries only, never bodies", () => {
+    const text = renderContext(graphOf(), [A1, D4, E5]);
+    expect(text).not.toContain("body");
   });
 });
 
-describe("estimateContext", () => {
-  it("counts blocks and approximates the rendered character total", () => {
-    const context: AuthorizationContext = { anchors: [A1], frozen: [E5] };
-    const estimate = estimateContext(graphOf(), context);
-    const blocks = contextBlocks(graphOf(), context);
-    expect(estimate.blocks).toBe(blocks.length);
-    // The rendered text is bounded around the estimate: never shorter than
-    // the block lines, never much longer than blocks + fixed overhead.
-    const rendered = renderContext(graphOf(), context);
-    expect(rendered.length).toBeGreaterThanOrEqual(estimate.chars - 60);
-    expect(rendered.length).toBeLessThanOrEqual(estimate.chars + 60);
+describe("diffAnchors", () => {
+  it("reports added and removed ids", () => {
+    expect(diffAnchors([A1], [A1, D4])).toEqual([{ type: "anchor_added", id: D4 }]);
+    expect(diffAnchors([A1, D4], [D4])).toEqual([{ type: "anchor_removed", id: A1 }]);
   });
 
-  it("counts the premise-only baseline for an empty context", () => {
-    // Premises are injected even without anchors or a frozen zone.
-    const empty = estimateContext(graphOf(), { anchors: [], frozen: [] });
-    expect(empty.blocks).toBe(1);
-  });
-});
-
-describe("diffContext", () => {
-  const base: AuthorizationContext = { anchors: [P1], frozen: [E5] };
-
-  it("reports anchor changes and frontier-level frozen changes", () => {
-    const events = diffContext(graphOf(), base, { anchors: [A1], frozen: [D4] });
-    expect(events).toEqual(
-      expect.arrayContaining([
-        { type: "anchor_added", id: A1 },
-        { type: "anchor_removed", id: P1 },
-        { type: "frozen_added", id: D4 },
-        { type: "frozen_removed", id: E5 },
-      ]),
-    );
-  });
-
-  it("events act on the declared lists only: no ancestor closure expansion", () => {
-    // Freezing D4 implicitly covers A1, but the delta stays at the frontier —
-    // the zone re-closes against the live graph on read.
-    const events = diffContext(
-      graphOf(),
-      { anchors: [P1], frozen: [] },
-      { anchors: [P1], frozen: [D4] },
-    );
-    expect(events).toEqual([{ type: "frozen_added", id: D4 }]);
-  });
-
-  it("returns no events for equivalent declarations of the same zone", () => {
-    // E5 freezes {A1, D4, E5}; declaring the closure explicitly names the
-    // same frontier after reduction, so the signing path never produces this
-    // shape — but the diff itself only sees list membership.
-    const events = diffContext(graphOf(), base, { anchors: [P1], frozen: [E5] });
-    expect(events).toEqual([]);
-  });
-
-  it("returns no events for identical contexts", () => {
-    expect(diffContext(graphOf(), base, base)).toEqual([]);
+  it("is empty for an unchanged anchor set, order included", () => {
+    expect(diffAnchors([A1, D4], [A1, D4])).toEqual([]);
+    expect(diffAnchors([], [])).toEqual([]);
   });
 });

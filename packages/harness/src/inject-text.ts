@@ -1,7 +1,8 @@
 import { renderContext } from "./context.js";
 import type { KnownChange } from "./known-set.js";
+import type { StaleReport } from "./stale.js";
 import type { Graph, RefinoNode } from "refino";
-import type { AuthorizationContext, DeltaEvent, ToolRefs } from "./types.js";
+import type { DeltaEvent, ToolRefs } from "./types.js";
 
 /**
  * Model-facing message texts shared by the tool plugins. Pure rendering: hosts
@@ -11,21 +12,7 @@ import type { AuthorizationContext, DeltaEvent, ToolRefs } from "./types.js";
  * host prefix.
  */
 
-/**
- * Where the effective authorization came from; surfaced by the context tool
- * and the injected status lines. Session signings carry the moment they were
- * approved; nothing else persists.
- */
-export interface AuthorizationOrigin {
-  source: "default" | "orchestrator" | "session";
-  signedAt: string;
-}
-
-/**
- * Wrap text in the plugin-owned `<system-reminder>` frame; exported for
- * host-specific texts that share the frame (e.g. the cc plugin's neutral
- * resume line).
- */
+/** Wrap text in the plugin-owned `<system-reminder>` frame; exported for host-specific texts. */
 export function reminderFrame(body: string): string {
   return frame(body);
 }
@@ -41,50 +28,38 @@ function sanitize(text: string): string {
 }
 
 /**
- * The initial task context: anchors (frozen ones marked `[冻结]`) and all premises as
- * summaries, closed by the frozen-marking protocol statement. The frozen zone is
- * not enumerated — frozen status is annotated wherever a node is rendered.
- * Summaries only (two-level injection) — full bodies are fetched via tools. The
- * trailing origin line carries the signing-ownership check for sequential tasks.
+ * The initial task context: the anchors as summaries, a review reminder when
+ * nodes are overdue, and the exploring/derived-status protocol statement.
+ * Summaries only (two-level injection) — full bodies are fetched via tools.
  */
 export function initialContextText(
   graph: Graph,
-  context: AuthorizationContext,
+  anchors: readonly string[],
   tools: ToolRefs,
-  origin?: AuthorizationOrigin,
+  stale?: StaleReport,
 ): string {
   return frame(
     [
       "以下是与当前任务相关的 DLG（决策谱系图）上下文。决策是项目已作出的、会限制后续实现选择空间的决定；前提是项目运作依赖的客观事实。",
-      renderContext(graph, context),
-      ownershipLine(origin),
-      `以上为摘要级内容，正文与理由未包含。完整内容与上下游经 ${tools.show} 等查询工具按需获取；调整冻结区经 ${tools.requestAuthorization}（须经用户批准）。`,
-    ].join("\n\n"),
+      renderContext(graph, anchors),
+      staleHint(stale),
+      `以上为摘要级内容，正文与理由未包含。完整内容与上下游经 ${tools.show} 等查询工具按需获取；检索经 ${tools.search}（覆盖 id、摘要、正文与理由）。`,
+    ]
+      .filter((part) => part.length > 0)
+      .join("\n\n"),
   );
 }
 
-/** Signing-ownership check: sequential tasks must notice a foreign signing. */
-function ownershipLine(origin: AuthorizationOrigin | undefined): string | undefined {
-  if (origin === undefined) return undefined;
-  if (origin.source === "default") return "授权：默认上下文（未签发）。";
-  if (origin.source === "session") {
-    return `授权：本会话内签发（signedAt ${origin.signedAt}）。`;
-  }
-  return `授权：编排者凭据（signedAt ${origin.signedAt}，任务内不可自我扩张）。若该签发不属于当前任务，请与用户确认后重新签发。`;
-}
-
-/**
- * One-line status for resume: session signings died with the old process, so
- * the model must never act on a grant it remembers from the session log.
- */
-export function authorizationStatusText(origin: AuthorizationOrigin, tools: ToolRefs): string {
-  const body =
-    origin.source === "orchestrator"
-      ? `当前授权来自编排者凭据（signedAt ${origin.signedAt}），任务内不可自我扩张。`
-      : origin.source === "session"
-        ? `当前授权为本会话内签发（signedAt ${origin.signedAt}）。`
-        : `当前授权为默认上下文（未签发）；会话内签发不跨 resume，需要调整冻结区时经 ${tools.requestAuthorization} 重新提议。`;
-  return frame(`refino：会话已恢复。${body}`);
+/** One line of review debt, omitted when nothing is overdue. */
+function staleHint(stale: StaleReport | undefined): string {
+  if (stale === undefined) return "";
+  const total = stale.overdue.length + stale.never.length;
+  if (total === 0) return "";
+  const parts: string[] = [];
+  if (stale.overdue.length > 0)
+    parts.push(`${stale.overdue.length} 个节点超过 ${stale.days} 天未复核`);
+  if (stale.never.length > 0) parts.push(`${stale.never.length} 个节点从未复核`);
+  return `- 复核提醒：${parts.join("、")}（明细与排序用 stale 查询工具）。`;
 }
 
 const ORIENTATION_ROOTS = 8;
@@ -119,21 +94,21 @@ export function orientationText(graph: Graph, tools: ToolRefs): string {
     lines.push(...roots.map((node) => `- ${node.id} ${node.summary}`));
   }
   lines.push(
-    `用 ${tools.search} 按摘要或 ID 定位节点、${tools.show} / ${tools.grounds} 按需查询；需要调整冻结区时，先与用户商定划分，再用 ${tools.requestAuthorization} 提议（须经用户批准）。`,
+    `用 ${tools.search} 按摘要、正文或 ID 定位节点，${tools.show} / ${tools.grounds} 按需查询；长期未复核的节点用 ${tools.stale} 查看。`,
   );
   return frame(lines.join("\n"));
 }
 
 /**
- * One injected update: session-known-set field-level changes, authorization
- * delta events and the pending-review set. Known changes carry old→new and
+ * One injected update: session-known-set field-level changes, anchor delta
+ * events and the pending-review set. Known changes carry old→new and
  * added/removed values because they are the only place the model learns what
  * shifted since it last looked; nodes never seen stay silent (the known set
  * is the notification's reference frame).
- * Pending review stays change-source-derived and unfiltered: it is write
- * safety (re-check upstream before modifying), independent of what the
- * model has read. The rendered text is a pure function of its inputs, which
- * the injection-side identical-text guard relies on.
+ * Pending review stays change-source-derived and unfiltered: re-check
+ * upstream before modifying, independent of what the model has read. The
+ * rendered text is a pure function of its inputs, which the injection-side
+ * identical-text guard relies on.
  */
 export function updateText(
   delta: DeltaEvent[],
@@ -206,6 +181,4 @@ function listChange(added: string[], removed: string[]): string {
 const DELTA_LABELS: Record<DeltaEvent["type"], string> = {
   anchor_added: "新增作用域锚点",
   anchor_removed: "移除作用域锚点",
-  frozen_added: "新增冻结决策（只读）",
-  frozen_removed: "解除冻结决策（进入修改空间）",
 } as const;

@@ -1,6 +1,6 @@
 //! Read-side graph queries.
 
-use crate::types::{Graph, GraphNode, IssueCode, QueryGroup, RefinoError, RefinoNode};
+use crate::types::{Graph, GraphNode, IssueCode, NodeType, QueryGroup, RefinoError, RefinoNode};
 use std::collections::{BTreeMap, HashMap};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -227,4 +227,68 @@ fn breadth_first(
             .then_with(|| a.node.id().cmp(b.node.id()))
     });
     results
+}
+
+/// Milliseconds in a day, the unit of node ages.
+const DAY_MS: i64 = 86_400_000;
+
+/// One node due for review, with the number of completed days since its last
+/// review (decisions) or confirmation (premises).
+#[derive(Debug, Clone, PartialEq)]
+pub struct StaleNode {
+    pub id: String,
+    pub node_type: NodeType,
+    pub summary: String,
+    /// Completed days since the last review/confirmation; `None` when the
+    /// node has no such timestamp.
+    pub age_days: Option<i64>,
+}
+
+/// Nodes due for review, split into the two maintenance groups.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct StaleReport {
+    /// Age strictly greater than the threshold, oldest first (ties by id).
+    pub overdue: Vec<StaleNode>,
+    /// No review/confirmation timestamp at all, id ascending.
+    pub never_reviewed: Vec<StaleNode>,
+}
+
+/// Split nodes into overdue and never-reviewed groups. A decision's age comes
+/// from `reviewed`, a premise's from `confirmed`; `days` is the age threshold
+/// in completed days. `now_ms` is epoch milliseconds supplied by the caller:
+/// the engine has no clock dependency, so hosts inject it (`Io::now_ms` on
+/// native hosts) instead of reading the system time here.
+pub fn stale_nodes(graph: &Graph, now_ms: i64, days: i64) -> StaleReport {
+    let mut overdue: Vec<StaleNode> = Vec::new();
+    let mut never_reviewed: Vec<StaleNode> = Vec::new();
+    for node in graph.nodes.values() {
+        let timestamp = match &node.node {
+            RefinoNode::Decision(decision) => decision.reviewed,
+            RefinoNode::Premise(premise) => premise.confirmed,
+        };
+        let Some(timestamp) = timestamp else {
+            never_reviewed.push(stale_row(node, None));
+            continue;
+        };
+        // Future timestamps (clock skew) count as reviewed today.
+        let age_days = now_ms.saturating_sub(timestamp).max(0) / DAY_MS;
+        if age_days > days {
+            overdue.push(stale_row(node, Some(age_days)));
+        }
+    }
+    overdue.sort_by(|a, b| b.age_days.cmp(&a.age_days).then_with(|| a.id.cmp(&b.id)));
+    never_reviewed.sort_by(|a, b| a.id.cmp(&b.id));
+    StaleReport {
+        overdue,
+        never_reviewed,
+    }
+}
+
+fn stale_row(node: &GraphNode, age_days: Option<i64>) -> StaleNode {
+    StaleNode {
+        id: node.id().to_string(),
+        node_type: node.node_type(),
+        summary: node.summary().to_string(),
+        age_days,
+    }
 }

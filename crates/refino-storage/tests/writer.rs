@@ -102,7 +102,8 @@ fn create_decision_writes_grounds_and_rationale_and_loads_back() {
             base: opts("Use Repository layer."),
             grounds: Some(vec![premise_id.clone()]),
             rationale: Some("Keeps DB access testable.".to_string()),
-            exploring: false,
+            reviewed: None,
+            exploring: Some(false),
         },
         &rand(),
     )
@@ -134,7 +135,8 @@ fn create_decision_omits_frontmatter_without_fields() {
             base: opts("Root decision."),
             grounds: None,
             rationale: None,
-            exploring: false,
+            reviewed: None,
+            exploring: Some(false),
         },
         &rand(),
     )
@@ -156,7 +158,8 @@ fn exploring_writes_only_true_and_settling_removes_the_field() {
             base: opts("Trial."),
             grounds: None,
             rationale: None,
-            exploring: true,
+            reviewed: None,
+            exploring: Some(true),
         },
         &rand(),
     )
@@ -191,6 +194,7 @@ fn exploring_writes_only_true_and_settling_removes_the_field() {
             },
             grounds: None,
             rationale: None,
+            reviewed: None,
             exploring: false,
         },
     )
@@ -225,7 +229,8 @@ fn never_writes_explicit_false_exploring() {
             base: opts("Root."),
             grounds: None,
             rationale: None,
-            exploring: false,
+            reviewed: None,
+            exploring: Some(false),
         },
         &rand(),
     )
@@ -248,7 +253,8 @@ fn generated_ids_never_collide() {
             base: opts("First."),
             grounds: None,
             rationale: None,
-            exploring: false,
+            reviewed: None,
+            exploring: Some(false),
         },
         &rand(),
     )
@@ -260,7 +266,8 @@ fn generated_ids_never_collide() {
             base: opts("Second."),
             grounds: None,
             rationale: None,
-            exploring: false,
+            reviewed: None,
+            exploring: Some(false),
         },
         &rand(),
     )
@@ -287,7 +294,8 @@ fn creates_node_under_explicit_id() {
             },
             grounds: None,
             rationale: None,
-            exploring: false,
+            reviewed: None,
+            exploring: Some(false),
         },
         &rand(),
     )
@@ -429,7 +437,8 @@ fn rejects_explicit_id_existing_as_other_type() {
             },
             grounds: None,
             rationale: None,
-            exploring: false,
+            reviewed: None,
+            exploring: Some(false),
         },
         &rand(),
     )
@@ -460,7 +469,8 @@ fn explicit_ids_do_not_disturb_generated_collision_check() {
             },
             grounds: None,
             rationale: None,
-            exploring: false,
+            reviewed: None,
+            exploring: Some(false),
         },
         &rand(),
     )
@@ -472,7 +482,8 @@ fn explicit_ids_do_not_disturb_generated_collision_check() {
             base: opts("Generated."),
             grounds: None,
             rationale: None,
-            exploring: false,
+            reviewed: None,
+            exploring: Some(false),
         },
         &rand(),
     )
@@ -499,7 +510,8 @@ fn serializes_explicit_summary_into_frontmatter() {
             },
             grounds: None,
             rationale: None,
-            exploring: false,
+            reviewed: None,
+            exploring: Some(false),
         },
         &rand(),
     )
@@ -582,7 +594,8 @@ fn update_decision_replaces_grounds_and_rationale() {
             base: opts("Decision."),
             grounds: Some(vec![ground]),
             rationale: Some("Old rationale.".to_string()),
-            exploring: false,
+            reviewed: None,
+            exploring: Some(false),
         },
         &rand(),
     )
@@ -598,6 +611,7 @@ fn update_decision_replaces_grounds_and_rationale() {
             },
             grounds: Some(vec![]),
             rationale: None,
+            reviewed: None,
             exploring: false,
         },
     )
@@ -644,6 +658,7 @@ fn update_and_delete_reject_missing_nodes_as_node_not_found() {
             },
             grounds: None,
             rationale: None,
+            reviewed: None,
             exploring: false,
         },
     )
@@ -691,7 +706,8 @@ fn delete_leaves_dangling_grounds_to_validation() {
             base: opts("Decision."),
             grounds: Some(vec![ground_id.clone()]),
             rationale: None,
-            exploring: false,
+            reviewed: None,
+            exploring: Some(false),
         },
         &rand(),
     )
@@ -849,4 +865,185 @@ fn store_error_display_carries_the_message() {
     let error = RefinoError::new(IssueCode::INVALID_ID, "boom");
     let store_error = StoreError::Other(error);
     assert_eq!(store_error.to_string(), "boom");
+}
+
+#[test]
+fn root_decisions_default_to_exploring_unless_explicitly_settled() {
+    let io = FakeIo::new();
+    let root = create_refino(&io, &[]);
+    let refino = root.join(".refino");
+    let ground = create_premise(
+        &io,
+        &refino,
+        &CreatePremiseOptions {
+            base: opts("Fact."),
+            confirmed: None,
+        },
+        &rand(),
+    )
+    .unwrap();
+    let default_root = create_decision(
+        &io,
+        &refino,
+        &CreateDecisionOptions {
+            base: opts("默认试行根决策。"),
+            grounds: None,
+            rationale: None,
+            reviewed: None,
+            exploring: None,
+        },
+        &rand(),
+    )
+    .unwrap();
+    assert!(
+        io.read(&node_file(&root, &default_root, "decision"))
+            .contains("exploring: true")
+    );
+    let settled_root = create_decision(
+        &io,
+        &refino,
+        &CreateDecisionOptions {
+            base: opts("显式定案根决策。"),
+            grounds: None,
+            rationale: None,
+            reviewed: None,
+            exploring: Some(false),
+        },
+        &rand(),
+    )
+    .unwrap();
+    assert!(
+        !io.read(&node_file(&root, &settled_root, "decision"))
+            .contains("exploring")
+    );
+    let refinement = create_decision(
+        &io,
+        &refino,
+        &CreateDecisionOptions {
+            base: opts("细化决策。"),
+            grounds: Some(vec![ground]),
+            rationale: None,
+            reviewed: None,
+            exploring: None,
+        },
+        &rand(),
+    )
+    .unwrap();
+    assert!(
+        !io.read(&node_file(&root, &refinement, "decision"))
+            .contains("exploring")
+    );
+
+    let loaded = load_graph(&io, &refino).unwrap();
+    let mark = |id: &str| {
+        loaded
+            .graph
+            .nodes
+            .get(id)
+            .unwrap()
+            .as_decision()
+            .unwrap()
+            .exploring
+    };
+    assert_eq!(mark(&default_root), Some(true));
+    assert_eq!(mark(&settled_root), None);
+    assert_eq!(mark(&refinement), None);
+}
+
+#[test]
+fn reviewed_round_trips_through_create_and_update_in_canonical_order() {
+    let io = FakeIo::new();
+    let root = create_refino(&io, &[]);
+    let refino = root.join(".refino");
+    let ground = create_premise(
+        &io,
+        &refino,
+        &CreatePremiseOptions {
+            base: opts("Fact."),
+            confirmed: None,
+        },
+        &rand(),
+    )
+    .unwrap();
+    let id = create_decision(
+        &io,
+        &refino,
+        &CreateDecisionOptions {
+            base: CreateOptions {
+                body: "Body.".to_string(),
+                id: None,
+                summary: Some("S.".to_string()),
+            },
+            grounds: Some(vec![ground.clone()]),
+            rationale: Some("Why.".to_string()),
+            reviewed: Some(1_777_593_600_000), // 2026-05-01T00:00:00Z
+            exploring: Some(true),
+        },
+        &rand(),
+    )
+    .unwrap();
+    let source = io.read(&node_file(&root, &id, "decision"));
+    // Field order is shared with the TypeScript implementation's serializer.
+    assert_eq!(
+        source,
+        format!(
+            "---\ngrounds:\n  - {ground}\nrationale: Why.\nreviewed: 2026-05-01T00:00:00.000Z\nsummary: S.\nexploring: true\n---\n\nBody.\n"
+        )
+    );
+    let loaded = load_graph(&io, &refino).unwrap();
+    assert_eq!(
+        loaded
+            .graph
+            .nodes
+            .get(&id)
+            .unwrap()
+            .as_decision()
+            .unwrap()
+            .reviewed,
+        Some(1_777_593_600_000)
+    );
+
+    // PUT-like update with no reviewed clears the field.
+    update_decision(
+        &io,
+        &refino,
+        &id,
+        &UpdateDecisionOptions {
+            base: UpdateOptions {
+                body: "Body.".to_string(),
+                summary: Some("S.".to_string()),
+            },
+            grounds: Some(vec![ground.clone()]),
+            rationale: Some("Why.".to_string()),
+            reviewed: None,
+            exploring: true,
+        },
+    )
+    .unwrap();
+    assert!(
+        !io.read(&node_file(&root, &id, "decision"))
+            .contains("reviewed")
+    );
+    // And setting it again writes the canonical RFC 3339 form.
+    update_decision(
+        &io,
+        &refino,
+        &id,
+        &UpdateDecisionOptions {
+            base: UpdateOptions {
+                body: "Body.".to_string(),
+                summary: None,
+            },
+            grounds: Some(vec![ground]),
+            rationale: None,
+            reviewed: Some(1_777_680_000_000), // 2026-05-02T00:00:00Z
+            exploring: false,
+        },
+    )
+    .unwrap();
+    let updated = io.read(&node_file(&root, &id, "decision"));
+    assert!(
+        updated.contains("reviewed: 2026-05-02T00:00:00.000Z"),
+        "{updated}"
+    );
 }

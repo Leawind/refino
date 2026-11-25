@@ -779,3 +779,95 @@ async fn get_graph_serves_whole_graph_with_bodies() {
         .expect("C1 present");
     assert_eq!(c1["body"], json!("C1。"));
 }
+
+#[tokio::test]
+async fn search_matches_body_and_rationale_substrings() {
+    let root = create_refino(&[
+        (
+            "nodes/1A/2B3C4D-premise.md",
+            "---\nsummary: 部署环境\n---\n\n集群位于内网，运行 Kubernetes 1.30。\n".to_string(),
+        ),
+        (
+            "nodes/D4/E5F6G7-decision.md",
+            "---\nsummary: 事件存储选型\ngrounds: [1A2B3C4D]\nrationale: 选择 Event Sourcing 以保留完整历史。\n---\n\n正文提到 Kafka 作为传输层。\n".to_string(),
+        ),
+    ]);
+    let app = router(app_state(root.join(".refino")));
+    let ids = |body: &Value| -> Vec<String> {
+        body["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|n| n["id"].as_str().unwrap().to_string())
+            .collect()
+    };
+
+    let (status, body) = get(&app, "/api/search?q=KUBERNETES").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(ids(&body), vec!["1A2B3C4D".to_string()]);
+    let (_, body) = get(&app, "/api/search?q=event%20sourcing").await;
+    assert_eq!(ids(&body), vec!["D4E5F6G7".to_string()]);
+    let (_, body) = get(&app, "/api/search?q=kafka").await;
+    assert_eq!(ids(&body), vec!["D4E5F6G7".to_string()]);
+    assert!(body["nextCursor"].is_null());
+    std::fs::remove_dir_all(&root).ok();
+}
+
+#[tokio::test]
+async fn get_node_exposes_the_reviewed_timestamp() {
+    let root = create_refino(&[(
+        "nodes/A1/B2C3D4-decision.md",
+        "---\nreviewed: 2026-05-01T00:00:00Z\n---\n\nReviewed.\n".to_string(),
+    )]);
+    let app = router(app_state(root.join(".refino")));
+    let (status, body) = get(&app, &format!("/api/nodes/{C1}")).await;
+    std::fs::remove_dir_all(&root).ok();
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["node"]["reviewed"], json!(1_777_593_600_000i64));
+}
+
+#[tokio::test]
+async fn post_decision_defaults_a_root_to_exploring() {
+    let root = create_refino(&[("nodes/1A/2B3C4D-premise.md", premise_body(P1, "前提一。"))]);
+    let app = router(app_state(root.join(".refino")));
+    let (status, created) = post(
+        &app,
+        "/api/nodes/decision",
+        json!({ "body": "根决策。", "grounds": [] }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let id = created["id"].as_str().unwrap().to_string();
+    let (_, body) = get(&app, &format!("/api/nodes/{id}")).await;
+    std::fs::remove_dir_all(&root).ok();
+    assert_eq!(body["node"]["exploring"], json!(true));
+}
+
+#[tokio::test]
+async fn post_decision_accepts_and_validates_reviewed() {
+    let root = create_refino(&[("nodes/1A/2B3C4D-premise.md", premise_body(P1, "前提一。"))]);
+    let app = router(app_state(root.join(".refino")));
+    let (status, created) = post(
+        &app,
+        "/api/nodes/decision",
+        json!({
+            "body": "Decision.",
+            "grounds": [],
+            "reviewed": "2026-05-01T00:00:00Z",
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let id = created["id"].as_str().unwrap().to_string();
+    let (_, body) = get(&app, &format!("/api/nodes/{id}")).await;
+    assert_eq!(body["node"]["reviewed"], json!(1_777_593_600_000i64));
+
+    let (status_bad, _) = post(
+        &app,
+        "/api/nodes/decision",
+        json!({ "body": "Decision.", "grounds": [], "reviewed": "2026-05-01" }),
+    )
+    .await;
+    std::fs::remove_dir_all(&root).ok();
+    assert_eq!(status_bad, StatusCode::BAD_REQUEST);
+}

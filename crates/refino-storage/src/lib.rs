@@ -9,6 +9,7 @@ pub mod codes;
 pub mod io;
 pub mod loader;
 pub mod parser;
+pub mod search;
 pub mod store;
 pub mod watcher;
 pub mod writer;
@@ -21,6 +22,7 @@ pub use parser::{
     NodeContent, ParseResult, SUMMARY_MAX_LENGTH, confirmed_to_ms, confirmed_to_rfc3339,
     extract_summary, is_valid_confirmed, parse_node_source,
 };
+pub use search::{NodeSearchQuery, start_index};
 pub use store::{
     Origin, RefinoStore, Stats, StoreChange, StoreEntry, StoreError, WriteOutcome, WriteRejected,
 };

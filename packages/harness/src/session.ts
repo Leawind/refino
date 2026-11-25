@@ -2,72 +2,45 @@ import {
   getAncestors,
   getDependents,
   getGrounds,
+  queryGroups,
+  requireNode,
   type Graph,
   type NodeWithDepth,
   type QueryGroup,
   type RefinoNode,
-  queryGroups,
-  requireNode,
 } from "refino";
-import { checkModification, validateContext } from "./boundary.js";
-import { contextBlocks, diffContext } from "./context.js";
+import { contextBlocks } from "./context.js";
 import { pendingReview } from "./pending.js";
-import { searchNodes, type SearchPage, type SearchParams } from "./search.js";
-import type { AuthorizationContext, ContextBlock, DeltaEvent, ModificationCheck } from "./types.js";
+import type { ContextBlock } from "./types.js";
 
 /**
- * Host adapter interface. Tool plugins (e.g. `@refino/cordis-plugin-refino`)
- * register the session's capabilities with their host and deliver context updates
- * through it; the host decides how context blocks and delta events reach the model.
- */
-export interface HarnessHost {
-  /** Deliver context blocks and delta events to the model-facing channel. */
-  emit(event: { blocks: ContextBlock[]; delta: DeltaEvent[] }): void;
-}
-
-/**
- * A task session over a loaded graph: query tools with batch, partial-success
- * semantics, modification space checks and incremental context updates.
+ * A task session over a loaded graph: the anchor set it started with, batch
+ * queries with partial-success semantics, and the derived pending-review set.
  * Platform-agnostic; graph loading and node writes stay with the storage
  * adapter of the consuming package.
  */
 export class HarnessSession {
-  private graph: Graph;
-  private context: AuthorizationContext;
+  private readonly graph: Graph;
+  private readonly anchors: readonly string[];
 
-  constructor(graph: Graph, context: AuthorizationContext) {
-    validateContext(graph, context);
+  constructor(graph: Graph, anchors: readonly string[]) {
     this.graph = graph;
-    this.context = context;
+    this.anchors = anchors;
   }
 
-  get authorizationContext(): AuthorizationContext {
-    return this.context;
+  /** The node ids loaded at task start. */
+  get anchorIds(): readonly string[] {
+    return this.anchors;
   }
 
-  /**
-   * Switch to a new authorization context and return the incremental delta
-   * from the current one.
-   */
-  updateContext(next: AuthorizationContext): DeltaEvent[] {
-    const delta = diffContext(this.graph, this.context, next);
-    this.context = next;
-    return delta;
-  }
-
-  /** Current context rendered as stable, identifiable blocks. */
+  /** The anchors rendered as stable, identifiable blocks. */
   blocks(): ContextBlock[] {
-    return contextBlocks(this.graph, this.context);
+    return contextBlocks(this.graph, this.anchors);
   }
 
   /** Decisions pending review after the given nodes changed. */
   pendingReview(changedIds: readonly string[]): RefinoNode[] {
     return pendingReview(this.graph, changedIds);
-  }
-
-  /** Check nodes against the modification space; unknown ids throw. */
-  checkModification(ids: readonly string[]): ModificationCheck[] {
-    return ids.map((id) => checkModification(this.graph, this.context, id));
   }
 
   listNodes(type?: RefinoNode["type"]): RefinoNode[] {
@@ -91,10 +64,5 @@ export class HarnessSession {
 
   dependents(ids: readonly string[]): QueryGroup<NodeWithDepth>[] {
     return queryGroups(this.graph, ids, getDependents);
-  }
-
-  /** Keyset-paginated id/summary search over the graph. */
-  search(params: SearchParams = {}): SearchPage {
-    return searchNodes(this.graph, params);
   }
 }

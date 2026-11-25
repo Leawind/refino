@@ -31,15 +31,6 @@ export function writeResultSchema() {
           },
         },
       },
-      escalation: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          id: { type: "string", required: true },
-          reason: { type: "string", required: true },
-          affected: { type: "array", items: depthLiteSchema(), required: true },
-        },
-      },
       dependents: { type: "array", items: nodeLiteSchema() },
     },
   } as const;
@@ -54,20 +45,6 @@ function nodeLiteSchema() {
       type: { type: "string", required: true },
       summary: { type: "string", required: true },
       exploring: { type: "boolean" },
-    },
-  } as const;
-}
-
-function depthLiteSchema() {
-  return {
-    type: "object",
-    additionalProperties: false,
-    properties: {
-      id: { type: "string", required: true },
-      type: { type: "string", required: true },
-      summary: { type: "string", required: true },
-      exploring: { type: "boolean" },
-      depth: { type: "integer", required: true },
     },
   } as const;
 }

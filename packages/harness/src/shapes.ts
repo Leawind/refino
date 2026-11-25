@@ -36,24 +36,13 @@ export interface FullNodeLite {
   exploring?: boolean;
   /** Confirmation time as epoch milliseconds (premises only). */
   confirmed?: number;
+  /** Last review time as epoch milliseconds (decisions only). */
+  reviewed?: number;
 }
 
 export interface IssueLite {
   code: string;
   message: string;
-}
-
-/**
- * Structured escalation report for a blocked write: the
- * target itself sits in the frozen zone. The modification space closes
- * downwards along dependents, so no other escalation reason exists. The
- * model is expected to stop modifying, report to the user, and propose
- * changes — not to retry.
- */
-export interface EscalationLite {
-  id: string;
-  reason: "node_frozen";
-  affected: NodeDepthLite[];
 }
 
 /** Canonical value of the write tools; `ok: false` carries exactly one failure facet. */
@@ -67,8 +56,6 @@ export interface WriteResult {
   error?: string;
   /** Engine grounds-validation issues for rejected grounds changes. */
   issues?: IssueLite[];
-  /** Boundary escalation for writes reaching the frozen zone. */
-  escalation?: EscalationLite;
   /** Existing downstream decisions (delete refusal). */
   dependents?: NodeLite[];
 }
@@ -125,34 +112,19 @@ export interface SiblingsResult {
   results: QueryEntrySiblings[];
 }
 
-/** Outcome of a host approval-surface request; fail-closed on anything but an allow. */
-export type ApprovalOutcome = "allowed-once" | "rejected" | "cancelled" | "unavailable";
-
-/** Canonical value of `refino_request_authorization`. */
-export interface SignResult {
-  ok: boolean;
-  /** The signed frontier on success. */
-  frontier?: string[];
-  frozen_decisions?: number;
-  frozen_premises?: number;
-  /** Frontier ids covered by other frontier decisions (redundant in the draft). */
-  redundant_frontier?: string[];
-  /** Root decisions the draft unfreezes (highest-authorization warning). */
-  unfrozen_roots?: string[];
-  /** The approval outcome when `ok` is false. */
-  outcome?: ApprovalOutcome;
-  error?: string;
+/** One node overdue for review; `age_days` absent when it was never reviewed. */
+export interface StaleNodeLite extends NodeLite {
+  age_days?: number;
 }
 
-/** Canonical value of `refino_context`. */
-export interface ContextStatusResult {
-  source: string;
-  signed_at: string;
-  frontier: string[];
-  frozen_decisions: number;
-  frozen_premises: number;
-  anchors_complete: boolean;
-  orchestrator_credential: boolean;
+/** Canonical value of `refino_stale`. */
+export interface StaleResult {
+  /** The overdue threshold the report was computed with. */
+  days: number;
+  /** Last reviewed more than `days` days ago, oldest first. */
+  overdue: StaleNodeLite[];
+  /** No review timestamp at all, by id. */
+  never: StaleNodeLite[];
 }
 
 export function lite(node: RefinoNode, exploring?: boolean): NodeLite {
@@ -180,6 +152,7 @@ export function fullLite(
         ...base,
         grounds: node.grounds,
         ...(exploring === true ? { exploring: true } : {}),
+        ...(node.reviewed !== undefined ? { reviewed: node.reviewed } : {}),
         ...(content?.rationale !== undefined ? { rationale: content.rationale } : {}),
       };
 }

@@ -9,6 +9,7 @@ pub mod format;
 pub mod guide;
 pub mod query;
 pub mod shared;
+pub mod stale;
 pub mod write;
 
 use clap::{Parser, Subcommand, error::ContextKind, error::ContextValue, error::ErrorKind};
@@ -121,10 +122,11 @@ enum Command_ {
         #[arg(long)]
         json: bool,
     },
-    /// search nodes by id prefix or summary substring (case-insensitive;
-    /// bodies are not searched)
+    /// search nodes by id prefix or summary/body/rationale substring
+    /// (case-insensitive)
     Search {
-        /// id prefix or summary substring to match (empty: match all)
+        /// id prefix or summary/body/rationale substring to match (empty:
+        /// match all)
         q: Option<String>,
         /// only match nodes of this type
         #[arg(long = "type")]
@@ -136,6 +138,16 @@ enum Command_ {
         #[arg(long)]
         cursor: Option<String>,
         /// emit machine-readable JSON (next_cursor for continuation)
+        #[arg(long)]
+        json: bool,
+    },
+    /// list nodes due for review: older than --days by their last review
+    /// (decisions) or confirmation (premises) time, plus never-reviewed ones
+    Stale {
+        /// age threshold in days; nodes strictly older are overdue
+        #[arg(long, default_value_t = 90)]
+        days: u32,
+        /// emit machine-readable JSON (overdue and never_reviewed arrays)
         #[arg(long)]
         json: bool,
     },
@@ -207,6 +219,10 @@ enum Command_ {
         /// comma-separated ground node ids, replacing the whole list (decisions only)
         #[arg(long)]
         grounds: Option<String>,
+        /// RFC 3339 review time with an explicit UTC offset; the empty string
+        /// clears it (decisions only)
+        #[arg(long)]
+        reviewed: Option<String>,
         /// RFC 3339 timestamp with an explicit UTC offset (premises only)
         #[arg(long)]
         confirmed: Option<String>,
@@ -409,6 +425,7 @@ fn dispatch(cli: Cli, io: &mut dyn CliSink) -> i32 {
             cursor.as_deref(),
             json,
         ),
+        Command_::Stale { days, json } => stale::cmd_stale(io, &opts, days, json),
         Command_::Grounds { ids, json } => {
             query::cmd_graph_query(io, &opts, &ids, query::GraphQuery::Grounds, json)
         }
@@ -446,6 +463,7 @@ fn dispatch(cli: Cli, io: &mut dyn CliSink) -> i32 {
             rationale,
             rationale_file,
             grounds,
+            reviewed,
             confirmed,
             now,
             exploring,
@@ -461,6 +479,7 @@ fn dispatch(cli: Cli, io: &mut dyn CliSink) -> i32 {
                 rationale,
                 rationale_file,
                 grounds,
+                reviewed,
                 confirmed,
                 now,
                 exploring,

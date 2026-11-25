@@ -329,7 +329,8 @@ pub fn cmd_dev_generate(
                         },
                         grounds: node.grounds.clone(),
                         rationale: node.rationale.clone(),
-                        exploring: false,
+                        reviewed: None,
+                        exploring: Some(false),
                     })?;
                 }
             }

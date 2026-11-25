@@ -324,6 +324,70 @@ fn reports_invalid_exploring_for_non_boolean_values() {
 }
 
 #[test]
+fn silently_ignores_reviewed_on_a_premise_file() {
+    let result = parse_node_source(
+        "2B3C4D5E",
+        "nodes/1A/2B3C4D-premise.md",
+        NodeType::Premise,
+        "---\nreviewed: 2026-05-01T00:00:00Z\n---\n\nBody.\n",
+    );
+    assert!(result.issues.is_empty(), "{:?}", result.issues);
+    let node = result
+        .node
+        .as_ref()
+        .and_then(|n| n.as_premise())
+        .expect("premise");
+    assert_eq!(node.confirmed, None);
+}
+
+#[test]
+fn silently_ignores_confirmed_on_a_decision_file() {
+    let result = parse_decision("---\nconfirmed: 2026-05-01T00:00:00Z\n---\n\nBody.\n");
+    assert!(result.issues.is_empty(), "{:?}", result.issues);
+    let node = result
+        .node
+        .as_ref()
+        .and_then(|n| n.as_decision())
+        .expect("decision");
+    assert_eq!(node.reviewed, None);
+}
+
+#[test]
+fn converts_valid_reviewed_to_epoch_milliseconds() {
+    let result = parse_decision("---\nreviewed: 2026-05-01T12:00:00+08:00\n---\n\nBody.\n");
+    assert!(result.issues.is_empty(), "{:?}", result.issues);
+    let node = result
+        .node
+        .as_ref()
+        .and_then(|n| n.as_decision())
+        .expect("decision");
+    // 2026-05-01T04:00:00Z
+    assert_eq!(node.reviewed, Some(1_777_608_000_000));
+}
+
+#[test]
+fn reports_invalid_reviewed_with_the_shared_timestamp_code() {
+    for reviewed in ["2026-05-01T12:00:00", "2026-05-01", "yesterday"] {
+        let result = parse_decision(&format!("---\nreviewed: {reviewed}\n---\n\nBody.\n"));
+        assert_eq!(
+            result
+                .issues
+                .iter()
+                .map(|i| i.code().to_string())
+                .collect::<Vec<_>>(),
+            vec![StorageIssueCode::INVALID_TIMESTAMP.to_string()],
+            "reviewed: {reviewed}"
+        );
+        let node = result
+            .node
+            .as_ref()
+            .and_then(|n| n.as_decision())
+            .expect("decision");
+        assert_eq!(node.reviewed, None);
+    }
+}
+
+#[test]
 fn silently_ignores_exploring_on_a_premise_file() {
     let result = parse_node_source(
         "2B3C4D5E",
@@ -364,7 +428,7 @@ fn reports_invalid_confirmed_for_missing_offset_and_bad_values() {
                 .iter()
                 .map(|i| i.code().to_string())
                 .collect::<Vec<_>>(),
-            vec![StorageIssueCode::INVALID_CONFIRMED.to_string()],
+            vec![StorageIssueCode::INVALID_TIMESTAMP.to_string()],
             "confirmed: {confirmed}"
         );
         let node = result

@@ -15,8 +15,9 @@ pub use graph::{add_node, build_graph, remove_node, set_grounds, update_node};
 pub use id::{ID_CHARSET, generate_id, is_valid_id};
 pub use layer::{LayerNode, assign_layers};
 pub use query::{
-    NodeWithDepth, NodeWithOverlap, TraversalOptions, effective_exploring, get_ancestors,
-    get_dependents, get_grounds, get_siblings, query_groups, require_node,
+    NodeWithDepth, NodeWithOverlap, StaleNode, StaleReport, TraversalOptions, effective_exploring,
+    get_ancestors, get_dependents, get_grounds, get_siblings, query_groups, require_node,
+    stale_nodes,
 };
 pub use types::{
     DecisionNode, Graph, GraphNode, IssueCode, NodeLite, NodeType, PremiseNode, QueryGroup,

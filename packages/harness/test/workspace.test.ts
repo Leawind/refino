@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { createPremise, createDecision, deleteNode } from "@refino/storage";
-import { premise, decision, createRefino, removeRefino } from "@refino/testkit";
+import { createDecision, createPremise, deleteNode } from "@refino/storage";
+import { decision, premise, createRefino, removeRefino } from "@refino/testkit";
 import { RefinoWorkspace, type SyncOutcome } from "../src/host.js";
 
 const cleanup: string[] = [];
@@ -56,13 +56,11 @@ async function fixture(): Promise<string> {
 }
 
 describe("RefinoWorkspace.open", () => {
-  it("loads the graph under the default authorization context", async () => {
+  it("loads the graph and anchors every node under the auto-anchor budget", async () => {
     const ws = await open(await fixture());
     expect(ws.graph.nodes.size).toBe(4);
-    expect(ws.authorizationContext.frozen).toEqual(["R1ROOT"]);
     expect(ws.anchorsComplete).toBe(true);
-    expect(ws.session.checkModification(["R1ROOT"])[0]!.allowed).toBe(false);
-    expect(ws.session.checkModification(["C1CHILD"])[0]!.allowed).toBe(true);
+    expect(ws.session.anchorIds).toEqual(["C1CHILD", "C2GRAND", "P1PREMISE", "R1ROOT"]);
   });
 
   it("reports load issues without failing", async () => {
@@ -72,6 +70,25 @@ describe("RefinoWorkspace.open", () => {
     cleanup.push(root);
     const ws = await open(root);
     expect(ws.issues.length).toBeGreaterThan(0);
+  });
+
+  it("reports review debt from the node timestamps", async () => {
+    const root = await createRefino({
+      "nodes/R1/ROOT-decision.md": decision(
+        "R1ROOT",
+        undefined,
+        "根决策",
+        undefined,
+        true,
+        "2025-01-01T00:00:00Z",
+      ),
+      "nodes/C1/CHILD-decision.md": decision("C1CHILD", ["R1ROOT"], "子决策"),
+    });
+    cleanup.push(root);
+    const ws = await open(root);
+    const report = ws.stale(Date.parse("2026-05-01T00:00:00Z"));
+    expect(report.overdue.map((node) => node.id)).toEqual(["R1ROOT"]);
+    expect(report.never.map((node) => node.id)).toEqual(["C1CHILD"]);
   });
 });
 
@@ -101,95 +118,42 @@ describe("external changes", () => {
     expect(outcomes[0]!.pending.map((node) => node.id)).toEqual(["C2GRAND"]);
   });
 
-  it("derive frozen-zone delta events when a new root decision appears", async () => {
+  it("reports a new root decision as an anchor only", async () => {
     const root = await fixture();
     const { ws, outcomes } = await openListening(root);
     const id = await createDecision(root + "/.refino", { body: "新根决策" });
     await ws.store.applyChange({ changed: [id], origin: "file" });
     expect(outcomes).toHaveLength(1);
     expect(outcomes[0]!.delta).toContainEqual({ type: "anchor_added", id });
-    expect(outcomes[0]!.delta).toContainEqual({ type: "frozen_added", id });
+  });
+
+  it("keeps the known set quiet about nodes it never delivered", async () => {
+    const root = await fixture();
+    const { ws, externalChange } = await openListening(root);
+    await externalChange(["C2GRAND"], async () => {
+      await deleteNode(root + "/.refino", "C2GRAND");
+    });
+    expect(await ws.knownDiff()).toEqual([{ id: "C2GRAND", kind: "deleted", summary: "孙决策" }]);
+    expect(await ws.knownDiff()).toEqual([]); // the diff drains per call
   });
 });
 
-describe("RefinoWorkspace.signContext", () => {
-  it("signs an explicit context, returns the delta and checks the modification space against it", async () => {
-    const ws = await open(await fixture());
-    expect(ws.contextSigned).toBe(false);
-
-    // The default context anchors every node, so narrowing to C2GRAND only
-    // removes the other three; C1CHILD's ancestors stay frozen through the
-    // new frozen list, so nothing leaves the zone.
-    const delta = ws.signContext({ anchors: ["C2GRAND"], frozen: ["C1CHILD"] });
-    expect(delta).toEqual([
-      { type: "anchor_removed", id: "C1CHILD" },
-      { type: "anchor_removed", id: "P1PREMISE" },
-      { type: "anchor_removed", id: "R1ROOT" },
-      { type: "frozen_added", id: "C1CHILD" },
-    ]);
-    expect(ws.contextSigned).toBe(true);
-    expect(ws.authorizationContext).toEqual({ anchors: ["C2GRAND"], frozen: ["C1CHILD"] });
-    expect(ws.session.checkModification(["C1CHILD"])[0]!.allowed).toBe(false);
-    expect(ws.session.checkModification(["R1ROOT"])[0]!.allowed).toBe(false);
-    expect(ws.session.checkModification(["C2GRAND"])[0]!.allowed).toBe(true);
-
-    expect(() => ws.signContext({ anchors: ["NOSUCH1"], frozen: [] })).toThrow();
-  });
-
-  it("converges the signed context on external changes instead of resetting to defaults", async () => {
-    const root = await fixture();
-    const { ws, externalChange, outcomes } = await openListening(root);
-    ws.signContext({ anchors: ["C1CHILD", "C2GRAND"], frozen: ["C1CHILD"] });
-
-    // C2GRAND is deleted externally: it drops out of the anchors; C1CHILD
-    // and the frozen list survive — the context does NOT revert to defaults.
-    await externalChange(["C2GRAND"], async () => {
-      await deleteNode(root + "/.refino", "C2GRAND");
+describe("graphs above the auto-anchor budget", () => {
+  it("inject no anchors and keep new nodes out of the delta", async () => {
+    const { derivedAnchors } = await import("../src/index.js");
+    const graph = (await import("refino")).buildGraph(
+      Array.from({ length: 3 }, (_, i) => ({
+        id: `R${i}ROOT`,
+        type: "decision" as const,
+        summary: `root ${i}`,
+        grounds: [] as string[],
+      })),
+    );
+    expect(derivedAnchors(graph, 2)).toEqual({ anchors: [], complete: false });
+    expect(derivedAnchors(graph, 3)).toEqual({
+      anchors: ["R0ROOT", "R1ROOT", "R2ROOT"],
+      complete: true,
     });
-    expect(outcomes).toHaveLength(1);
-    expect(outcomes[0]!.delta).toEqual([{ type: "anchor_removed", id: "C2GRAND" }]);
-    expect(ws.authorizationContext).toEqual({ anchors: ["C1CHILD"], frozen: ["C1CHILD"] });
-    expect(ws.session.checkModification(["C1CHILD"])[0]!.allowed).toBe(false);
-    expect(ws.anchorsComplete).toBe(true); // untouched by signing; defaults-only signal
-
-    // A context-preserving external change still reaches the listener (the
-    // known-set diff at fire time decides what to inject), but carries no
-    // delta and no pending set.
-    const id = await createPremise(root + "/.refino", { body: "签名后的新前提" });
-    await ws.store.applyChange({ changed: [id], origin: "file" });
-    expect(outcomes).toHaveLength(2);
-    expect(outcomes[1]!.delta).toEqual([]);
-    expect(outcomes[1]!.pending).toEqual([]);
-    // C2GRAND's deletion earlier in the test is still unreported (the diff
-    // drains per fire); the new node is unknown to the session and silent.
-    expect(await ws.knownDiff()).toEqual([{ id: "C2GRAND", kind: "deleted", summary: "孙决策" }]);
-    // Convergence only drops dead ids: a newly created node never joins a
-    // signed context on its own.
-    expect(ws.authorizationContext.anchors).not.toContain(id);
-  });
-
-  it("drops a frozen id that reappears as a different type instead of wedging the session", async () => {
-    const root = await fixture();
-    const { ws, externalChange, outcomes } = await openListening(root);
-    ws.signContext({ anchors: ["C2GRAND"], frozen: ["C2GRAND"] });
-
-    // C2GRAND deleted, then re-created as a premise under the same id: the
-    // frozen list drops it (premises are never frozen) and its whole zone
-    // unfreezes with it; the anchor survives — anchors may reference any
-    // node type. The next change validates cleanly instead of throwing.
-    await externalChange(["C2GRAND"], async () => {
-      await deleteNode(root + "/.refino", "C2GRAND");
-      await createPremise(root + "/.refino", { id: "C2GRAND", body: "同名前提" });
-    });
-    expect(outcomes).toHaveLength(1);
-    expect(outcomes[0]!.delta).toEqual([
-      { type: "frozen_removed", id: "C1CHILD" },
-      { type: "frozen_removed", id: "C2GRAND" },
-      { type: "frozen_removed", id: "R1ROOT" },
-    ]);
-    expect(ws.authorizationContext.frozen).toEqual([]);
-    expect(ws.authorizationContext.anchors).toEqual(["C2GRAND"]);
-    expect(ws.session.checkModification(["C2GRAND"])[0]!.allowed).toBe(true);
   });
 });
 

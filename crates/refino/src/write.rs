@@ -42,6 +42,7 @@ pub struct UpdateArgs {
     pub rationale: Option<String>,
     pub rationale_file: Option<String>,
     pub grounds: Option<String>,
+    pub reviewed: Option<String>,
     pub confirmed: Option<String>,
     pub now: bool,
     pub exploring: bool,
@@ -153,6 +154,9 @@ pub fn cmd_new(io: &mut dyn CliSink, opts: &GlobalOptions, kind: NewKindArgs) ->
                 Ok(resolved) => resolved,
                 Err(code) => return code,
             };
+            // A root decision created without an explicit mark starts as a
+            // trial commitment (storage default); the caller is told so.
+            let roots_default_exploring = ground_ids.is_empty() && !exploring;
             let outcome = with_store_for_write(opts, |store| {
                 // Grounds validation runs inside the store's write method;
                 // pre-existing parse issues elsewhere do not block creation.
@@ -168,9 +172,16 @@ pub fn cmd_new(io: &mut dyn CliSink, opts: &GlobalOptions, kind: NewKindArgs) ->
                         Some(ground_ids)
                     },
                     rationale,
-                    exploring,
+                    reviewed: None,
+                    exploring: exploring.then_some(true),
                 })?;
                 emit_written(io, &outcome.id, "decision", "created", None);
+                if roots_default_exploring {
+                    io.out(&format!(
+                        "提示：根决策默认标记为探索中（试行）；复核确认后可执行 `refino update {} --no-exploring` 转正。\n",
+                        outcome.id
+                    ));
+                }
                 Ok(0)
             });
             finish_write(io, outcome)
@@ -187,6 +198,7 @@ pub fn cmd_update(io: &mut dyn CliSink, opts: &GlobalOptions, args: UpdateArgs) 
         rationale,
         rationale_file,
         grounds,
+        reviewed,
         confirmed,
         now,
         exploring,
@@ -211,6 +223,7 @@ pub fn cmd_update(io: &mut dyn CliSink, opts: &GlobalOptions, args: UpdateArgs) 
         || summary.is_some()
         || rationale.is_some()
         || grounds.is_some()
+        || reviewed.is_some()
         || confirmed.is_some()
         || now
         || exploring_set.is_some();
@@ -227,6 +240,17 @@ pub fn cmd_update(io: &mut dyn CliSink, opts: &GlobalOptions, args: UpdateArgs) 
     {
         io.err(&format!(
                 "error: \"confirmed\" must be an RFC 3339 timestamp with an explicit UTC offset (Z or ±HH:MM), got \"{text}\"\n"
+            ));
+        return 1;
+    }
+    // The empty string is the explicit clear; every other value must be an
+    // RFC 3339 timestamp (the same rule as `confirmed`).
+    if let Some(text) = &reviewed
+        && !text.is_empty()
+        && !is_valid_confirmed(text)
+    {
+        io.err(&format!(
+                "error: \"reviewed\" must be an RFC 3339 timestamp with an explicit UTC offset (Z or ±HH:MM), got \"{text}\"\n"
             ));
         return 1;
     }
@@ -247,6 +271,9 @@ pub fn cmd_update(io: &mut dyn CliSink, opts: &GlobalOptions, args: UpdateArgs) 
         // file frontmatter, not typed CLI flags.
         let mut violations: Vec<&str> = Vec::new();
         if matches!(node, RefinoNode::Premise(_)) {
+            if reviewed.is_some() {
+                violations.push("--reviewed only applies to decisions");
+            }
             if rationale.is_some() {
                 violations.push("--rationale only applies to decisions");
             }
@@ -328,6 +355,11 @@ pub fn cmd_update(io: &mut dyn CliSink, opts: &GlobalOptions, args: UpdateArgs) 
                         },
                         grounds: Some(ground_ids.unwrap_or_else(|| decision.grounds.clone())),
                         rationale: rationale.clone().or(content.rationale.clone()),
+                        reviewed: match reviewed.as_deref() {
+                            None => decision.reviewed,
+                            Some("") => None,
+                            Some(text) => confirmed_to_ms(text),
+                        },
                         exploring: exploring_set.unwrap_or(decision.exploring == Some(true)),
                     },
                 )?
@@ -432,6 +464,7 @@ pub fn cmd_edit(io: &mut dyn CliSink, opts: &GlobalOptions, args: EditArgs) -> i
                     base: UpdateOptions { body, summary },
                     grounds: Some(decision.grounds.clone()),
                     rationale: content.rationale.clone(),
+                    reviewed: decision.reviewed,
                     exploring: decision.exploring == Some(true),
                 },
             )?,

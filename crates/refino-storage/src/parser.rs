@@ -6,17 +6,18 @@ use crate::codes::{StorageIssue, StorageIssueCode};
 use refino_core::{DecisionNode, NodeType, PremiseNode, RefinoNode};
 use yaml_rust2::{Yaml, YamlLoader};
 
-/// Whether the value is a valid premise `confirmed` timestamp in its file form.
+/// Whether the value is a valid frontmatter timestamp (`confirmed` on
+/// premises, `reviewed` on decisions) in its file form.
 pub fn is_valid_confirmed(value: &str) -> bool {
     clock::is_valid_confirmed(value)
 }
 
-/// The file's RFC 3339 `confirmed` form as epoch milliseconds (validate first).
+/// The file's RFC 3339 timestamp form as epoch milliseconds (validate first).
 pub fn confirmed_to_ms(value: &str) -> Option<i64> {
     clock::confirmed_to_ms(value)
 }
 
-/// The epoch-millisecond `confirmed` form as the file's RFC 3339 form (UTC, Z offset).
+/// The epoch-millisecond timestamp form as the file's RFC 3339 form (UTC, Z offset).
 pub fn confirmed_to_rfc3339(ms: i64) -> Result<String, refino_core::RefinoError> {
     clock::confirmed_to_rfc3339(ms)
 }
@@ -175,10 +176,10 @@ fn field<'a>(fields: &'a [(String, Yaml)], key: &str) -> Option<&'a Yaml> {
 }
 
 /// Premise fields: `confirmed` as epoch milliseconds, converted from the
-/// file's RFC 3339 form. A declared `grounds` or `exploring` is a misplaced
-/// attribute (edges and trial marks belong to decisions only) and is
-/// silently ignored, like any unknown frontmatter field — no issue is
-/// reported.
+/// file's RFC 3339 form. A declared `grounds`, `exploring` or `reviewed` is a
+/// misplaced attribute (edges and decision bookkeeping belong to decisions
+/// only) and is silently ignored, like any unknown frontmatter field — no
+/// issue is reported.
 fn parse_premise(
     id: &str,
     summary: &str,
@@ -199,7 +200,7 @@ fn parse_premise(
             }
             _ => issues.push(
                 StorageIssue::new(
-                    StorageIssueCode::INVALID_CONFIRMED,
+                    StorageIssueCode::INVALID_TIMESTAMP,
                     "\"confirmed\" must be an RFC 3339 timestamp with an explicit UTC offset.",
                     file,
                 )
@@ -210,8 +211,9 @@ fn parse_premise(
     RefinoNode::Premise(node)
 }
 
-/// Decision fields: `grounds` (absent -> []), `exploring` (only true marks);
-/// `rationale` lands in the paged content.
+/// Decision fields: `grounds` (absent -> []), `reviewed` as epoch
+/// milliseconds, `exploring` (only true marks); `rationale` lands in the
+/// paged content.
 fn parse_decision(
     id: &str,
     summary: &str,
@@ -226,7 +228,24 @@ fn parse_decision(
         summary: summary.to_string(),
         grounds,
         exploring: None,
+        reviewed: None,
     };
+    if let Some(reviewed) = field(fields, "reviewed") {
+        match reviewed {
+            Yaml::Null | Yaml::BadValue => {}
+            Yaml::String(text) if is_valid_confirmed(text) => {
+                node.reviewed = confirmed_to_ms(text);
+            }
+            _ => issues.push(
+                StorageIssue::new(
+                    StorageIssueCode::INVALID_TIMESTAMP,
+                    "\"reviewed\" must be an RFC 3339 timestamp with an explicit UTC offset.",
+                    file,
+                )
+                .with_node_id(id),
+            ),
+        }
+    }
     if let Some(exploring) = field(fields, "exploring") {
         match exploring {
             Yaml::Boolean(true) => node.exploring = Some(true),

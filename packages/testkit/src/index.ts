@@ -30,13 +30,20 @@ export function decision(
   body = "body.",
   rationale?: string,
   exploring?: boolean,
+  reviewed?: string,
 ): string {
   const lines: string[] = [];
-  if (grounds !== undefined || rationale !== undefined || exploring === true) {
+  if (
+    grounds !== undefined ||
+    rationale !== undefined ||
+    exploring === true ||
+    reviewed !== undefined
+  ) {
     lines.push("---");
     if (grounds !== undefined) lines.push(`grounds: [${grounds.join(", ")}]`);
     if (rationale !== undefined) lines.push(`rationale: ${JSON.stringify(rationale)}`);
     if (exploring === true) lines.push("exploring: true");
+    if (reviewed !== undefined) lines.push(`reviewed: ${reviewed}`);
     lines.push("---", "");
   }
   lines.push(`${body}\n`);

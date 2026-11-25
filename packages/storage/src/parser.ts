@@ -13,27 +13,37 @@ const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---(?:\n|$)/;
 const EMPTY_FRONTMATTER_RE = /^---\n---(?:\n|$)/;
 
 /** RFC 3339 timestamp; the UTC offset (Z or ±HH:MM) is mandatory. */
-const CONFIRMED_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
+const RFC3339_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
 
-/** Whether the value is a valid premise `confirmed` timestamp in its file form. */
-export function isValidConfirmed(value: string): boolean {
-  return CONFIRMED_RE.test(value);
+/**
+ * Whether the value is a timestamp in the file's RFC 3339 form. Timestamps in
+ * frontmatter are persisted as RFC 3339, so both `confirmed` and `reviewed`
+ * share this rule and the conversions below.
+ */
+export function isRfc3339(value: string): boolean {
+  return RFC3339_RE.test(value);
 }
 
-/** The file's RFC 3339 `confirmed` form as epoch milliseconds (validate first). */
-export function confirmedToMs(value: string): number {
-  return Date.parse(value);
+/** The file's RFC 3339 form as epoch milliseconds; `undefined` when it is not a real instant. */
+export function rfc3339ToMs(value: string): number | undefined {
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? undefined : ms;
 }
 
-/** The epoch-millisecond `confirmed` form as the file's RFC 3339 form (UTC, Z offset). */
-export function confirmedToRfc3339(ms: number): string {
+/** Epoch milliseconds as the file's RFC 3339 form (UTC, Z offset). */
+export function msToRfc3339(ms: number, field: string): string {
   if (!Number.isFinite(ms)) {
     throw new RefinoError(
-      StorageIssueCode.InvalidConfirmed,
-      `"confirmed" must be a finite epoch-millisecond number, got ${ms}.`,
+      StorageIssueCode.InvalidTimestamp,
+      `"${field}" must be a finite epoch-millisecond number, got ${ms}.`,
     );
   }
   return new Date(ms).toISOString();
+}
+
+/** A frontmatter timestamp in file form as epoch milliseconds, or undefined when it is not a valid instant. */
+function parseTimestamp(value: string): number | undefined {
+  return isRfc3339(value) ? rfc3339ToMs(value) : undefined;
 }
 
 /** Paged node content: everything that lives in the file but not in the engine's resident memory model. */
@@ -124,10 +134,10 @@ export function parseNodeSource(
 
 /**
  * Premise fields: `confirmed` as epoch milliseconds, converted from the
- * file's RFC 3339 form. A declared `grounds` or `exploring` is a misplaced
- * attribute (edges and trial marks belong to decisions only) and is
- * silently ignored, like any unknown frontmatter field — no issue is
- * reported.
+ * file's RFC 3339 form. A declared `grounds`, `exploring` or `reviewed` is a
+ * misplaced attribute (edges and decision bookkeeping belong to decisions
+ * only) and is silently ignored, like any unknown frontmatter field — no
+ * issue is reported.
  */
 function parsePremise(
   base: { id: string; summary: string },
@@ -138,21 +148,22 @@ function parsePremise(
   const node: PremiseNode = { ...base, type: "premise" };
   const confirmed = fields["confirmed"];
   if (confirmed !== undefined && confirmed !== null) {
-    if (typeof confirmed === "string" && isValidConfirmed(confirmed)) {
-      node.confirmed = confirmedToMs(confirmed);
-    } else {
+    const ms = typeof confirmed === "string" ? parseTimestamp(confirmed) : undefined;
+    if (ms === undefined) {
       issues.push({
-        code: StorageIssueCode.InvalidConfirmed,
+        code: StorageIssueCode.InvalidTimestamp,
         message: '"confirmed" must be an RFC 3339 timestamp with an explicit UTC offset.',
         file,
         nodeId: base.id,
       });
+    } else {
+      node.confirmed = ms;
     }
   }
   return node;
 }
 
-/** Decision fields: `grounds` (absent -> []), `exploring` (only true marks); `rationale` lands in the paged content. */
+/** Decision fields: `grounds` (absent -> []), `exploring` (only true marks), `reviewed`; `rationale` lands in the paged content. */
 function parseDecision(
   base: { id: string; summary: string },
   fields: Record<string, unknown>,
@@ -163,6 +174,20 @@ function parseDecision(
   const node: DecisionNode = { ...base, type: "decision", grounds: [] };
   const grounds = parseGrounds(file, base.id, fields["grounds"], issues);
   if (grounds) node.grounds = grounds;
+  const reviewed = fields["reviewed"];
+  if (reviewed !== undefined && reviewed !== null) {
+    const ms = typeof reviewed === "string" ? parseTimestamp(reviewed) : undefined;
+    if (ms === undefined) {
+      issues.push({
+        code: StorageIssueCode.InvalidTimestamp,
+        message: '"reviewed" must be an RFC 3339 timestamp with an explicit UTC offset.',
+        file,
+        nodeId: base.id,
+      });
+    } else {
+      node.reviewed = ms;
+    }
+  }
   const exploring = fields["exploring"];
   if (exploring !== undefined && exploring !== null) {
     // Canonical form: only `true` is meaningful; an explicit false parses to

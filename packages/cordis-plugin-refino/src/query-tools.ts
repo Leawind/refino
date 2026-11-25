@@ -11,6 +11,7 @@ import {
   type QueryEntryNodes,
   type SearchResult,
   type SiblingsResult,
+  type StaleResult,
 } from "@refino/harness";
 import {
   runAncestors,
@@ -21,6 +22,7 @@ import {
   runSearch,
   runShow,
   runSiblings,
+  runStale,
 } from "@refino/harness/host";
 import type { RefinoWorkspace } from "@refino/harness/host";
 import { requireWorkspace } from "./internal.js";
@@ -34,7 +36,7 @@ import { requireWorkspace } from "./internal.js";
 const TOOL_PREFIX = "refino_";
 const TOOLS = toolRefs(TOOL_PREFIX);
 const TEXT = createToolText(TOOLS);
-const kit = createRenderKit(TOOLS);
+const kit = createRenderKit();
 
 export function createQueryTools(get: () => RefinoWorkspace | undefined): ToolDefinition[] {
   return [
@@ -46,6 +48,7 @@ export function createQueryTools(get: () => RefinoWorkspace | undefined): ToolDe
     dependentsTool(get),
     siblingsTool(get),
     pendingReviewTool(get),
+    staleTool(get),
   ];
 }
 
@@ -292,6 +295,32 @@ function pendingReviewTool(get: () => RefinoWorkspace | undefined): ToolDefiniti
   });
 }
 
+function staleTool(get: () => RefinoWorkspace | undefined): ToolDefinition {
+  return defineTool({
+    name: `${TOOL_PREFIX}stale`,
+    description: TEXT.stale,
+    parameters: {
+      days: { type: "integer", description: PARAM_TEXT.staleDays },
+    },
+    output: {
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          days: { type: "integer", required: true },
+          overdue: { type: "array", items: staleNodeSchema(), required: true },
+          never: { type: "array", items: staleNodeSchema(), required: true },
+        },
+      },
+      render: (_args, value) => [{ type: "text", text: kit.renderStale(value as StaleResult) }],
+    },
+    isConcurrencySafe: () => true,
+    async execute(args) {
+      return runStale(requireWorkspace(get), Date.now(), args.days);
+    },
+  });
+}
+
 /** Parameter schema for batch traversals (`ids` plus an optional depth bound). */
 function traversalParams(description: string) {
   return {
@@ -317,6 +346,20 @@ function nodeLiteSchema() {
       type: { type: "string", required: true },
       summary: { type: "string", required: true },
       exploring: { type: "boolean" },
+    },
+  } as const;
+}
+
+function staleNodeSchema() {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      id: { type: "string", required: true },
+      type: { type: "string", required: true },
+      summary: { type: "string", required: true },
+      exploring: { type: "boolean" },
+      age_days: { type: "integer" },
     },
   } as const;
 }
@@ -351,6 +394,7 @@ function fullEntrySchema() {
           grounds: { type: "array", items: { type: "string" } },
           exploring: { type: "boolean" },
           confirmed: { type: "number" },
+          reviewed: { type: "number" },
         },
       },
       error: { type: "string" },

@@ -2,7 +2,7 @@ import { mkdir, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { generateId, ID_RE, IssueCode, RefinoError } from "refino";
 import type { NodeType } from "refino";
-import { confirmedToRfc3339 } from "./parser.js";
+import { msToRfc3339 } from "./parser.js";
 import { serializeNode } from "./serialize.js";
 
 const NODES_DIR = "nodes";
@@ -41,8 +41,16 @@ export interface CreateDecisionOptions extends CreateOptions {
   grounds?: string[];
   /** Why the decision was made. */
   rationale?: string;
-  /** Trial-commitment mark; only `true` is ever written to the file, false and absent both mean settled. */
+  /**
+   * Trial-commitment mark; only `true` is ever written to the file, false and
+   * absent both mean settled. Left unspecified, a decision created without
+   * grounds (a root decision) starts as a trial commitment — roots are
+   * project-level by definition and enter the record as proposals until a
+   * review settles them. Pass `false` to settle a new root explicitly.
+   */
   exploring?: boolean;
+  /** Last review time as epoch milliseconds; stored as RFC 3339 (UTC). */
+  reviewed?: number;
 }
 
 /** Create a premise node file under `<refinoDir>/nodes/`; returns the new id. */
@@ -51,7 +59,7 @@ export async function createPremise(
   opts: CreatePremiseOptions,
 ): Promise<string> {
   const fields: Record<string, unknown> = {
-    confirmed: confirmedToRfc3339OrUndefined(opts.confirmed),
+    confirmed: timestampOrUndefined(opts.confirmed, "confirmed"),
     summary: opts.summary,
   };
   return createNode(refinoDir, "premise", fields, opts.body, opts.id);
@@ -65,10 +73,21 @@ export async function createDecision(
   const fields: Record<string, unknown> = {
     grounds: opts.grounds,
     rationale: opts.rationale,
+    reviewed: timestampOrUndefined(opts.reviewed, "reviewed"),
     summary: opts.summary,
-    exploring: opts.exploring === true ? true : undefined,
+    exploring: exploringAtCreate(opts.exploring, (opts.grounds ?? []).length === 0),
   };
   return createNode(refinoDir, "decision", fields, opts.body, opts.id);
+}
+
+/**
+ * The exploring mark a newly created decision is stored with: an explicit
+ * choice always wins, and otherwise a root decision starts as a trial
+ * commitment while a refinement starts settled.
+ */
+function exploringAtCreate(explicit: boolean | undefined, isRoot: boolean): true | undefined {
+  if (explicit === false) return undefined;
+  return explicit === true || isRoot ? true : undefined;
 }
 
 async function createNode(
@@ -102,8 +121,8 @@ async function createNode(
 }
 
 /** Epoch milliseconds as the file's RFC 3339 form; undefined stays absent from the file. */
-function confirmedToRfc3339OrUndefined(confirmed: number | undefined): string | undefined {
-  return confirmed === undefined ? undefined : confirmedToRfc3339(confirmed);
+function timestampOrUndefined(ms: number | undefined, field: string): string | undefined {
+  return ms === undefined ? undefined : msToRfc3339(ms, field);
 }
 
 /**
@@ -161,6 +180,8 @@ export interface UpdateDecisionOptions extends UpdateOptions {
   rationale?: string;
   /** Trial-commitment mark; only `true` is ever written to the file, false and absent both mean settled. */
   exploring?: boolean;
+  /** Last review time as epoch milliseconds; stored as RFC 3339 (UTC). */
+  reviewed?: number;
 }
 
 /** Overwrite an existing premise node file; throws NODE_NOT_FOUND if absent. */
@@ -170,7 +191,7 @@ export async function updatePremise(
   opts: UpdatePremiseOptions,
 ): Promise<void> {
   const fields: Record<string, unknown> = {
-    confirmed: confirmedToRfc3339OrUndefined(opts.confirmed),
+    confirmed: timestampOrUndefined(opts.confirmed, "confirmed"),
     summary: opts.summary,
   };
   await updateNode(refinoDir, "premise", id, fields, opts.body);
@@ -185,6 +206,7 @@ export async function updateDecision(
   const fields: Record<string, unknown> = {
     grounds: opts.grounds,
     rationale: opts.rationale,
+    reviewed: timestampOrUndefined(opts.reviewed, "reviewed"),
     summary: opts.summary,
     exploring: opts.exploring === true ? true : undefined,
   };

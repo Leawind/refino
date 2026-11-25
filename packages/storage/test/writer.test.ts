@@ -74,7 +74,7 @@ describe("writer", () => {
     }
   });
 
-  it("createDecision omits the frontmatter block without fields", async () => {
+  it("createDecision starts a new root decision as a trial commitment", async () => {
     const root = await createRefino({});
     try {
       const id = await createDecision(`${root}/.refino`, { body: "Root decision." });
@@ -82,7 +82,46 @@ describe("writer", () => {
         `${root}/.refino/nodes/${id.slice(0, 2)}/${id.slice(2)}-decision.md`,
         "utf8",
       );
-      expect(source).not.toContain("---");
+      expect(source).toBe("---\nexploring: true\n---\n\nRoot decision.\n");
+      const { graph, issues } = await loadGraph(`${root}/.refino`);
+      expect(issues).toEqual([]);
+      expect(graph.nodes.get(id)).toMatchObject({ type: "decision", exploring: true });
+    } finally {
+      await removeRefino(root);
+    }
+  });
+
+  it("createDecision leaves a refined decision settled and writes no frontmatter without fields", async () => {
+    const root = await createRefino({});
+    try {
+      const premise = await createPremise(`${root}/.refino`, { body: "PostgreSQL 16." });
+      const id = await createDecision(`${root}/.refino`, {
+        body: "Use PostgreSQL.",
+        grounds: [premise],
+      });
+      const source = await readFile(
+        `${root}/.refino/nodes/${id.slice(0, 2)}/${id.slice(2)}-decision.md`,
+        "utf8",
+      );
+      expect(source).toBe("---\ngrounds:\n  - " + premise + "\n---\n\nUse PostgreSQL.\n");
+      const { graph } = await loadGraph(`${root}/.refino`);
+      expect("exploring" in (graph.nodes.get(id) as object)).toBe(false);
+    } finally {
+      await removeRefino(root);
+    }
+  });
+
+  it("createDecision stores an explicitly settled root without the trial mark", async () => {
+    const root = await createRefino({});
+    try {
+      const id = await createDecision(`${root}/.refino`, {
+        body: "Root decision.",
+        exploring: false,
+      });
+      const source = await readFile(
+        `${root}/.refino/nodes/${id.slice(0, 2)}/${id.slice(2)}-decision.md`,
+        "utf8",
+      );
       expect(source).toBe("Root decision.\n");
     } finally {
       await removeRefino(root);
@@ -123,6 +162,28 @@ describe("writer", () => {
     }
   });
 
+  it("serializes reviewed as RFC 3339 and drops it when update omits it", async () => {
+    const root = await createRefino({});
+    try {
+      const reviewed = Date.parse("2026-05-01T00:00:00Z");
+      const id = await createDecision(`${root}/.refino`, {
+        body: "Reviewed.",
+        reviewed,
+        exploring: false,
+      });
+      const file = `${root}/.refino/nodes/${id.slice(0, 2)}/${id.slice(2)}-decision.md`;
+      expect(await readFile(file, "utf8")).toContain("reviewed: 2026-05-01T00:00:00.000Z");
+      const { graph, issues } = await loadGraph(`${root}/.refino`);
+      expect(issues).toEqual([]);
+      expect(graph.nodes.get(id)).toMatchObject({ reviewed });
+
+      await updateDecision(`${root}/.refino`, id, { body: "Reviewed again." });
+      expect(await readFile(file, "utf8")).not.toContain("reviewed");
+    } finally {
+      await removeRefino(root);
+    }
+  });
+
   it("never collides with existing ids", async () => {
     const root = await createRefino({});
     try {
@@ -143,6 +204,7 @@ describe("writer", () => {
       const id = await createDecision(`${root}/.refino`, {
         id: "A1B2C3D4",
         body: "Explicit id.",
+        exploring: false,
       });
       expect(id).toBe("A1B2C3D4");
       const source = await readFile(`${root}/.refino/nodes/A1/B2C3D4-decision.md`, "utf8");

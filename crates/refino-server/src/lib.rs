@@ -16,7 +16,10 @@ use refino_core::{
     IssueCode, NodeType, QueryGroup, RefinoError, RefinoNode, get_dependents, is_valid_id,
 };
 use refino_fs::FsIo;
-use refino_storage::{RefinoStore, StorageIssueCode, confirmed_to_ms, is_valid_confirmed};
+use refino_storage::{
+    NodeSearchQuery, RefinoStore, StorageIssueCode, confirmed_to_ms, is_valid_confirmed,
+    start_index,
+};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -213,6 +216,9 @@ pub fn node_json(node: &RefinoNode, content: &refino_storage::NodeContent) -> Va
         if decision.exploring == Some(true) {
             map.insert("exploring".into(), json!(true));
         }
+        if let Some(reviewed) = decision.reviewed {
+            map.insert("reviewed".into(), json!(reviewed));
+        }
     }
     if let Some(premise) = node.as_premise()
         && let Some(confirmed) = premise.confirmed
@@ -398,7 +404,8 @@ fn create_node(
             },
             grounds: resolve_grounds(payload)?,
             rationale: optional_string(payload, "rationale")?,
-            exploring: read_exploring(payload)?.unwrap_or(false),
+            reviewed: read_reviewed(payload)?,
+            exploring: read_exploring(payload)?,
         })?,
     };
     if let Some(change) = outcome.change {
@@ -487,6 +494,9 @@ async fn put_node(
                         },
                         rationale: optional_string(&payload, "rationale")?
                             .or(content_rationale(store, &id)),
+                        // Omitted means keep: a UI save that never touched the
+                        // review time must not erase one set through the CLI.
+                        reviewed: read_reviewed(&payload)?.or(decision.reviewed),
                         exploring: read_exploring(&payload)?.unwrap_or(false),
                     },
                 )?
@@ -650,6 +660,11 @@ struct SearchQuery {
     cursor: Option<String>,
 }
 
+/// The web face of the shared node-search contract: the same matching as
+/// `refino search` and the harness search tool (id prefix or
+/// summary/body/rationale substring, case-insensitive). Resident fields are
+/// tried first; body and rationale come from the store's content LRU, so a
+/// page only reads files whose cheap fields missed.
 async fn get_search(
     State(state): State<Arc<AppState>>,
     Query(params): Query<SearchQuery>,
@@ -679,61 +694,65 @@ async fn get_search(
         let cursor = params.cursor.as_deref().filter(|c| !c.is_empty());
 
         let all = store.sorted_ids();
-        let q_upper = q.to_uppercase();
-        let q_lower = q.to_lowercase();
-        let mut matched: Vec<String> = Vec::new();
+        let query = NodeSearchQuery::new(&q);
+        let mut matched: Vec<(String, NodeType, String)> = Vec::new();
         for id in all.iter().skip(start_index(&all, cursor)) {
             if matched.len() > limit {
                 break;
             }
-            let Some(entry) = store.entry(id) else {
-                continue;
-            };
-            let decision = entry.node.as_decision();
-            if let Some(want) = type_filter
-                && entry.node.node_type() != want
-            {
-                continue;
-            }
-            if roots_only
-                && (entry.node.node_type() != NodeType::Decision
-                    || decision
-                        .map(|d| {
-                            d.grounds.iter().any(|g| {
-                                store.entry(g).map(|e| e.node.node_type())
-                                    == Some(NodeType::Decision)
+            let (node_type, summary) = {
+                let Some(entry) = store.entry(id) else {
+                    continue;
+                };
+                let decision = entry.node.as_decision();
+                if let Some(want) = type_filter
+                    && entry.node.node_type() != want
+                {
+                    continue;
+                }
+                if roots_only
+                    && (entry.node.node_type() != NodeType::Decision
+                        || decision
+                            .map(|d| {
+                                d.grounds.iter().any(|g| {
+                                    store.entry(g).map(|e| e.node.node_type())
+                                        == Some(NodeType::Decision)
+                                })
                             })
-                        })
-                        .unwrap_or(false))
-            {
-                continue;
+                            .unwrap_or(false))
+                {
+                    continue;
+                }
+                if unreferenced_only
+                    && (entry.node.node_type() != NodeType::Premise
+                        || !entry.node.children.is_empty())
+                {
+                    continue;
+                }
+                (entry.node.node_type(), entry.node.summary().to_string())
+            };
+            if !query.matches_resident(id, &summary) {
+                let Some(content) = store.content(id)? else {
+                    continue;
+                };
+                if !query.matches_content(&content) {
+                    continue;
+                }
             }
-            if unreferenced_only
-                && (entry.node.node_type() != NodeType::Premise || !entry.node.children.is_empty())
-            {
-                continue;
-            }
-            if !q_upper.is_empty()
-                && !id.to_uppercase().starts_with(&q_upper)
-                && !entry.node.summary().to_lowercase().contains(&q_lower)
-            {
-                continue;
-            }
-            matched.push(id.clone());
+            matched.push((id.clone(), node_type, summary));
         }
         let has_more = matched.len() > limit;
         let page: Vec<Value> = matched
             .iter()
             .take(limit)
-            .map(|id| {
-                let node = &store.entry(id).expect("iterated").node;
+            .map(|(id, node_type, summary)| {
                 json!({
-                    "id": node.id(),
-                    "type": match node.node_type() {
+                    "id": id,
+                    "type": match node_type {
                         NodeType::Premise => "premise",
                         NodeType::Decision => "decision",
                     },
-                    "summary": node.summary(),
+                    "summary": summary,
                 })
             })
             .collect();
@@ -745,16 +764,6 @@ async fn get_search(
         Ok(Json(json!({ "nodes": page, "nextCursor": next_cursor })))
     });
     finish(result)
-}
-
-/// First index position at or after the cursor; keyset pages resume strictly
-/// after it.
-fn start_index(all: &[String], cursor: Option<&str>) -> usize {
-    let Some(cursor) = cursor else { return 0 };
-    match all.binary_search_by(|id| id.as_str().cmp(cursor)) {
-        Ok(at) => at + 1,
-        Err(at) => at,
-    }
 }
 
 async fn get_stats(State(state): State<Arc<AppState>>) -> Response {
@@ -916,13 +925,30 @@ fn read_confirmed(payload: &Value) -> Result<Option<i64>, ApiError> {
     };
     if !is_valid_confirmed(&confirmed) {
         return Err(ApiError::Refino(RefinoError::new(
-            StorageIssueCode::INVALID_CONFIRMED,
+            StorageIssueCode::INVALID_TIMESTAMP,
             format!(
                 "\"confirmed\" must be an RFC 3339 timestamp with an explicit UTC offset (Z or ±HH:MM), got \"{confirmed}\"."
             ),
         )));
     }
     Ok(confirmed_to_ms(&confirmed))
+}
+
+/// The payload's `reviewed` timestamp as epoch milliseconds, format-checked at
+/// this boundary (the decision counterpart of `confirmed`).
+fn read_reviewed(payload: &Value) -> Result<Option<i64>, ApiError> {
+    let Some(reviewed) = optional_string(payload, "reviewed")? else {
+        return Ok(None);
+    };
+    if !is_valid_confirmed(&reviewed) {
+        return Err(ApiError::Refino(RefinoError::new(
+            StorageIssueCode::INVALID_TIMESTAMP,
+            format!(
+                "\"reviewed\" must be an RFC 3339 timestamp with an explicit UTC offset (Z or ±HH:MM), got \"{reviewed}\"."
+            ),
+        )));
+    }
+    Ok(confirmed_to_ms(&reviewed))
 }
 
 /// The payload's `exploring` boolean, shape-checked at this boundary.

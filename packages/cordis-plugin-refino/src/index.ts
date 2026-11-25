@@ -3,31 +3,19 @@ import type { Context } from "@deepseek-ai/cordis";
 // `Agent` interface (with `inject` and `session.header.cwd`) onto the program.
 import type {} from "@deepseek-ai/dsh-agent";
 import type { Agent, SessionStartSource } from "@deepseek-ai/dsh-agent";
-import type { ApprovalOutcome } from "@deepseek-ai/dsh-user-approval";
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
-import {
-  authorizationStatusText,
-  defaultAuthorizationContext,
-  initialContextText,
-  orientationText,
-  toolRefs,
-  updateText,
-  type AuthorizationOrigin,
-} from "@refino/harness";
-import { DeltaCoalescer, RefinoWorkspace, resolveAuthorization } from "@refino/harness/host";
+import { initialContextText, orientationText, toolRefs, updateText } from "@refino/harness";
+import { DeltaCoalescer, RefinoWorkspace } from "@refino/harness/host";
 import { findRefinoDir } from "@refino/storage";
 import { createTools } from "./tools.js";
 
 /**
  * refino plugin for the DeepSeek Harness: at session start it locates the `.refino`
- * directory for the session cwd, loads the DLG under the effective authorization
- * context — an orchestrator credential when the environment provides one, the
- * derived defaults otherwise — registers the model-facing DLG tools on the agent
- * scope, and injects the initial task context as a durable plugin-sourced message.
- * Graphs above the auto-anchor budget get a minimal orientation instead of silence.
- * External `.refino` changes are watched and delivered as coalesced delta updates;
- * dialogue signing lives in session memory only — the plugin writes no state files
- * anywhere.
+ * directory for the session cwd, loads the DLG, registers the model-facing DLG
+ * tools on the agent scope, and injects the initial task context as a durable
+ * plugin-sourced message. Graphs above the auto-anchor budget get a minimal
+ * orientation instead of silence. External `.refino` changes are watched and
+ * delivered as coalesced delta updates; the plugin writes no state files anywhere.
  */
 
 /** Cordis plugin name used by loader diagnostics. */
@@ -90,8 +78,7 @@ async function startSession(
   // Identical-text guard over injected updates: the rendered update is a pure
   // function of known changes/delta/pending, so an identical text carries zero new
   // information (e.g. an mtime-only rewrite re-firing the same batch) and is
-  // dropped. Shared by the external-sync and signing lanes so the two cannot
-  // duplicate either.
+  // dropped.
   let lastUpdateText: string | undefined;
   const injectUpdate = (text: string | undefined): void => {
     if (text === undefined || text === lastUpdateText) return;
@@ -120,69 +107,29 @@ async function startSession(
     );
   }
 
-  // Resolve the effective authorization: an orchestrator credential when the
-  // environment provides one, the derived defaults otherwise. There is no
-  // persisted signing lane on the plugin side — in-session signings die with
-  // the process, and resume re-states the effective status in one line.
-  const resolved = await resolveAuthorization(workspace.graph, process.env);
-  if (resolved.warning !== undefined) {
-    ctx.logger.warn(
-      "refino: orchestrator credential unreadable, using defaults: %o",
-      resolved.warning,
-    );
-  }
-  if (resolved.origin.source === "orchestrator") {
-    // Adopt the credential as session state; its delta is irrelevant here —
-    // the baseline injection below already reflects it.
-    workspace.signContext(resolved.context);
-  }
-
-  const originRecord: AuthorizationOrigin = { ...resolved.origin };
   const get = () => workspaces.get(agent);
-  const signing = {
-    get,
-    requestApproval: (reason: string) => requestApproval(ctx, agent, reason),
-    inject: injectUpdate,
-    origin: () => originRecord,
-    setOrigin: (next: AuthorizationOrigin) => Object.assign(originRecord, next),
-  };
-  for (const tool of createTools(get, signing)) {
+  for (const tool of createTools(get)) {
     agent.ctx.tools.register(tool);
   }
 
-  // Fresh sessions get the initial context; resumes skip the baseline (it is
-  // already in the session log) but re-state the effective authorization, so
-  // the model never acts on a signing that fell back with the old process.
-  // Sessions above the auto-anchor budget get a minimal orientation so the
-  // model can search instead of working blind.
+  // Fresh sessions get the initial context. Sessions above the auto-anchor
+  // budget get a minimal orientation so the model can search instead of
+  // working blind; resumes skip the baseline, which is already in the log.
   if (source === "startup" || source === "clear") {
-    if (defaultAuthorizationContext(workspace.graph).complete) {
+    if (workspace.anchorsComplete) {
       inject(
         agent,
-        initialContextText(workspace.graph, workspace.authorizationContext, TOOLS, originRecord),
+        initialContextText(
+          workspace.graph,
+          workspace.session.anchorIds,
+          TOOLS,
+          workspace.stale(Date.now()),
+        ),
       );
     } else {
       inject(agent, orientationText(workspace.graph, TOOLS));
     }
-  } else if (source === "resume") {
-    inject(agent, authorizationStatusText(originRecord, TOOLS));
   }
-}
-
-/**
- * The host's approval surface is the mechanical human-approval gate for
- * dialogue signing. Typing through `Partial<Context>`: the approval service
- * is declared required by its plugin, but the host may not have it installed
- * — fail closed to `"unavailable"` instead of throwing.
- */
-async function requestApproval(
-  ctx: Context,
-  agent: Agent,
-  reason: string,
-): Promise<ApprovalOutcome> {
-  const approval = (ctx as Partial<Pick<Context, "approval">>).approval;
-  if (approval === undefined) return "unavailable";
-  return approval.request({ agent, toolName: "refino_request_authorization", reason });
 }
 
 /** Queue one durable plugin-sourced message; disposed agents drop it silently. */

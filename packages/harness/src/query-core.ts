@@ -13,6 +13,7 @@ import {
 } from "refino";
 import { pendingReview } from "./pending.js";
 import { contentHash } from "./known-set.js";
+import { searchNodes, type SearchParams } from "./search.js";
 import {
   depthLite,
   fullLite,
@@ -25,6 +26,8 @@ import {
   type QueryEntrySiblings,
   type SearchResult,
   type SiblingsResult,
+  type StaleNodeLite,
+  type StaleResult,
 } from "./shapes.js";
 import type { RefinoWorkspace } from "./workspace.js";
 
@@ -46,11 +49,9 @@ export function runList(ws: RefinoWorkspace, type?: RefinoNode["type"]): ListRes
   };
 }
 
-export function runSearch(
-  ws: RefinoWorkspace,
-  params: { q?: string; type?: RefinoNode["type"]; limit?: number; cursor?: string },
-): SearchResult {
-  const page = ws.session.search(params);
+/** Keyset-paginated search over ids, summaries and the paged content. */
+export async function runSearch(ws: RefinoWorkspace, params: SearchParams): Promise<SearchResult> {
+  const page = await searchNodes(ws.graph, params, (id) => ws.content(id));
   const graph = ws.graph;
   ws.known.recordSummaries(
     page.nodes.flatMap((node) => {
@@ -59,6 +60,25 @@ export function runSearch(
     }),
   );
   return page;
+}
+
+/** Review debt: nodes overdue for review, split from those never reviewed. */
+export function runStale(ws: RefinoWorkspace, nowMs: number, days?: number): StaleResult {
+  const report = ws.stale(nowMs, days);
+  const toLite = (entry: { id: string; age_days?: number }): StaleNodeLite => {
+    const node = ws.graph.nodes.get(entry.id)!;
+    return {
+      ...lite(node, effectiveOf(ws, node)),
+      ...(entry.age_days !== undefined ? { age_days: entry.age_days } : {}),
+    };
+  };
+  const overdue = report.overdue.map(toLite);
+  const never = report.never.map(toLite);
+  for (const entry of [...overdue, ...never]) {
+    const node = ws.graph.nodes.get(entry.id);
+    if (node !== undefined) ws.known.recordSummaries([node]);
+  }
+  return { days: report.days, overdue, never };
 }
 
 export async function runShow(

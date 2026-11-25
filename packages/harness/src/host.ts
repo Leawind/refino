@@ -1,21 +1,13 @@
 /**
  * `@refino/harness/host` — the shared tool-plugin core. Everything a host adapter
  * needs beyond the pure main entry: the session workspace over the storage Store,
- * external sync coalescing, the DLG tool execution cores, dialogue signing and
- * session-start authorization resolution.
+ * external sync coalescing, the DLG tool execution cores and their render inputs.
  *
  * Node-only by necessity (the Store) and exported as this subpath so the
- * platform-agnostic main entry stays browser-safe (same policy as
- * `@refino/harness/state`).
+ * platform-agnostic main entry stays browser-safe.
  */
 
-export {
-  RefinoWorkspace,
-  resolveAuthorization,
-  type ExternalSyncListener,
-  type ResolvedAuthorization,
-  type SyncOutcome,
-} from "./workspace.js";
+export { RefinoWorkspace, type ExternalSyncListener, type SyncOutcome } from "./workspace.js";
 export { DeltaCoalescer, type CoalescerDeps } from "./coalesce.js";
 export {
   SessionKnownSet,
@@ -33,6 +25,7 @@ export {
   runSearch,
   runShow,
   runSiblings,
+  runStale,
 } from "./query-core.js";
 export {
   runCreateDecision,
@@ -43,10 +36,3 @@ export {
   type CreatePremiseArgs,
   type UpdateNodeArgs,
 } from "./write-core.js";
-export {
-  approvalReason,
-  createSigningCore,
-  OUTCOME_TEXT,
-  type SigningCore,
-  type SigningDeps,
-} from "./signing-core.js";

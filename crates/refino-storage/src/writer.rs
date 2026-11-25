@@ -81,9 +81,14 @@ pub struct CreateDecisionOptions {
     pub grounds: Option<Vec<String>>,
     /// Why the decision was made.
     pub rationale: Option<String>,
-    /// Trial-commitment mark; only `true` is ever written to the file, false
-    /// and absent both mean settled.
-    pub exploring: bool,
+    /// Last review time as epoch milliseconds; stored as RFC 3339 (UTC).
+    pub reviewed: Option<i64>,
+    /// Trial-commitment mark; only `true` is ever written to the file. Left
+    /// unspecified, a decision created without grounds (a root decision)
+    /// starts as a trial commitment — roots are project-level by definition
+    /// and enter the record as proposals until a review settles them.
+    /// `Some(false)` settles a new root explicitly.
+    pub exploring: Option<bool>,
 }
 
 pub struct UpdateOptions {
@@ -100,6 +105,10 @@ pub struct UpdateDecisionOptions {
     pub base: UpdateOptions,
     pub grounds: Option<Vec<String>>,
     pub rationale: Option<String>,
+    /// Last review time as epoch milliseconds; stored as RFC 3339 (UTC).
+    /// `None` removes the field (this layer's updates replace the whole file).
+    pub reviewed: Option<i64>,
+    /// Trial-commitment mark; `true` writes `exploring: true`, `false` removes it.
     pub exploring: bool,
 }
 
@@ -145,10 +154,20 @@ pub fn create_decision<I: Io>(
     if let Some(rationale) = &opts.rationale {
         fields.push(("rationale".to_string(), FieldValue::Str(rationale.clone())));
     }
+    if let Some(reviewed) = opts.reviewed {
+        fields.push((
+            "reviewed".to_string(),
+            FieldValue::Str(confirmed_to_rfc3339(reviewed)?),
+        ));
+    }
     if let Some(summary) = &opts.base.summary {
         fields.push(("summary".to_string(), FieldValue::Str(summary.clone())));
     }
-    if opts.exploring {
+    let is_root = opts
+        .grounds
+        .as_ref()
+        .is_none_or(|grounds| grounds.is_empty());
+    if exploring_at_create(opts.exploring, is_root) {
         fields.push(("exploring".to_string(), FieldValue::BoolTrue));
     }
     create_node(
@@ -160,6 +179,13 @@ pub fn create_decision<I: Io>(
         opts.base.id.as_deref(),
         random,
     )
+}
+
+/// The exploring mark a newly created decision is stored with: an explicit
+/// choice always wins; otherwise a root decision starts as a trial commitment
+/// while a refinement starts settled.
+fn exploring_at_create(explicit: Option<bool>, is_root: bool) -> bool {
+    explicit.unwrap_or(is_root)
 }
 
 fn create_node<I: Io>(
@@ -244,6 +270,12 @@ pub fn update_decision<I: Io>(
     }
     if let Some(rationale) = &opts.rationale {
         fields.push(("rationale".to_string(), FieldValue::Str(rationale.clone())));
+    }
+    if let Some(reviewed) = opts.reviewed {
+        fields.push((
+            "reviewed".to_string(),
+            FieldValue::Str(confirmed_to_rfc3339(reviewed)?),
+        ));
     }
     if let Some(summary) = &opts.base.summary {
         fields.push(("summary".to_string(), FieldValue::Str(summary.clone())));

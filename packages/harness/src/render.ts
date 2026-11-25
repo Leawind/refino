@@ -1,5 +1,4 @@
 import type {
-  ContextStatusResult,
   FullNodeLite,
   IssueLite,
   ListResult,
@@ -7,23 +6,16 @@ import type {
   NodeLite,
   PendingResult,
   SearchResult,
-  SignResult,
   SiblingsResult,
+  StaleResult,
   WriteResult,
 } from "./shapes.js";
-import type { ToolRefs } from "./types.js";
 
 /**
  * Model-facing markdown renderers for the canonical tool values. Pure
  * projections: the canonical value stays programmatic, the text explains.
  * Inputs are the schema-loose shapes (plain `string` where the domain has
  * unions), as a host tool schema hands them to `render`.
- *
- * Renderers that name tools (escalation guidance, context status) cite them
- * through the host's tool-name refs — host-owned names (`refino_*`) or bare
- * short names when the host injects full names itself (MCP hosts) — so one
- * kit per host renders the right citation from the same code
- * (`createRenderKit`).
  */
 
 export interface RenderKit {
@@ -36,14 +28,13 @@ export interface RenderKit {
   renderPending(result: PendingResult): string;
   renderSearch(result: SearchResult): string;
   renderSiblings(result: SiblingsResult): string;
+  renderStale(result: StaleResult): string;
   renderWrite(result: WriteResult): string;
-  renderSign(result: SignResult): string;
-  renderContextStatus(result: ContextStatusResult): string;
   nodeLine(node: NodeLite): string;
   depthLine(node: NodeDepthLite): string;
 }
 
-export function createRenderKit(tools: ToolRefs): RenderKit {
+export function createRenderKit(): RenderKit {
   const mark = (node: NodeLite): string => (node.exploring === true ? " [探索]" : "");
   const nodeLine = (node: NodeLite): string =>
     `- ${node.id} [${node.type}]${mark(node)} ${node.summary}`;
@@ -80,6 +71,9 @@ export function createRenderKit(tools: ToolRefs): RenderKit {
       if (node.rationale !== undefined) lines.push(`- 理由：${node.rationale}`);
       if (node.exploring === true) {
         lines.push("- 状态：试行（探索中，可能被替换或撤销；可复用知识应沉淀为前提）");
+      }
+      if (node.reviewed !== undefined) {
+        lines.push(`- 复核时间：${new Date(node.reviewed).toISOString()}`);
       }
     } else if (node.confirmed !== undefined) {
       lines.push(`- 确认时间：${new Date(node.confirmed).toISOString()}`);
@@ -124,6 +118,28 @@ export function createRenderKit(tools: ToolRefs): RenderKit {
     );
   }
 
+  function renderStale(result: StaleResult): string {
+    const lines: string[] = [];
+    if (result.overdue.length === 0 && result.never.length === 0) {
+      lines.push("当前没有需要复核的节点。");
+      return lines.join("\n");
+    }
+    if (result.overdue.length > 0) {
+      lines.push(`超过 ${result.days} 天未复核（${result.overdue.length} 个，最旧的在前）：`);
+      lines.push(
+        ...result.overdue.map((node) => `${nodeLine(node)} — 距今 ${node.age_days ?? "?"} 天`),
+      );
+    }
+    if (result.never.length > 0) {
+      lines.push(`从未复核（${result.never.length} 个）：`);
+      lines.push(...result.never.map(nodeLine));
+    }
+    lines.push(
+      "复核后应为节点写入复核时间，并复核其上游依据与下游影响：无复核时间的节点按从未复核处理。",
+    );
+    return lines.join("\n");
+  }
+
   function renderWrite(result: WriteResult): string {
     if (result.ok) {
       const lines = [`已完成：${result.id}`];
@@ -138,9 +154,6 @@ export function createRenderKit(tools: ToolRefs): RenderKit {
       lines.push("grounds 校验问题：");
       lines.push(...result.issues.map(renderIssue));
     }
-    if (result.escalation !== undefined) {
-      lines.push(...renderEscalation(result.escalation));
-    }
     if (result.dependents !== undefined && result.dependents.length > 0) {
       lines.push("仍存在下游决策，先更新或删除它们：");
       lines.push(...result.dependents.map(nodeLine));
@@ -148,75 +161,8 @@ export function createRenderKit(tools: ToolRefs): RenderKit {
     return lines.join("\n");
   }
 
-  function renderEscalation(escalation: {
-    id: string;
-    reason: string;
-    affected: NodeDepthLite[];
-  }): string[] {
-    const lines = [
-      `节点 ${escalation.id} 位于冻结区，只读；本次授权范围以内不存在修改它的可行方案。`,
-    ];
-    if (escalation.affected.length > 0) {
-      lines.push("受影响的下游决策（ID、相对深度、摘要）：");
-      lines.push(...escalation.affected.map(depthLine));
-    }
-    lines.push(
-      "请停止修改，向用户报告越界升级：说明阻挡决策、冻结原因与上述受影响决策，并给出建议的决策调整方案。",
-      `用户裁决为调整冻结区时，用 ${tools.requestAuthorization} 提议新划分（须经用户批准）；否则改走修改空间以内的替代方案。不得绕过冻结区（包括直接改文件）。`,
-    );
-    return lines;
-  }
-
   function renderIssue(issue: IssueLite): string {
     return `- [${issue.code}] ${issue.message}`;
-  }
-
-  function renderSign(result: SignResult): string {
-    if (!result.ok) {
-      return [
-        `签发未生效：${result.error ?? "未知原因"}`,
-        result.outcome !== undefined && result.outcome !== "allowed-once"
-          ? `审批结果：${result.outcome}`
-          : undefined,
-      ]
-        .filter((line) => line !== undefined)
-        .join("\n");
-    }
-    const lines = [
-      "已签发，会话内即时生效（不落文件；resume 后回落，需要延续时重新签发）。",
-      `- 冻结区：${result.frozen_decisions} 个决策、${result.frozen_premises} 个前提`,
-      `- frontier：${result.frontier && result.frontier.length > 0 ? result.frontier.join(", ") : "（空，全部解冻）"}`,
-    ];
-    if (result.redundant_frontier !== undefined && result.redundant_frontier.length > 0) {
-      lines.push(`- frontier 归约：${result.redundant_frontier.join(", ")} 被覆盖`);
-    }
-    if (result.unfrozen_roots !== undefined && result.unfrozen_roots.length > 0) {
-      lines.push(
-        `- warning: 以下根决策已解冻（项目最高级别授权已在批准时确认）：${result.unfrozen_roots.join(", ")}`,
-      );
-    }
-    return lines.join("\n");
-  }
-
-  const ORIGIN_LABEL: Record<string, string> = {
-    orchestrator: "编排者凭据",
-    session: "本会话内签发",
-    default: "默认（未签发；全部根决策及其祖先被冻结）",
-  } as const;
-
-  function renderContextStatus(result: ContextStatusResult): string {
-    const label = ORIGIN_LABEL[result.source] ?? result.source;
-    const origin = result.source === "default" ? label : `${label}（signedAt ${result.signed_at}）`;
-    const lines = [
-      `授权来源：${origin}`,
-      `冻结 frontier：${result.frontier.length > 0 ? result.frontier.join(", ") : "（空，全部解冻）"}`,
-      `生效冻结区：${result.frozen_decisions} 个决策、${result.frozen_premises} 个前提`,
-      `锚点注入策略：${result.anchors_complete ? "全图摘要" : "图超预算，概览加搜索按需定位"}`,
-      result.orchestrator_credential
-        ? "编排者凭据生效：签发被拒绝，调整冻结区须回到签发者。"
-        : `调整冻结区：${tools.requestAuthorization}（提议后经用户批准，会话内生效）。`,
-    ];
-    return lines.join("\n");
   }
 
   return {
@@ -226,9 +172,8 @@ export function createRenderKit(tools: ToolRefs): RenderKit {
     renderPending,
     renderSearch,
     renderSiblings,
+    renderStale,
     renderWrite,
-    renderSign,
-    renderContextStatus,
     nodeLine,
     depthLine,
   };

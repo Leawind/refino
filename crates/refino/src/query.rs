@@ -3,7 +3,7 @@
 //! results ambiguous, so reads refuse while issues exist.
 
 use crate::format::{CliSink, TableRow, render_full_record, render_node_table};
-use crate::shared::{GlobalOptions, finish, type_name, with_store};
+use crate::shared::{GlobalOptions, finish, type_name, type_name_of, with_store};
 use refino_core::{
     LayerNode, NodeLite, NodeType, QueryGroup, RefinoNode, TraversalOptions, assign_layers,
     effective_exploring, get_ancestors, get_dependents, get_grounds, get_siblings, query_groups,
@@ -176,10 +176,12 @@ fn to_lite(node: &RefinoNode) -> NodeLite {
 
 /// `search` — the CLI face of the shared node-search contract (the harness
 /// `search` tool and the web `/api/search` endpoint use the same matching):
-/// a query matches id prefixes and summary substrings, both case-insensitively
-/// (ids are Crockford base32); empty queries match everything. Results come
-/// in ascending id order, keyset-paginated by cursor. Bodies are paged
-/// content and deliberately not searched.
+/// a query matches id prefixes and summary, body or rationale substrings, all
+/// case-insensitively (ids are Crockford base32); empty queries match
+/// everything. Resident fields are tried first; body and rationale are paged
+/// content, so they are read (through the store's LRU) only when the resident
+/// fields miss. Results come in ascending id order, keyset-paginated by
+/// cursor.
 pub fn cmd_search(
     io: &mut dyn CliSink,
     opts: &GlobalOptions,
@@ -192,50 +194,53 @@ pub fn cmd_search(
     const DEFAULT_LIMIT: usize = 50;
     const MAX_LIMIT: usize = 500;
     let outcome = with_store(opts, |store| {
-        let graph = store.graph();
         let limit = limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
         let q = q.unwrap_or("").trim();
-        let q_upper = q.to_uppercase();
-        let q_lower = q_upper.to_lowercase();
+        let query = refino_storage::NodeSearchQuery::new(q);
+        let ids = store.sorted_ids();
         // Keyset cursor: resume strictly after the given id; unknown cursors
         // degrade to "the next id in order", mirroring the harness contract.
-        let start: std::collections::Bound<&str> = match cursor {
-            Some(id) => std::collections::Bound::Excluded(id),
-            None => std::collections::Bound::Unbounded,
-        };
-        let range: (std::collections::Bound<&str>, std::collections::Bound<&str>) =
-            (start, std::collections::Bound::Unbounded);
-        let mut matched: Vec<(&String, &refino_core::GraphNode)> = Vec::new();
+        let mut matched: Vec<(String, NodeType, String)> = Vec::new();
         let mut more = false;
-        for (id, entry) in graph.nodes.range::<str, _>(range) {
-            if type_filter.is_some_and(|t| entry.node_type() != t) {
+        for id in ids.iter().skip(refino_storage::start_index(&ids, cursor)) {
+            let Some((node_type, summary)) = store
+                .graph()
+                .nodes
+                .get(id)
+                .map(|entry| (entry.node_type(), entry.summary().to_string()))
+            else {
+                continue;
+            };
+            if type_filter.is_some_and(|t| node_type != t) {
                 continue;
             }
-            if !q_upper.is_empty()
-                && !id.to_uppercase().starts_with(&q_upper)
-                && !entry.summary().to_lowercase().contains(&q_lower)
-            {
-                continue;
+            if !query.matches_resident(id, &summary) {
+                let Some(content) = store.content(id)? else {
+                    continue;
+                };
+                if !query.matches_content(&content) {
+                    continue;
+                }
             }
             if matched.len() == limit {
                 more = true;
                 break;
             }
-            matched.push((id, entry));
+            matched.push((id.clone(), node_type, summary));
         }
         if json {
             let page = JsonSearchPage {
                 query: q.to_string(),
                 nodes: matched
                     .iter()
-                    .map(|(id, entry)| JsonSearchNode {
-                        id: (*id).clone(),
-                        node_type: entry.node_type(),
-                        summary: entry.summary().to_string(),
+                    .map(|(id, node_type, summary)| JsonSearchNode {
+                        id: id.clone(),
+                        node_type: *node_type,
+                        summary: summary.clone(),
                     })
                     .collect(),
                 next_cursor: more
-                    .then(|| matched.last().map(|(id, _)| (*id).clone()))
+                    .then(|| matched.last().map(|(id, _, _)| id.clone()))
                     .flatten(),
             };
             io.out(&format!(
@@ -247,23 +252,24 @@ pub fn cmd_search(
         if matched.is_empty() {
             io.out("(no matches)\n");
         } else {
+            let graph = store.graph();
             let rows: Vec<TableRow> = matched
                 .iter()
-                .map(|(id, entry)| TableRow {
-                    id: (*id).clone(),
-                    node_type: type_name(&entry.node).to_string(),
-                    summary: entry.summary().to_string(),
+                .map(|(id, node_type, summary)| TableRow {
+                    id: id.clone(),
+                    node_type: type_name_of(*node_type).to_string(),
+                    summary: summary.clone(),
                     depth: None,
                     overlap: None,
                     exploring: Some(
-                        entry.node_type() == NodeType::Decision
+                        *node_type == NodeType::Decision
                             && effective_exploring(graph, id).unwrap_or(false),
                     ),
                 })
                 .collect();
             io.out(&format!("{}\n", render_node_table(&rows)));
             if more {
-                let last = matched.last().map(|(id, _)| id.as_str()).unwrap_or("");
+                let last = matched.last().map(|(id, _, _)| id.as_str()).unwrap_or("");
                 io.out(&format!("(more results; continue with --cursor {last})\n"));
             }
         }

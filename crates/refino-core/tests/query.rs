@@ -1,9 +1,11 @@
 mod common;
 
-use common::{decision, exploring_decision, graph_of, premise};
+use common::{
+    decision, exploring_decision, graph_of, premise, premise_with_confirmed, reviewed_decision,
+};
 use refino_core::{
-    IssueCode, TraversalOptions, build_graph, effective_exploring, get_ancestors, get_dependents,
-    get_grounds, query_groups,
+    IssueCode, NodeType, TraversalOptions, build_graph, effective_exploring, get_ancestors,
+    get_dependents, get_grounds, query_groups, stale_nodes,
 };
 
 /// Fixture shape:
@@ -288,4 +290,37 @@ fn build_graph_leaves_unknown_grounds_out_of_children_index() {
     let dangling = build_graph(vec![decision("A1B2C3D4", &["Z9Y8X7W6"])]);
     assert!(!dangling.nodes.contains_key("Z9Y8X7W6"));
     assert_eq!(dangling.nodes["A1B2C3D4"].children, Vec::<String>::new());
+}
+
+#[test]
+fn stale_splits_overdue_and_never_reviewed_by_field_age() {
+    const DAY: i64 = 86_400_000;
+    let now = 1_800_000_000_000;
+    let graph = graph_of(vec![
+        premise("1A2B3C4D"),                                 // no confirmed
+        premise_with_confirmed("2B3C4D5E", now - 100 * DAY), // 100 days
+        decision("A1B2C3D4", &[]),                           // no reviewed
+        reviewed_decision("D4E5F6G7", &[], now - 200 * DAY), // 200 days
+        reviewed_decision("E5F6G7H8", &[], now - 90 * DAY),  // exactly the threshold
+        reviewed_decision("F6G7H8J9", &[], now + 5 * DAY),   // clock skew: age 0
+    ]);
+    let report = stale_nodes(&graph, now, 90);
+    let overdue: Vec<(&str, Option<i64>)> = report
+        .overdue
+        .iter()
+        .map(|node| (node.id.as_str(), node.age_days))
+        .collect();
+    assert_eq!(
+        overdue,
+        vec![("D4E5F6G7", Some(200)), ("2B3C4D5E", Some(100))]
+    );
+    assert_eq!(report.overdue[0].node_type, NodeType::Decision);
+    assert_eq!(report.overdue[1].node_type, NodeType::Premise);
+    let never: Vec<&str> = report
+        .never_reviewed
+        .iter()
+        .map(|node| node.id.as_str())
+        .collect();
+    assert_eq!(never, vec!["1A2B3C4D", "A1B2C3D4"]);
+    assert_eq!(report.never_reviewed[0].age_days, None);
 }

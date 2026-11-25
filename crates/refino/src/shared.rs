@@ -157,7 +157,12 @@ pub fn finish_write(
 
 /// Display type name of a node ("premise" / "decision").
 pub fn type_name(node: &refino_core::RefinoNode) -> &'static str {
-    match node.node_type() {
+    type_name_of(node.node_type())
+}
+
+/// Display type name of a node type, for rows whose node is not at hand.
+pub fn type_name_of(node_type: refino_core::NodeType) -> &'static str {
+    match node_type {
         refino_core::NodeType::Premise => "premise",
         refino_core::NodeType::Decision => "decision",
     }

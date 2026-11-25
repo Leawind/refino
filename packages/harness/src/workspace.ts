@@ -1,38 +1,33 @@
-import { authorizationContextOf, convergeAuthorization } from "./authorization.js";
-import { defaultAuthorizationContext } from "./default.js";
-import { frozenZone, validateContext } from "./boundary.js";
+import { derivedAnchors } from "./anchors.js";
+import { diffAnchors } from "./context.js";
 import { contentHash, SessionKnownSet, type KnownChange } from "./known-set.js";
 import { orientationRoots } from "./inject-text.js";
 import { HarnessSession } from "./session.js";
+import { staleNodes, type StaleReport } from "./stale.js";
 import { byId } from "./types.js";
-import { orchestratorCredential, readAuthorizationDocument } from "./state.js";
-import type { AuthorizationContext, DeltaEvent } from "./types.js";
-import type { AuthorizationOrigin } from "./inject-text.js";
+import type { DeltaEvent } from "./types.js";
 import { RefinoStore, type StoreChange, type StoreIssue } from "@refino/storage";
 import { effectiveExploring } from "refino";
-import type { Graph, RefinoNode } from "refino";
+import type { RefinoNode } from "refino";
 
 /**
- * One agent's DLG state over a `.refino/` directory: the storage Store's resident
- * projection under the current authorization context, plus external-change syncing.
- * The context starts at the defaults; once a host signs an explicit one
- * (`signContext` — authorization console, user commands, model-initiated
- * confirmation), it is session state: store changes converge it instead of
- * resetting — ids removed by a change drop out, surviving declarations are
- * untouched. The projection and its consistency with the disk live in the store;
- * every applied change (own writes and external file events alike) rebuilds the
- * session here, so reads never see a stale graph.
+ * One agent's DLG state over a `.refino/` directory: the storage Store's
+ * resident projection, the anchor set the session was opened with, and
+ * external-change syncing. Every applied change (own writes and external file
+ * events alike) rebuilds the session here, so reads never see a stale graph
+ * and anchors follow the graph (a node created mid-session joins the baseline
+ * context, a deleted one leaves it).
  *
  * Node-only by necessity (the Store); exported through the
  * `@refino/harness/host` subpath so the platform-agnostic main entry stays
- * browser-safe (same policy as `@refino/harness/state`).
+ * browser-safe.
  */
 
 /** Callback for external (watcher-detected) syncs; must not throw. */
 export type ExternalSyncListener = (outcome: SyncOutcome) => void;
 
 export interface SyncOutcome {
-  /** Authorization-context change events (empty for context-preserving changes). */
+  /** Anchor-set change events (empty when the baseline context is unchanged). */
   delta: DeltaEvent[];
   /** Ids of externally changed nodes — the update notification's change source. */
   changed: string[];
@@ -42,68 +37,19 @@ export interface SyncOutcome {
   pending: RefinoNode[];
 }
 
-/** How the effective authorization of a session was resolved. */
-export interface ResolvedAuthorization {
-  context: AuthorizationContext;
-  origin: AuthorizationOrigin;
-  /**
-   * The error behind a fallback: set when an orchestrator credential is
-   * present but unreadable or invalid, so defaults apply instead. Hosts log
-   * it; the model-facing behavior is unchanged.
-   */
-  warning?: unknown;
-}
-
-/**
- * Resolve the authorization a session starts under: an orchestrator credential when
- * the environment provides one, the derived defaults otherwise. Hosts adopt the
- * resolved context on their workspace (signContext) when it is not the defaults.
- */
-export async function resolveAuthorization(
-  graph: Graph,
-  env: NodeJS.ProcessEnv,
-): Promise<ResolvedAuthorization> {
-  const fallback: ResolvedAuthorization = {
-    context: defaultAuthorizationContext(graph).context,
-    origin: { source: "default", signedAt: "" },
-  };
-  const credential = orchestratorCredential(env);
-  if (credential === undefined) return fallback;
-  try {
-    const doc = convergeAuthorization(graph, await readAuthorizationDocument(credential));
-    return {
-      context: authorizationContextOf(graph, doc),
-      origin: { source: "orchestrator", signedAt: doc.signedAt },
-    };
-  } catch (error) {
-    return { ...fallback, warning: error };
-  }
-}
-
 export class RefinoWorkspace {
   #store: RefinoStore;
   #session: HarnessSession;
-  /** False until a host signs an explicit context; defaults apply until then. */
-  #signed: boolean;
-  /** Whether the default anchors cover every node (meaningful while unsigned). */
+  /** Whether the anchors cover every node: false means the graph exceeded the budget. */
   #complete: boolean;
-  /** Decision ids of the frozen zone under the current context — the delta basis. */
-  #zoneIds: Set<string>;
   /** What node information has reached the model. */
   #known: SessionKnownSet;
-  /** False until the first signContext; the first signing re-seeds the known set. */
-  #signedOnce = false;
   #unsubscribe: () => void = () => {};
 
   private constructor(store: RefinoStore) {
     this.#store = store;
-    this.#signed = false;
     this.#complete = false;
-    this.#session = new HarnessSession(
-      store.graph,
-      defaultAuthorizationContext(store.graph).context,
-    );
-    this.#zoneIds = decisionZoneIds(store.graph, this.#session.authorizationContext);
+    this.#session = new HarnessSession(store.graph, []);
     // The known set snapshots the derived effective exploring status against
     // the live graph, so external mark flips (and their downstream effects)
     // surface as field-level diffs.
@@ -123,8 +69,8 @@ export class RefinoWorkspace {
     workspace.#unsubscribe = store.onChange((change) => {
       const outcome = workspace.#absorb(change);
       if (change.origin !== "file") return; // own writes report through the write result
-      // Push every file-origin change: with no anchors pending and no context
-      // delta, the known-set diff at fire time is the only thing left to say.
+      // Push every file-origin change: with no context delta, the known-set
+      // diff at fire time is the only thing left to say.
       onExternalSync?.(outcome);
     });
     return workspace;
@@ -138,7 +84,7 @@ export class RefinoWorkspace {
     return this.#store;
   }
 
-  get graph(): Graph {
+  get graph() {
     return this.#store.graph;
   }
 
@@ -147,19 +93,9 @@ export class RefinoWorkspace {
     return this.#store.issues();
   }
 
-  get authorizationContext(): AuthorizationContext {
-    return this.#session.authorizationContext;
-  }
-
-  /** Whether an explicit context has been signed over the defaults. */
-  get contextSigned(): boolean {
-    return this.#signed;
-  }
-
   /**
-   * Whether the default anchors cover every node: false means the graph
-   * exceeded the auto-anchor budget and no initial context was injected.
-   * Only meaningful while the context is unsigned.
+   * Whether the anchors cover every node: false means the graph exceeded the
+   * auto-anchor budget and no baseline context was injected.
    */
   get anchorsComplete(): boolean {
     return this.#complete;
@@ -188,6 +124,11 @@ export class RefinoWorkspace {
         return content === undefined ? undefined : contentHash(content);
       },
     });
+  }
+
+  /** Nodes overdue for review, measured against the given clock. */
+  stale(nowMs: number, days?: number): StaleReport {
+    return staleNodes(this.#store.graph, nowMs, days);
   }
 
   /** Id-level harvest for ids a tool result listed without node fields. */
@@ -240,33 +181,6 @@ export class RefinoWorkspace {
     return byId(pending.values());
   }
 
-  /**
-   * Sign an explicit authorization context: the frozen-zone selection of the
-   * authorization console, a user command or a model-initiated confirmation.
-   * Unknown ids or non-decision frozen ids throw `HarnessError`. Returns
-   * the delta events the host injects to keep the prompt-cache prefix stable.
-   * The first signing while the known set is still pristine (a host adopting
-   * the resolved startup context before any tool ran) re-seeds it to the
-   * signed baseline; any later signing harvests the delta's ids — the model
-   * saw those ids in the injected events.
-   */
-  signContext(context: AuthorizationContext): DeltaEvent[] {
-    validateContext(this.#store.graph, context);
-    const prevAnchors = new Set(this.#session.authorizationContext.anchors);
-    const prevZone = this.#zoneIds;
-    this.#signed = true;
-    this.#session = new HarnessSession(this.#store.graph, context);
-    this.#zoneIds = decisionZoneIds(this.#store.graph, context);
-    const delta = contextDelta(prevAnchors, prevZone, context, this.#zoneIds);
-    if (this.#signedOnce || this.#known.touched) {
-      this.recordKnownIds(delta.map((event) => event.id));
-    } else {
-      this.#seedSigned(context);
-    }
-    this.#signedOnce = true;
-    return delta;
-  }
-
   /** Stop watching; the workspace stays readable but no longer syncs. */
   dispose(): void {
     this.#unsubscribe();
@@ -275,18 +189,13 @@ export class RefinoWorkspace {
 
   /**
    * Rebuild the session over the store's current graph and derive the
-   * context delta plus pending set of a change. The signed context converges
-   * (ids removed by the change drop out, so a foreign re-creation under the
-   * same id cannot smuggle a different type into the frozen list); unsigned,
-   * the defaults re-derive.
+   * anchor delta plus pending set of a change.
    */
   #absorb(change: StoreChange): SyncOutcome {
-    const prevAnchors = new Set(this.#session.authorizationContext.anchors);
-    const prevZone = this.#zoneIds;
+    const prevAnchors = this.#session.anchorIds;
     this.#rebuildSession();
-    const delta = contextDelta(prevAnchors, prevZone, this.#context, this.#zoneIds);
     return {
-      delta,
+      delta: diffAnchors(prevAnchors, this.#session.anchorIds),
       changed: change.changed,
       deleted: change.deleted,
       pending: this.pendingOf(change),
@@ -295,20 +204,9 @@ export class RefinoWorkspace {
 
   #rebuildSession(): void {
     const graph = this.#store.graph;
-    let next: AuthorizationContext;
-    if (!this.#signed) {
-      next = defaultAuthorizationContext(graph).context;
-    } else {
-      next = {
-        anchors: this.#context.anchors.filter((id) => graph.nodes.has(id)),
-        frozen: this.#context.frozen.filter((id) => graph.nodes.get(id)?.type === "decision"),
-      };
-    }
-    // A graph property, not a context property: anchors are runtime-derived
-    // even when a host signed an explicit zone.
-    this.#complete = defaultAuthorizationContext(graph).complete;
-    this.#session = new HarnessSession(graph, next);
-    this.#zoneIds = decisionZoneIds(graph, next);
+    const { anchors, complete } = derivedAnchors(graph);
+    this.#complete = complete;
+    this.#session = new HarnessSession(graph, anchors);
   }
 
   /**
@@ -321,55 +219,4 @@ export class RefinoWorkspace {
     const graph = this.#store.graph;
     this.#known.seedSummaries(this.#complete ? [...graph.nodes.values()] : orientationRoots(graph));
   }
-
-  /**
-   * Re-seed to a signed context's baseline (anchors plus premises, the same
-   * set the initial injection rendered). Only used by the first signing:
-   * while untouched, the defaults seed still reflects nothing the model saw
-   * under the signed context.
-   */
-  #seedSigned(context: AuthorizationContext): void {
-    const graph = this.#store.graph;
-    const ids = new Set(context.anchors);
-    const nodes = [...graph.nodes.values()].filter(
-      (node) => ids.has(node.id) || node.type === "premise",
-    );
-    this.#known.seedSummaries(nodes);
-  }
-
-  /** The current context, for convergence reads (kept private to the class). */
-  get #context(): AuthorizationContext {
-    return this.#session.authorizationContext;
-  }
-}
-
-/** Anchor and derived frozen-zone delta between two context states. */
-function contextDelta(
-  prevAnchors: ReadonlySet<string>,
-  prevZone: ReadonlySet<string>,
-  next: AuthorizationContext,
-  nextZone: ReadonlySet<string>,
-): DeltaEvent[] {
-  const delta: DeltaEvent[] = [];
-  for (const id of next.anchors) {
-    if (!prevAnchors.has(id)) delta.push({ type: "anchor_added", id });
-  }
-  for (const id of prevAnchors) {
-    if (!next.anchors.includes(id)) delta.push({ type: "anchor_removed", id });
-  }
-  for (const id of nextZone) {
-    if (!prevZone.has(id)) delta.push({ type: "frozen_added", id });
-  }
-  for (const id of prevZone) {
-    if (!nextZone.has(id)) delta.push({ type: "frozen_removed", id });
-  }
-  return delta;
-}
-
-function decisionZoneIds(graph: Graph, context: AuthorizationContext): Set<string> {
-  return new Set(
-    frozenZone(graph, context)
-      .filter((node) => node.type === "decision")
-      .map((node) => node.id),
-  );
 }

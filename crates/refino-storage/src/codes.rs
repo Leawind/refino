@@ -13,10 +13,11 @@ pub struct StorageIssueCode;
 impl StorageIssueCode {
     /// Frontmatter is not valid YAML, not a mapping, or a known field has the wrong shape.
     pub const INVALID_FRONTMATTER: &'static str = "INVALID_FRONTMATTER";
-    /// `confirmed` is not an RFC 3339 timestamp with an explicit UTC offset
-    /// (checked at the file boundary; the engine's memory form is epoch
-    /// milliseconds).
-    pub const INVALID_CONFIRMED: &'static str = "INVALID_CONFIRMED";
+    /// A frontmatter timestamp (`confirmed`, `reviewed`) is not an RFC 3339
+    /// value with an explicit UTC offset (checked at the file boundary; the
+    /// engine's memory form is epoch milliseconds). One code covers both
+    /// fields because they share the file timestamp form.
+    pub const INVALID_TIMESTAMP: &'static str = "INVALID_TIMESTAMP";
     /// `exploring` is not a boolean (decision files only; the canonical file
     /// form only ever writes `exploring: true`).
     pub const INVALID_EXPLORING: &'static str = "INVALID_EXPLORING";

@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Decision lineage graph",
-    "description": "Injects the repository's Decision Lineage Graph (DLG) into each session and gives the model refino_* tools to search, read, trace grounds, review pending decisions, and write within the authorized boundary. Only repositories that adopted refino (.refino/ present) are taken over; the plugin writes no state files of its own."
+    "description": "Injects the repository's Decision Lineage Graph (DLG) into each session and gives the model refino_* tools to search, read, trace grounds, review pending decisions, and write. Only repositories that adopted refino (.refino/ present) are taken over; the plugin writes no state files of its own."
   }
 }

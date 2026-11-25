@@ -1,15 +1,17 @@
+import type { NodeContent } from "@refino/storage";
 import type { Graph, NodeType } from "refino";
 
 /**
- * Keyset-paginated node search over the in-memory graph: id prefixes match
- * case-insensitively (ids are Crockford base32), summary substrings
- * case-insensitively. Pure projection over the light fields, so the same shape
- * serves any tool host; the `refino web` server keeps its own index-backed variant
- * with identical matching semantics.
+ * Keyset-paginated node search over the in-memory graph plus the paged
+ * content: id prefixes match case-insensitively (ids are Crockford base32);
+ * summary, body and rationale substrings match case-insensitively. Content is
+ * read lazily — a node that already matched on its id or summary is not
+ * loaded. The same matching semantics serve the CLI search and the web search
+ * endpoint.
  */
 
 export interface SearchParams {
-  /** Match id prefixes and summary substrings; empty matches everything. */
+  /** Match id prefixes, summary, body and rationale substrings; empty matches everything. */
   q?: string;
   /** Restrict to one node type. */
   type?: NodeType;
@@ -30,7 +32,11 @@ export interface SearchPage {
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 500;
 
-export function searchNodes(graph: Graph, params: SearchParams = {}): SearchPage {
+export async function searchNodes(
+  graph: Graph,
+  params: SearchParams,
+  readContent: (id: string) => Promise<NodeContent | undefined>,
+): Promise<SearchPage> {
   const limit = Math.min(Math.max(params.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
   const qUpper = (params.q ?? "").trim().toUpperCase();
   const qLower = qUpper.toLowerCase();
@@ -42,12 +48,9 @@ export function searchNodes(graph: Graph, params: SearchParams = {}): SearchPage
     const id = ids[i]!;
     const node = graph.nodes.get(id)!;
     if (params.type !== undefined && node.type !== params.type) continue;
-    if (
-      qUpper !== "" &&
-      !id.toUpperCase().startsWith(qUpper) &&
-      !node.summary.toLowerCase().includes(qLower)
-    ) {
-      continue;
+    if (qUpper !== "" && !matchesCheaply(id, node.summary, qUpper, qLower)) {
+      const content = await readContent(id);
+      if (!matchesContent(content, qLower)) continue;
     }
     matched.push({ id, type: node.type, summary: node.summary });
   }
@@ -58,6 +61,19 @@ export function searchNodes(graph: Graph, params: SearchParams = {}): SearchPage
     nodes: page,
     ...(hasMore && page.length > 0 && { next_cursor: page[page.length - 1]!.id }),
   };
+}
+
+/** Id-prefix and summary matching; the cheap half that needs no content read. */
+function matchesCheaply(id: string, summary: string, qUpper: string, qLower: string): boolean {
+  return id.toUpperCase().startsWith(qUpper) || summary.toLowerCase().includes(qLower);
+}
+
+function matchesContent(content: NodeContent | undefined, qLower: string): boolean {
+  if (content === undefined) return false;
+  return (
+    content.body.toLowerCase().includes(qLower) ||
+    (content.rationale !== undefined && content.rationale.toLowerCase().includes(qLower))
+  );
 }
 
 /** First index position strictly after the cursor; unknown cursors resume at the next id in order. */

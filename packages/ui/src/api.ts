@@ -43,7 +43,7 @@ export interface RefinoClient {
   /** POST /api/query/grounds — per-id direct grounds, single hop. */
   queryGrounds(ids: readonly string[]): Promise<QueryGroup<NodeLite>[]>;
 
-  /** GET /api/search — keyset-paginated id/summary search. `unreferenced`
+  /** GET /api/search — keyset-paginated id/summary/body/rationale search. `unreferenced`
    * restricts premises no decision grounds on; `roots` to decisions with
    * no decision grounds. */
   search(params: {

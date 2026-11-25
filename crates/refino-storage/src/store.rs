@@ -203,6 +203,12 @@ impl<I: Io> RefinoStore<I> {
         self.revision
     }
 
+    /// Wall-clock time in epoch milliseconds from the injected `Io`. Business
+    /// code never reads the system clock directly, so tests inject the time.
+    pub fn now_ms(&self) -> i64 {
+        self.io.now_ms()
+    }
+
     /// The resident graph (topology and summaries; content is paged).
     pub fn graph(&self) -> &Graph {
         &self.graph
@@ -402,6 +408,7 @@ impl<I: Io> RefinoStore<I> {
             summary: String::new(),
             grounds: grounds.clone(),
             exploring: None,
+            reviewed: None,
         };
         let issues: Vec<StoreIssue> = check_grounds_change(&self.graph, &probe, &grounds)
             .into_iter()
@@ -911,6 +918,7 @@ fn same_resident_fields(previous: &RefinoNode, read: &RefinoNode) -> bool {
             a.summary == b.summary
                 && same_grounds(&a.grounds, &b.grounds)
                 && (a.exploring == Some(true)) == (b.exploring == Some(true))
+                && a.reviewed == b.reviewed
         }
         _ => false,
     }

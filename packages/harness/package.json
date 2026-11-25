@@ -2,7 +2,7 @@
   "name": "@refino/harness",
   "version": "0.0.3",
   "private": false,
-  "description": "Task delimitation layer and shared agent logic for Decision Lineage Graphs (DLG): authorization contexts, frozen zones, boundary escalation, context rendering and incremental updates.",
+  "description": "Task context, tool-plugin cores and incremental updates for Decision Lineage Graphs (DLG): anchors, context rendering, review debt, query and write cores.",
   "type": "module",
   "repository": {
     "type": "git",
@@ -14,10 +14,6 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    },
-    "./state": {
-      "types": "./dist/state.d.ts",
-      "import": "./dist/state.js"
     },
     "./host": {
       "types": "./dist/host.d.ts",

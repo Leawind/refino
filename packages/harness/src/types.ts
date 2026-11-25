@@ -1,54 +1,4 @@
-import type { Graph, NodeWithDepth, RefinoNode } from "refino";
-
-/**
- * Authorization context of a task.
- * Validation is based solely on this context, never on actor identity.
- */
-export interface AuthorizationContext {
-  /**
-   * Scope anchor node ids: the DLG nodes loaded when the task starts. They
-   * determine the initial decision context, not what may be modified.
-   * Duplicates are rejected by `validateContext`.
-   */
-  anchors: string[];
-  /**
-   * Frozen decision ids naming the frozen zone: the zone is these
-   * decisions plus all their ancestor nodes, decisions and premises
-   * alike. Everything outside the zone is the modification
-   * space; new nodes created in the task belong to it. Premises are never
-   * named directly — they join the zone as ancestors — and duplicates are
-   * rejected by `validateContext`.
-   */
-  frozen: string[];
-}
-
-/** Where a node sits relative to the modification space of a task. */
-export type NodeZone =
-  /** A node in the frozen zone: readable, not modifiable. */
-  | "frozen"
-  /** A node outside the frozen zone: within the modification space. */
-  | "modifiable";
-
-/** Result of checking one node against the modification space. */
-export interface ModificationCheck {
-  id: string;
-  zone: NodeZone;
-  allowed: boolean;
-  /** Present when the modification is not allowed (`zone` is `"frozen"`). */
-  report?: EscalationReport;
-}
-
-/**
- * Structured escalation report for a blocked modification.
- * Suggested changes and in-boundary
- * alternatives are the caller's responsibility to fill in.
- */
-export interface EscalationReport {
-  /** The blocked node. */
-  id: string;
-  /** Downstream decisions a change to the blocked node would affect. */
-  affected: NodeWithDepth[];
-}
+import type { Graph, RefinoNode } from "refino";
 
 /**
  * A rendered context block with a stable identity. Hosts inject blocks into
@@ -58,53 +8,33 @@ export interface EscalationReport {
 export interface ContextBlock {
   /** Stable block identifier, e.g. `anchor:E5F6G7H8`. */
   id: string;
-  kind: ContextBlockKind;
   nodeId: string;
   text: string;
 }
 
 /**
- * The frozen zone has no block kind of its own: a frozen node stays in its
- * anchor/premise block with a `[冻结]` mark on the line.
+ * Incremental change of the anchor set. Hosts inject only these events
+ * instead of re-rendering the full context, keeping the stable prefix intact
+ * for model prompt caches.
  */
-export type ContextBlockKind = "anchor" | "premise";
-
-/**
- * Incremental change between two authorization contexts. Hosts inject only
- * these events instead of re-rendering the full context, keeping the stable
- * prefix intact for model prompt caches.
- */
-export type DeltaEvent =
-  | { type: "anchor_added"; id: string }
-  | { type: "anchor_removed"; id: string }
-  | { type: "frozen_added"; id: string }
-  | { type: "frozen_removed"; id: string };
-
-/** Result of `defaultAuthorizationContext`. */
-export interface DefaultContext {
-  context: AuthorizationContext;
-  /** Whether the anchors cover every node in the graph. */
-  complete: boolean;
-}
-
-/** Context node ids reference nodes that do not exist in the graph. */
-export function unknownNodes(graph: Graph, ids: readonly string[]): string[] {
-  return ids.filter((id) => !graph.nodes.has(id));
-}
+export type DeltaEvent = {
+  type: "anchor_added" | "anchor_removed";
+  id: string;
+};
 
 /**
  * Tool-name citations used by injected and rendered texts. A host that owns
- * its tool naming passes the names the
- * model actually calls (dsh native tools: `refino_show`); a host that surfaces
- * tools under its own scheme injects the full names into the model's tool list
- * itself (MCP hosts), so texts cite the bare short names — a hard-coded host
- * prefix would drift per host.
+ * its tool naming passes the names the model actually
+ * calls (dsh native tools: `refino_show`); a host that surfaces tools under
+ * its own scheme injects the full names into the model's tool list itself
+ * (MCP hosts), so texts cite the bare short names — a hard-coded host prefix
+ * would drift per host.
  */
 export interface ToolRefs {
   search: string;
   show: string;
   grounds: string;
-  requestAuthorization: string;
+  stale: string;
 }
 
 /** Build refs from a host citation prefix: `refino_` (host-owned names) or `""` (bare short names). */
@@ -113,8 +43,13 @@ export function toolRefs(prefix: string): ToolRefs {
     search: `${prefix}search`,
     show: `${prefix}show`,
     grounds: `${prefix}grounds`,
-    requestAuthorization: `${prefix}request_authorization`,
+    stale: `${prefix}stale`,
   };
+}
+
+/** Context node ids reference nodes that do not exist in the graph. */
+export function unknownNodes(graph: Graph, ids: readonly string[]): string[] {
+  return ids.filter((id) => !graph.nodes.has(id));
 }
 
 /** Sort nodes by id for deterministic output. */

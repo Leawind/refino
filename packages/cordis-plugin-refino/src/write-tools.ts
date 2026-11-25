@@ -17,13 +17,14 @@ import { requireWorkspace, writeResultSchema } from "./internal.js";
 
 /**
  * DLG write tools as dsh native tools: schema declarations over the shared write
- * cores. The write chain — engine grounds validation, harness boundary check,
- * structured escalation reports — lives in the cores, shared with every other host.
+ * cores. The write chain — engine grounds validation in the store — lives in the
+ * cores, shared with every other host.
  */
 
 const TOOL_PREFIX = "refino_";
-const TEXT = createToolText(toolRefs(TOOL_PREFIX));
-const kit = createRenderKit(toolRefs(TOOL_PREFIX));
+const TOOLS = toolRefs(TOOL_PREFIX);
+const TEXT = createToolText(TOOLS);
+const kit = createRenderKit();
 
 export function createWriteTools(get: () => RefinoWorkspace | undefined): ToolDefinition[] {
   return [
@@ -74,6 +75,10 @@ function createDecisionTool(get: () => RefinoWorkspace | undefined): ToolDefinit
         type: "boolean",
         description: PARAM_TEXT.exploring,
       },
+      reviewed: {
+        type: "string",
+        description: PARAM_TEXT.reviewed,
+      },
       id: {
         type: "string",
         description: PARAM_TEXT.explicitId,
@@ -109,6 +114,10 @@ function updateNodeTool(get: () => RefinoWorkspace | undefined): ToolDefinition 
       confirmed: {
         type: "string",
         description: PARAM_TEXT.updateConfirmed,
+      },
+      reviewed: {
+        type: "string",
+        description: PARAM_TEXT.updateReviewed,
       },
       exploring: {
         type: "boolean",

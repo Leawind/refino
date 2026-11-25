@@ -14,6 +14,8 @@ fn guide_prints_the_agent_facing_guide() {
     assert!(out.contains("Decision Lineage Graph"), "{out}");
     assert!(out.contains("refino init"), "{out}");
     assert!(out.contains("[探索]"), "{out}");
+    assert!(out.contains("refino stale"), "{out}");
+    assert!(out.contains("reviewed"), "{out}");
 }
 
 #[test]

@@ -9,13 +9,7 @@ export type {
   StoreIssue,
   WriteOutcome,
 } from "./store.js";
-export {
-  confirmedToMs,
-  confirmedToRfc3339,
-  extractSummary,
-  isValidConfirmed,
-  parseNodeSource,
-} from "./parser.js";
+export { extractSummary, isRfc3339, msToRfc3339, parseNodeSource, rfc3339ToMs } from "./parser.js";
 export type { NodeContent, ParseResult } from "./parser.js";
 export {
   createPremise,

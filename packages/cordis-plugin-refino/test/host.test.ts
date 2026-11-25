@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Context } from "@deepseek-ai/cordis";
 import type { Agent, SessionStartSource } from "@deepseek-ai/dsh-agent";
 import type { ToolDefinition } from "@deepseek-ai/dsh-tools";
-import type { ApprovalOutcome } from "@deepseek-ai/dsh-user-approval";
 import { decision, createRefino, premise, removeRefino } from "@refino/testkit";
 import { apply } from "../src/index.js";
 
@@ -40,7 +39,6 @@ afterEach(async () => {
   while (cleanup.length > 0) {
     await removeRefino(cleanup.pop()!);
   }
-  delete process.env.REFINO_AUTHORIZATION;
 });
 
 interface FakeAgent {
@@ -76,8 +74,8 @@ function fakeAgent(cwd: string): FakeAgent {
 }
 
 /** Mount the plugin on a fresh real context and remember it for teardown. */
-function mount(approval?: { request: () => Promise<ApprovalOutcome> }): Context {
-  const ctx = approval === undefined ? new Context() : new Context().extend({ approval });
+function mount(): Context {
+  const ctx = new Context();
   apply(ctx);
   mounted.push({ ctx, agents: [] });
   return ctx;
@@ -101,12 +99,6 @@ async function fixtureWorkspace(): Promise<string> {
   return root;
 }
 
-function registeredTool(fake: FakeAgent, name: string): ToolDefinition {
-  const tool = fake.tools.find((tool) => tool.name === name);
-  expect(tool).toBeDefined();
-  return tool!;
-}
-
 describe("plugin mounting on a real Cordis context", () => {
   it("finishes initialization within the awaited agent/created phase", async () => {
     // `agent/created` is serial and awaited before the session's first step:
@@ -119,7 +111,7 @@ describe("plugin mounting on a real Cordis context", () => {
 
     await ctx.serial("agent/created", { agent: fake.agent, source: "startup" });
 
-    expect(fake.tools).toHaveLength(14);
+    expect(fake.tools).toHaveLength(13);
     expect(fake.injected.join("\n")).toContain("根决策");
   });
 
@@ -140,12 +132,11 @@ describe("plugin mounting on a real Cordis context", () => {
         "refino_ancestors",
         "refino_dependents",
         "refino_pending_review",
+        "refino_stale",
         "refino_create_premise",
         "refino_create_decision",
         "refino_update_node",
         "refino_delete_node",
-        "refino_request_authorization",
-        "refino_context",
       ].sort(),
     );
     const initial = fake.injected.join("\n");
@@ -155,18 +146,15 @@ describe("plugin mounting on a real Cordis context", () => {
     expect(initial).toContain("R1ROOT");
   });
 
-  it("injects only the authorization status line on resume, without the baseline", async () => {
+  it("registers the tools but injects nothing on resume", async () => {
     const root = await fixtureWorkspace();
     const ctx = mount();
     const fake = startSession(ctx, root, "resume");
 
-    await vi.waitFor(() => expect(fake.injected.length).toBeGreaterThan(0));
-    expect(fake.injected).toHaveLength(1);
-    const text = fake.injected[0]!;
-    expect(text).toContain("会话已恢复");
-    expect(text).toContain("默认上下文");
-    // The baseline (anchor summaries) must not replay on resume.
-    expect(text).not.toContain("根决策");
+    await vi.waitFor(() => expect(fake.tools.length).toBe(13));
+    // The baseline is already in the session log; nothing replays on resume.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(fake.injected).toEqual([]);
   });
 
   it("stays silent when no .refino exists above the session cwd", async () => {
@@ -247,46 +235,5 @@ describe("plugin mounting on a real Cordis context", () => {
     await writeFile(join(root, ".refino/nodes/P3/GONE-premise.md"), "善后前提\n", "utf8");
     await new Promise((resolve) => setTimeout(resolve, SYNC_SETTLE_MS));
     expect(fake.injected).toHaveLength(0);
-  });
-
-  it("signs through the mounted tool when the approval surface allows", async () => {
-    const root = await fixtureWorkspace();
-    const ctx = mount({ request: async () => "allowed-once" });
-    const fake = startSession(ctx, root, "startup");
-    await vi.waitFor(() => expect(fake.tools.length).toBe(14));
-    fake.injected.length = 0;
-
-    const result = (await registeredTool(fake, "refino_request_authorization").execute(
-      { frozen_frontier: ["C1CHILD"] },
-      {} as never,
-    )) as { ok: boolean; frozen_decisions?: number };
-    expect(result.ok).toBe(true);
-    expect(result.frozen_decisions).toBe(2);
-
-    // The delta injection rode along with the signing, not through a watcher.
-    expect(fake.injected.join("\n")).toContain("C1CHILD");
-    const context = (await registeredTool(fake, "refino_context").execute({}, {} as never)) as {
-      source: string;
-    };
-    expect(context.source).toBe("session");
-  });
-
-  it("fails closed on a context without the approval service", async () => {
-    const root = await fixtureWorkspace();
-    const ctx = mount(); // no ctx.approval: the plugin's fallback lane
-    const fake = startSession(ctx, root, "startup");
-    await vi.waitFor(() => expect(fake.tools.length).toBe(14));
-
-    const result = (await registeredTool(fake, "refino_request_authorization").execute(
-      { frozen_frontier: [] },
-      {} as never,
-    )) as { ok: boolean; outcome?: string };
-    expect(result.ok).toBe(false);
-    expect(result.outcome).toBe("unavailable");
-
-    const context = (await registeredTool(fake, "refino_context").execute({}, {} as never)) as {
-      source: string;
-    };
-    expect(context.source).toBe("default");
   });
 });

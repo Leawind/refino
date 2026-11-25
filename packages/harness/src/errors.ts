@@ -1,5 +1,4 @@
-export type HarnessErrorCode =
-  "UNKNOWN_NODE" | "FROZEN_NOT_CONSTRAINT" | "DUPLICATE_CONTEXT_ID" | "INVALID_AUTHORIZATION";
+export type HarnessErrorCode = "UNKNOWN_NODE";
 
 export class HarnessError extends Error {
   readonly code: HarnessErrorCode;

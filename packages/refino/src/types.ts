@@ -43,6 +43,8 @@ export interface DecisionNode {
    * time by `effectiveExploring`, never stored per node.
    */
   exploring?: boolean;
+  /** Last review time as epoch milliseconds; the storage layer converts to and from the file's RFC 3339 form. */
+  reviewed?: number;
 }
 
 export type RefinoNode = PremiseNode | DecisionNode;

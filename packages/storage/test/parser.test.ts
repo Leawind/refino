@@ -285,16 +285,39 @@ describe("parseNodeSource", () => {
     ["missing the UTC offset", "2026-05-01T12:00:00"],
     ["a date-only value", "2026-05-01"],
     ["not a timestamp", "yesterday"],
-  ])("reports INVALID_CONFIRMED for confirmed %s", (_label, confirmed) => {
+  ])("reports INVALID_TIMESTAMP for confirmed %s", (_label, confirmed) => {
     const { node, issues } = parseNodeSource(
       "1A2B3C4D",
       "nodes/1A/2B3C4D-premise.md",
       "premise",
       `---\nconfirmed: ${confirmed}\n---\n\nBody.\n`,
     );
-    expect(issues.map((i) => i.code)).toEqual([StorageIssueCode.InvalidConfirmed]);
+    expect(issues.map((i) => i.code)).toEqual([StorageIssueCode.InvalidTimestamp]);
     expect(node).toMatchObject({ id: "1A2B3C4D", type: "premise" });
     expect(node?.confirmed).toBeUndefined();
+  });
+
+  it("converts a valid reviewed frontmatter field to epoch milliseconds", () => {
+    const { node, issues } = parseNodeSource(
+      "1A2B3C4D",
+      "nodes/1A/2B3C4D-decision.md",
+      "decision",
+      "---\nreviewed: 2026-05-01T12:00:00Z\n---\n\nBody.\n",
+    );
+    expect(issues).toEqual([]);
+    expect(node).toMatchObject({ type: "decision", reviewed: Date.parse("2026-05-01T12:00:00Z") });
+  });
+
+  it("reports INVALID_TIMESTAMP for a malformed reviewed field", () => {
+    const { node, issues } = parseNodeSource(
+      "1A2B3C4D",
+      "nodes/1A/2B3C4D-decision.md",
+      "decision",
+      "---\nreviewed: 2026-05-01\n---\n\nBody.\n",
+    );
+    expect(issues.map((i) => i.code)).toEqual([StorageIssueCode.InvalidTimestamp]);
+    expect(node).toMatchObject({ id: "1A2B3C4D", type: "decision" });
+    expect(node?.type === "decision" && node.reviewed).toBeUndefined();
   });
 
   it.each([

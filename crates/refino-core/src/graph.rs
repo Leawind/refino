@@ -133,6 +133,7 @@ pub fn update_node(graph: &mut Graph, node: RefinoNode) -> Result<(), RefinoErro
             ) => {
                 target.summary = fresh.summary.clone();
                 target.exploring = fresh.exploring;
+                target.reviewed = fresh.reviewed;
             }
             _ => unreachable!("types checked equal above"),
         }
