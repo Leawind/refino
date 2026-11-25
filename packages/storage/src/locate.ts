@@ -2,11 +2,9 @@ import { stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 /**
- * Locate the `.refino` directory for a working directory: the nearest
- * ancestor (the directory itself included) containing a `.refino` directory.
- * Undefined when no ancestor has one, in which case the caller leaves the
- * host untouched (docs/design.md, 采用契约: locating `.refino` is the
- * activation precondition of an integration).
+ * Locate the `.refino` directory for a working directory: the nearest ancestor (the
+ * directory itself included) containing a `.refino` directory. Undefined when no
+ * ancestor has one, in which case the caller leaves the host untouched.
  */
 export async function findRefinoDir(cwd: string): Promise<string | undefined> {
   let current = cwd;

@@ -344,7 +344,7 @@ const SUMMARY_NUDGE = 14;
 export interface SummaryLabelCandidate extends CalloutStar {
   key: string;
   id: string;
-  /** Text size multiplier; 1 is the normal, maximum size. */
+  /** Font size multiplier from the distance; 1 is the normal, maximum size. */
   scale: number;
   /** Hovered right now: its label may unfold the body under the rule. */
   hovered: boolean;
@@ -357,6 +357,8 @@ export interface SummaryLabelInput {
   /** Centre of attention: labels are pushed away from it. */
   focus: CalloutStar | null;
   summaries: ReadonlyMap<string, string>;
+  /** Font scale from the orbit settings; 1 keeps the designed size. */
+  textScale?: number;
   /** Floating controls the labels must stay clear of, in canvas-local px. */
   obstacles?: readonly CalloutRect[];
 }
@@ -376,6 +378,12 @@ export interface SummaryLabelPlacement extends CalloutRect {
   side: "left" | "right";
   /** Leader from just outside the star's glow to the rule's near tip. */
   leader: { x1: number; y1: number; x2: number; y2: number };
+  /**
+   * The star behind the label. The DOM measures the rule's real position
+   * (text wrapping differs from the estimate) and redraws the leader from
+   * this anchor; pure placement keeps the estimate as its fallback.
+   */
+  anchor: CalloutStar;
 }
 
 /**
@@ -391,9 +399,10 @@ export function placeSummaryLabels(input: SummaryLabelInput): SummaryLabelPlacem
   for (const candidate of input.candidates) {
     const text = summaries.get(candidate.id);
     if (text === undefined || text === "") continue;
-    // Upper bound only: distance alone decides how small a label gets.
-    const scale = Math.min(1, candidate.scale);
-    const width = Math.min(SUMMARY_LABEL_WIDTH, viewport.width - 2 * CALLOUT_PAD) * scale;
+    // Upper bound only: distance decides how small a label gets, the settings
+    // text scale multiplies that size.
+    const scale = Math.min(1, candidate.scale) * Math.max(0.1, input.textScale ?? 1);
+    const width = Math.min(SUMMARY_LABEL_WIDTH * scale, viewport.width - 2 * CALLOUT_PAD);
     if (width <= 0) continue;
     const lines = Math.min(SUMMARY_LABEL_LINES, Math.max(1, Math.ceil(text.length / 12)));
     const ruleOffset = lines * SUMMARY_LABEL_LINE * scale + SUMMARY_RULE_GAP * scale;
@@ -477,6 +486,7 @@ export function placeSummaryLabels(input: SummaryLabelInput): SummaryLabelPlacem
       ruleOffset,
       side,
       leader,
+      anchor: { x: candidate.x, y: candidate.y, radius: candidate.radius },
     });
   }
   return result;

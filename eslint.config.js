@@ -29,8 +29,7 @@ export default tseslint.config(
     },
   },
   {
-    // Engine purity: the refino package must not depend on any Node API
-    // (docs/design.md, "引擎纯净性").
+    // Engine purity: the refino package must not depend on any Node API.
     files: ["packages/refino/src/**/*.ts"],
     rules: {
       "no-restricted-imports": [

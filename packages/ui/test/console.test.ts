@@ -7,9 +7,8 @@ import type { AuthorizationContext } from "@refino/harness";
 import type { ConsoleClient, ConsoleNode } from "../src/console";
 
 /**
- * Authorization console (docs/design.md, "用户侧：授权上下文的签发") against a
- * fake ConsoleClient: the derived zone preview, the frontier, the estimate
- * and the sign round-trip.
+ * Authorization console against a fake ConsoleClient: the derived zone preview, the
+ * frontier, the estimate and the sign round-trip.
  *
  *   P1 1A2B3C4D   P2 1A2B3C4E
  *   R1 A1B2C3D4 grounds []          (root)

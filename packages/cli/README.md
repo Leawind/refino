@@ -31,4 +31,3 @@ refino --help
 ## 了解更多
 
 - 包内设计细节：[DESIGN.md](./DESIGN.md)
-- 项目整体设计：[docs/design.md](../../docs/design.md)

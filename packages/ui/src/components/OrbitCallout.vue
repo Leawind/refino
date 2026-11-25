@@ -28,10 +28,12 @@ import type {
   CalloutCandidate,
   CalloutPlacement,
   CalloutRect,
+  CalloutStar,
   SummaryLabelCandidate,
   SummaryLabelPlacement,
 } from "../graph/orbit/callout";
 import { easeBlend } from "../graph/orbit/camera";
+import type { OrbitTheme } from "../graph/orbit/theme";
 import type { OrbitScene, OrbitScreenLayout } from "../graph/orbit/scene";
 import { peekState } from "../peek";
 import { renderMarkdown } from "../markdown";
@@ -49,16 +51,35 @@ const props = defineProps<{
   node: NodeLite | null;
   /** Summaries of the displayed nodes, for the orbiting premises. */
   summaries: ReadonlyMap<string, string>;
+  /** Font scale of the content and its summaries. */
+  textScale: number;
+  /** Palette the overlay follows; the scene and the typography share it. */
+  theme: OrbitTheme;
 }>();
 
 const client = injectRequired(clientKey, "client");
+
+/** The palette as CSS custom properties for the stylesheet and SVG stops. */
+const themeVars = computed(() => ({
+  "--orbit-text": props.theme.text,
+  "--orbit-label": props.theme.label,
+  "--orbit-text-soft": props.theme.textSoft,
+  "--orbit-accent": props.theme.accent,
+  "--orbit-fill": props.theme.fill,
+  "--orbit-line": props.theme.line,
+  "--orbit-shadow": props.theme.textShadow,
+  "--orbit-text-scale": String(props.textScale),
+}));
 const { t } = useI18n();
 
 const layerEl = ref<HTMLElement | null>(null);
 const blockEl = ref<HTMLElement | null>(null);
 const bodyEl = ref<HTMLElement | null>(null);
 const ruleEl = ref<HTMLElement | null>(null);
-const leaderEl = ref<SVGLineElement | null>(null);
+/** One polyline per connector: the leader up to the star, then the rule
+ * itself. Drawing both in a single stroke is what makes the corner an elbow
+ * of one continuous line instead of two hairlines meeting at an angle. */
+const leaderEl = ref<SVGPolylineElement | null>(null);
 const gradientEl = ref<SVGLinearGradientElement | null>(null);
 const gradientId = `${useId()}-leader`;
 const scrollable = ref(false);
@@ -149,6 +170,46 @@ let placedAt = 0;
 const summaryLabels = ref<SummaryLabelPlacement[]>([]);
 let summarySignature = "";
 const summaryEls = new Map<string, HTMLElement>();
+/** The rendered rule inside its box, in box-local pixels. The text's real
+ * wrapping decides this; the character-count estimate used for placement can
+ * be a line off. */
+interface RuleGeometry {
+  left: number;
+  y: number;
+  width: number;
+}
+
+/** Measured rules, keyed by label. */
+const summaryRuleGeometries = new Map<string, RuleGeometry>();
+
+function measureSummaryRule(
+  key: string,
+  element: HTMLElement,
+  fallback: { left: number; y: number; width: number },
+): RuleGeometry {
+  const cached = summaryRuleGeometries.get(key);
+  if (cached !== undefined) return cached;
+  const rule = element.querySelector<HTMLElement>(".satellite-rule");
+  if (rule === null) return fallback;
+  const labelRect = element.getBoundingClientRect();
+  const ruleRect = rule.getBoundingClientRect();
+  if (labelRect.height === 0 || ruleRect.height === 0) return fallback;
+  const geometry = {
+    left: ruleRect.left - labelRect.left,
+    y: ruleRect.top - labelRect.top + ruleRect.height / 2,
+    width: ruleRect.width,
+  };
+  if (
+    !Number.isFinite(geometry.left) ||
+    !Number.isFinite(geometry.y) ||
+    !Number.isFinite(geometry.width) ||
+    geometry.width <= 0
+  ) {
+    return fallback;
+  }
+  summaryRuleGeometries.set(key, geometry);
+  return geometry;
+}
 
 function onFrame(): void {
   const now = performance.now();
@@ -208,8 +269,8 @@ function onFrame(): void {
   }
   drawLeader();
   if (!ready.value) ready.value = true;
-  // The overflow only settles with the width; a focus on a revolving
-  // satellite never stops moving, so check anyway every so often.
+  // The overflow only settles with the width; a label that moves with its
+  // star can still change the body's fit, so check anyway every so often.
   if (scrollDirty && (!moving || now - scrollCheckedAt > 200)) {
     refreshScroll();
     scrollDirty = false;
@@ -304,12 +365,18 @@ function updateSummaries(layout: OrbitScreenLayout, obstacles: readonly CalloutR
     focus: layout.anchor,
     summaries: props.summaries,
     obstacles,
+    textScale: props.textScale,
   });
   const signature = boxes
-    .map((box) => `${box.key}:${box.text}:${box.scale.toFixed(2)}:${box.hovered ? 1 : 0}`)
+    .map(
+      (box) =>
+        `${box.key}:${box.text}:${box.scale.toFixed(2)}:${box.hovered ? 1 : 0}:${box.width.toFixed(0)}x${box.height.toFixed(0)}`,
+    )
     .join("|");
   if (signature !== summarySignature) {
     summarySignature = signature;
+    // A resized box wraps the text differently, which moves the rule.
+    summaryRuleGeometries.clear();
     summaryLabels.value = boxes;
   }
   summaryEls.clear();
@@ -319,8 +386,8 @@ function updateSummaries(layout: OrbitScreenLayout, obstacles: readonly CalloutR
     const key = element.dataset.satKey;
     if (key !== undefined) summaryEls.set(key, element);
   }
-  const lines = new Map<string, SVGLineElement>();
-  for (const line of layer.querySelectorAll<SVGLineElement>("[data-sat-line]")) {
+  const lines = new Map<string, SVGPolylineElement>();
+  for (const line of layer.querySelectorAll<SVGPolylineElement>("[data-sat-line]")) {
     if (line.dataset.satLine !== undefined) lines.set(line.dataset.satLine, line);
   }
   const gradients = new Map<string, SVGLinearGradientElement>();
@@ -336,10 +403,22 @@ function updateSummaries(layout: OrbitScreenLayout, obstacles: readonly CalloutR
       element.style.width = `${box.width}px`;
       element.style.visibility = "visible";
     }
+    // The rule's rendered position depends on how the text actually wrapped;
+    // the estimate in `box.ruleOffset` can be a line too low. Measure it and
+    // draw the leader and the rule as one polyline, so the elbow joins.
+    const geometry =
+      element === undefined
+        ? { left: 0, y: box.ruleOffset, width: box.width }
+        : measureSummaryRule(box.key, element, {
+            left: 0,
+            y: box.ruleOffset,
+            width: box.width,
+          });
+    const points = connectorPoints(box.anchor, geometry, box.left, box.top, box.width, box.side);
     const line = lines.get(box.key);
-    if (line !== undefined) applySegment(line, box.leader);
+    if (line !== undefined) applyConnector(line, points);
     const gradient = gradients.get(box.key);
-    if (gradient !== undefined) applySegment(gradient, box.leader);
+    if (gradient !== undefined) applyGradientAxis(gradient, points.start, points.near);
   }
 }
 
@@ -352,6 +431,7 @@ function clearSummaries(): void {
   if (summaryLabels.value.length !== 0) summaryLabels.value = [];
   summarySignature = "";
   summaryEls.clear();
+  summaryRuleGeometries.clear();
 }
 
 function hideLeader(): void {
@@ -378,16 +458,51 @@ function measureObstacles(): CalloutRect[] {
   return obstacles;
 }
 
-/** Where the rule sits inside the block: the leader ends on its near tip. */
+/** The rendered rule inside the block, in block-local pixels. */
+let ruleGeometry: RuleGeometry = { left: 0, y: 0, width: 0 };
+
 function measureRule(el: HTMLElement): void {
   const rule = ruleEl.value;
   if (rule === null) {
     ruleOffset = 0;
+    ruleGeometry = { left: 0, y: 0, width: 0 };
     return;
   }
   const block = el.getBoundingClientRect();
   const box = rule.getBoundingClientRect();
-  ruleOffset = box.top - block.top + box.height / 2;
+  ruleGeometry = {
+    left: box.left - block.left,
+    y: box.top - block.top + box.height / 2,
+    width: box.width,
+  };
+  ruleOffset = ruleGeometry.y;
+}
+
+/**
+ * One connector as a single polyline: the leader leaves just outside the
+ * star, bends at the rule's near end and runs along the rule to its far end.
+ * Both parts share one stroke, so the elbow joins perfectly instead of two
+ * hairlines meeting at an angle (which always leaves a notch).
+ */
+function connectorPoints(
+  anchor: CalloutStar,
+  geometry: RuleGeometry,
+  boxLeft: number,
+  boxTop: number,
+  boxWidth: number,
+  side: "left" | "right",
+): {
+  start: { x: number; y: number };
+  near: { x: number; y: number };
+  far: { x: number; y: number };
+} {
+  const ruleLeft = boxLeft + geometry.left;
+  const ruleRight = ruleLeft + geometry.width;
+  const nearX = side === "left" ? ruleLeft : ruleRight;
+  const farX = side === "left" ? ruleRight : ruleLeft;
+  const y = boxTop + geometry.y;
+  const tip = calloutLeader(anchor, { x: nearX, y });
+  return { start: { x: tip.x1, y: tip.y1 }, near: { x: nearX, y }, far: { x: farX, y } };
 }
 
 function drawLeader(): void {
@@ -398,25 +513,45 @@ function drawLeader(): void {
     leader.style.display = "none";
     return;
   }
-  const attach = {
-    x: target.side === "left" ? shown.left : shown.left + shown.width,
-    y: shown.top + ruleOffset,
-  };
-  const segment = calloutLeader(anchor, attach);
+  const points = connectorPoints(
+    anchor,
+    ruleGeometry,
+    shown.left,
+    shown.top,
+    shown.width,
+    target.side,
+  );
   leader.style.display = "";
-  applySegment(leader, segment);
+  applyConnector(leader, points);
   const gradient = gradientEl.value;
-  if (gradient !== null) applySegment(gradient, segment);
+  if (gradient !== null) applyGradientAxis(gradient, points.start, points.near);
 }
 
-/** The leader and its gradient share the segment's four coordinates. */
-function applySegment(
-  element: { setAttribute(name: string, value: string): void },
-  segment: { x1: number; y1: number; x2: number; y2: number },
+function applyConnector(
+  element: SVGPolylineElement,
+  points: {
+    start: { x: number; y: number };
+    near: { x: number; y: number };
+    far: { x: number; y: number };
+  },
 ): void {
-  for (const name of ["x1", "y1", "x2", "y2"] as const) {
-    element.setAttribute(name, `${segment[name]}`);
-  }
+  element.setAttribute(
+    "points",
+    `${points.start.x},${points.start.y} ${points.near.x},${points.near.y} ${points.far.x},${points.far.y}`,
+  );
+}
+
+/** The gradient runs along the leader and pads past its last stop, so the
+ * rule part keeps the rule's own opacity: one continuous brightness too. */
+function applyGradientAxis(
+  gradient: SVGLinearGradientElement,
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+): void {
+  gradient.setAttribute("x1", `${start.x}`);
+  gradient.setAttribute("y1", `${start.y}`);
+  gradient.setAttribute("x2", `${end.x}`);
+  gradient.setAttribute("y2", `${end.y}`);
 }
 
 /** Overflow state drives both the wheel and the fade that hints at more. */
@@ -448,6 +583,8 @@ onMounted(() => {
     observer = new ResizeObserver(() => {
       needsMeasure = true;
       needsPlace = true;
+      // A narrower pane wraps the summaries differently: re-measure the rules.
+      summaryRuleGeometries.clear();
       props.scene.requestRender();
     });
     observer.observe(layerEl.value);
@@ -486,20 +623,25 @@ watch([bodyHtml, () => props.node?.summary], () => {
 </script>
 
 <template>
-  <div ref="layerEl" class="callout-layer">
+  <div ref="layerEl" class="callout-layer" :style="themeVars">
     <svg class="callout-leader" aria-hidden="true">
       <defs>
+        <!-- One gradient per connector: it runs along the leader and pads
+             past its end, so the rule part renders at the rule's own alpha.
+             The leader therefore reaches the rule at exactly the brightness
+             the rule has, which is what makes the elbow read as one line. -->
         <linearGradient
           :id="gradientId"
           ref="gradientEl"
           gradientUnits="userSpaceOnUse"
+          spreadMethod="pad"
           x1="0"
           y1="0"
           x2="0"
           y2="0"
         >
-          <stop offset="0" stop-color="rgb(143, 188, 255)" stop-opacity="0" />
-          <stop offset="1" stop-color="rgb(143, 188, 255)" stop-opacity="0.62" />
+          <stop offset="0" :stop-color="theme.leader" stop-opacity="0" />
+          <stop offset="1" :stop-color="theme.leader" stop-opacity="0.42" />
         </linearGradient>
         <linearGradient
           v-for="label in summaryLabels"
@@ -507,28 +649,33 @@ watch([bodyHtml, () => props.node?.summary], () => {
           :id="satelliteGradientId(label.key)"
           :data-sat-gradient="label.key"
           gradientUnits="userSpaceOnUse"
+          spreadMethod="pad"
           x1="0"
           y1="0"
           x2="0"
           y2="0"
         >
-          <stop offset="0" stop-color="rgb(143, 188, 255)" stop-opacity="0" />
-          <stop offset="1" stop-color="rgb(143, 188, 255)" stop-opacity="0.5" />
+          <stop offset="0" :stop-color="theme.leader" stop-opacity="0" />
+          <stop offset="1" :stop-color="theme.leader" stop-opacity="0.42" />
         </linearGradient>
       </defs>
-      <line
+      <polyline
         ref="leaderEl"
+        fill="none"
         :stroke="`url(#${gradientId})`"
         stroke-width="1"
-        stroke-linecap="round"
+        stroke-linecap="butt"
+        stroke-linejoin="round"
       />
-      <line
+      <polyline
         v-for="label in summaryLabels"
         :key="label.key"
         :data-sat-line="label.key"
+        fill="none"
         :stroke="`url(#${satelliteGradientId(label.key)})`"
         stroke-width="1"
-        stroke-linecap="round"
+        stroke-linecap="butt"
+        stroke-linejoin="round"
       />
     </svg>
     <div
@@ -596,17 +743,17 @@ watch([bodyHtml, () => props.node?.summary], () => {
   height: 100%;
 }
 
-/* Premise summaries ride their revolving stars: text above a rule, with a
- * leader back to the star; no panel, no body. */
+/* Premise summaries ride their stars: text above a rule, with a leader back to
+ * the star; no panel, no body. */
 .satellite-label {
   position: absolute;
   top: 0;
   left: 0;
   box-sizing: border-box;
-  color: rgba(214, 232, 255, 0.82);
-  font-size: 11px;
-  line-height: 19px;
-  text-shadow: 0 1px 5px rgba(0, 0, 0, 0.8);
+  color: var(--orbit-label);
+  font-size: calc(11px * var(--orbit-text-scale, 1));
+  line-height: calc(19px * var(--orbit-text-scale, 1));
+  text-shadow: var(--orbit-shadow);
   visibility: hidden;
   pointer-events: none;
   user-select: none;
@@ -624,7 +771,7 @@ watch([bodyHtml, () => props.node?.summary], () => {
 .satellite-label .satellite-rule {
   height: 1px;
   margin-top: 6px;
-  background: rgba(146, 186, 255, 0.42);
+  background: transparent;
 }
 
 /* Holding Alt unfolds the hovered star's body under its rule. It keeps the
@@ -640,10 +787,10 @@ watch([bodyHtml, () => props.node?.summary], () => {
   margin-top: 8px;
   overflow-y: auto;
   overscroll-behavior: contain;
-  color: rgba(202, 218, 242, 0.86);
-  font-size: 11px;
+  color: var(--orbit-text-soft);
+  font-size: calc(11px * var(--orbit-text-scale, 1));
   line-height: 1.6;
-  text-shadow: 0 1px 5px rgba(0, 0, 0, 0.8);
+  text-shadow: var(--orbit-shadow);
   overflow-wrap: anywhere;
   scrollbar-width: none;
 }
@@ -667,7 +814,7 @@ watch([bodyHtml, () => props.node?.summary], () => {
 }
 
 .satellite-body :deep(a) {
-  color: #9ec8ff;
+  color: var(--orbit-accent);
 }
 
 .callout {
@@ -696,20 +843,23 @@ watch([bodyHtml, () => props.node?.summary], () => {
 .summary {
   flex: none;
   margin: 0;
-  color: rgba(232, 242, 255, 0.96);
-  font-size: 13px;
+  color: var(--orbit-text);
+  font-size: calc(13px * var(--orbit-text-scale, 1));
   font-weight: 400;
   line-height: 1.45;
   letter-spacing: 0.01em;
-  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.72);
+  text-shadow: var(--orbit-shadow);
   overflow-wrap: anywhere;
 }
 
+/* The rule is drawn by the connector polyline, which also carries the
+ * leader: one continuous stroke means the elbow has no seam. This element
+ * keeps its place in the flow (and is the thing measured). */
 .rule {
   flex: none;
   height: 1px;
   margin: 9px 0 8px;
-  background: rgba(146, 186, 255, 0.42);
+  background: transparent;
 }
 
 .body {
@@ -717,10 +867,10 @@ watch([bodyHtml, () => props.node?.summary], () => {
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  color: rgba(202, 218, 242, 0.86);
-  font-size: 12px;
+  color: var(--orbit-text-soft);
+  font-size: calc(12px * var(--orbit-text-scale, 1));
   line-height: 1.6;
-  text-shadow: 0 1px 5px rgba(0, 0, 0, 0.72);
+  text-shadow: var(--orbit-shadow);
   overflow-wrap: anywhere;
   scrollbar-width: none;
 }
@@ -754,11 +904,11 @@ watch([bodyHtml, () => props.node?.summary], () => {
 }
 
 .body :deep(a) {
-  color: #9ec8ff;
+  color: var(--orbit-accent);
 }
 
 .body :deep(code) {
-  font-size: 11px;
+  font-size: calc(11px * var(--orbit-text-scale, 1));
 }
 
 .body :deep(pre) {
@@ -766,13 +916,13 @@ watch([bodyHtml, () => props.node?.summary], () => {
   padding: 6px 8px;
   overflow-x: auto;
   border-radius: 4px;
-  background: rgba(122, 162, 232, 0.1);
+  background: var(--orbit-fill);
 }
 
 .body :deep(blockquote) {
   margin: 6px 0;
   padding-left: 8px;
-  border-left: 2px solid rgba(146, 186, 255, 0.28);
+  border-left: 2px solid var(--orbit-line);
   opacity: 0.86;
 }
 
@@ -783,7 +933,7 @@ watch([bodyHtml, () => props.node?.summary], () => {
 .body :deep(th),
 .body :deep(td) {
   padding: 2px 6px;
-  border: 1px solid rgba(146, 186, 255, 0.16);
+  border: 1px solid var(--orbit-line);
 }
 
 .body :deep(img) {
@@ -795,8 +945,8 @@ watch([bodyHtml, () => props.node?.summary], () => {
 .body :deep(h3),
 .body :deep(h4) {
   margin: 8px 0 4px;
-  font-size: 12px;
-  color: rgba(226, 238, 255, 0.92);
+  font-size: calc(12px * var(--orbit-text-scale, 1));
+  color: var(--orbit-text);
 }
 
 .callout-enter-active,

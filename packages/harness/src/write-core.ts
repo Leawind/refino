@@ -19,17 +19,15 @@ import { depthLite, issueLite, lite, type WriteResult } from "./shapes.js";
 import type { RefinoWorkspace } from "./workspace.js";
 
 /**
- * DLG write tool cores (docs/design.md, dsh 插件落地形态). Every write walks
- * the same chain before persisting: engine `checkGroundsChange` (create
- * validates against a prospective graph copy) and harness `checkModification`
- * — a frozen-zone target returns a structured escalation report as a normal
- * tool result, never an error. The modification space closes downwards along
- * dependents, so no downstream-freeze check exists. The
- * target's own sync runs after persisting; its pending-review set rides the
- * result instead of being injected. Successful writes absorb into the
- * session known set (docs/design.md, 会话已知集): the author knows what it
- * wrote, and the one-hop neighborhood snapshots re-sync silently so the
- * next external sync never reports the write back.
+ * DLG write tool cores. Every write walks the same chain before persisting: engine
+ * `checkGroundsChange` (create validates against a prospective graph copy) and
+ * harness `checkModification` — a frozen-zone target returns a structured
+ * escalation report as a normal tool result, never an error. The modification space
+ * closes downwards along dependents, so no downstream-freeze check exists. The
+ * target's own sync runs after persisting; its pending-review set rides the result
+ * instead of being injected. Successful writes absorb into the session known set:
+ * the author knows what it wrote, and the one-hop neighborhood snapshots re-sync
+ * silently so the next external sync never reports the write back.
  */
 
 export interface CreatePremiseArgs {
@@ -188,11 +186,11 @@ export async function runDeleteNode(ws: RefinoWorkspace, id: string): Promise<Wr
 // ---- shared write helpers ----
 
 /**
- * Read what a partial update needs: the paged content (body, rationale live
- * there, not on the resident node) plus the summary per the partial
- * semantics (docs/design.md) — an omitted summary keeps an explicit one and
- * stays body-derived otherwise, so updating the body alone keeps the
- * fallback in sync; an empty string clears the explicit summary.
+ * Read what a partial update needs: the paged content (body, rationale live there,
+ * not on the resident node) plus the summary per the partial semantics — an omitted
+ * summary keeps an explicit one and stays body-derived otherwise, so updating the
+ * body alone keeps the fallback in sync; an empty string clears the explicit
+ * summary.
  */
 async function readForUpdate(
   ws: RefinoWorkspace,

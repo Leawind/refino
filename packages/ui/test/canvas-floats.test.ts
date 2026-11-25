@@ -114,7 +114,7 @@ describe("canvas floats manifest", () => {
       "view-toggle",
     ]);
     // The field-of-view control belongs to the orbit view.
-    expect(document.querySelector(".graph-float.bottom-right .fov-control")).toBeNull();
+    expect(document.querySelector(".graph-float.bottom-right .orbit-control")).toBeNull();
     expect(document.querySelector(".graph-float.bottom-left .status")).not.toBeNull();
     wrapper.unmount();
   });
@@ -133,7 +133,7 @@ describe("canvas floats manifest", () => {
     // The orbit view keeps only its own square control in the right stack.
     const stack = document.querySelector(".graph-float.bottom-right .canvas-controls .stack");
     expect([...(stack?.children ?? [])].map((child) => child.className.split(" ").at(0))).toEqual([
-      "fov-control",
+      "orbit-control",
     ]);
     const strip = document.querySelector(".graph-float.bottom-right .canvas-controls .strip");
     expect([...(strip?.children ?? [])].map((child) => child.className.split(" ").at(-1))).toEqual([

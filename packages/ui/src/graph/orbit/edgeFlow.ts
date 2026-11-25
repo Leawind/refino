@@ -27,6 +27,11 @@ export const EDGE_FLOW_GLOW = 0.04;
 /** Brightness of the plain line under the flow: 0 leaves no base line, only
  * the pulses, and with the glow also 0 the edge disappears. */
 export const EDGE_FLOW_BASE = 0.06;
+/** Ink palette: how much of the line color the plain line leaves, and how much
+ * more the pulse adds. There the line has no light to add; its alpha is the
+ * ink, so the pulse reads as a darker pass instead of a brighter one. */
+export const EDGE_INK_BASE = 0.5;
+export const EDGE_INK_GLOW = 0.45;
 
 const VERTEX_SHADER = /* glsl */ `
 attribute float aFlow;
@@ -51,6 +56,7 @@ uniform float uLength;
 uniform vec3 uHighlight;
 uniform float uGlow;
 uniform float uBase;
+uniform float uInk;
 varying float vFlow;
 varying float vEdgeLength;
 varying vec3 vColor;
@@ -65,13 +71,18 @@ void main() {
   float halfLength = 0.5 * tail;
   float offset = abs(fract(uTime * uSpeed / uSpacing - phase + 0.5) - 0.5);
   float pulse = 1.0 - smoothstep(0.0, halfLength, offset);
-  // The base line and the glow are separate additive layers: base 0 removes
-  // the line but keeps the pulses, glow 0 keeps the line but removes the
-  // pulses.
-  vec3 color = vColor * uBase;
-  color += vColor * pulse * uGlow;
-  color += uHighlight * pulse * uGlow * 0.25;
-  gl_FragColor = vec4(color, 1.0);
+  if (uInk > 0.5) {
+    // Ink leaves alpha instead of adding light: the pulse thickens the line.
+    gl_FragColor = vec4(vColor, clamp(uBase + pulse * uGlow, 0.0, 1.0));
+  } else {
+    // The base line and the glow are separate additive layers: base 0 removes
+    // the line but keeps the pulses, glow 0 keeps the line but removes the
+    // pulses.
+    vec3 color = vColor * uBase;
+    color += vColor * pulse * uGlow;
+    color += uHighlight * pulse * uGlow * 0.25;
+    gl_FragColor = vec4(color, 1.0);
+  }
   #include <colorspace_fragment>
 }
 `;
@@ -86,6 +97,7 @@ export function createEdgeFlowMaterial(): ShaderMaterial {
       uLength: { value: EDGE_FLOW_LENGTH },
       uGlow: { value: EDGE_FLOW_GLOW },
       uBase: { value: EDGE_FLOW_BASE },
+      uInk: { value: 0 },
       uHighlight: { value: new Color(1, 1, 1) },
     },
     vertexShader: VERTEX_SHADER,

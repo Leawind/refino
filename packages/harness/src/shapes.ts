@@ -2,10 +2,9 @@ import type { NodeContent } from "@refino/storage";
 import type { NodeWithDepth, RefinoNode } from "refino";
 
 /**
- * Canonical tool-result shapes shared by every tool-plugin host (docs/design.md,
- * dsh 插件落地形态). Loose on purpose where values cross the tool schema
- * boundary: the schema-inferred render inputs carry plain `string` where the
- * domain model has unions.
+ * Canonical tool-result shapes shared by every tool-plugin host. Loose on purpose
+ * where values cross the tool schema boundary: the schema-inferred render inputs
+ * carry plain `string` where the domain model has unions.
  */
 
 /** Summary-level node reference used by list/grounds/pending results. */

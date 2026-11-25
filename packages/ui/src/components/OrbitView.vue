@@ -17,6 +17,8 @@ import { workspaceKey } from "../workspace";
 import { setViewportCommands } from "../viewportBridge";
 import type { OverviewSnapshot } from "../graph/render/overview";
 import { buildOrbitScene } from "../graph/orbit/data";
+import type { OrbitSettings } from "../graph/orbit/settings";
+import { orbitThemeFor } from "../graph/orbit/theme";
 import { ORBIT_ROOT_ID, OrbitScene } from "../graph/orbit/scene";
 import type { OrbitPick } from "../graph/orbit/scene";
 import CanvasContextMenu from "./CanvasContextMenu.vue";
@@ -57,8 +59,26 @@ const focusedNode = computed(() => {
   const id = focus.value?.id;
   return id === null || id === undefined ? null : (byId.value.get(id) ?? null);
 });
-/** Summaries for the premise labels around the focused decision. */
-const summaries = computed(
+/** The palette follows the UI theme (ui DESIGN.md, "三维视图"): deep space in
+ * the dark theme, a paper chart in the light one. */
+const theme = computed(() => orbitThemeFor(store.state.theme));
+
+/** Presentation settings of the 3D view, read from the persisted config.
+ * The text scale is DOM-side, but it travels with the rest so the panel and
+ * the view share one mapping. */
+const orbitSettings = computed<OrbitSettings>(() => {
+  const config = workspace.state.config;
+  return {
+    starBrightness: config.orbitStarBrightness,
+    flowSpeed: config.orbitFlowSpeed,
+    flowGlow: config.orbitFlowGlow,
+    spring: config.orbitSpring,
+    repulsion: config.orbitRepulsion,
+    revolutionSpeed: config.orbitRevolutionSpeed,
+  };
+});
+
+/** Summaries for the premise labels around the focused decision. */ const summaries = computed(
   () =>
     new Map(
       workspace.displayed.value.map(
@@ -95,6 +115,9 @@ function ensureScene(): void {
     return;
   }
   scene.value = created;
+  created.setTheme(theme.value);
+  created.setRotateSensitivity(workspace.state.config.rotateSensitivity);
+  created.setSettings(orbitSettings.value);
   created.resize(host.clientWidth, host.clientHeight);
   created.setState(new Set(workspace.state.selection), workspace.state.hoveredId, hoveredKey);
   created.onCameraChanged(() => {
@@ -364,6 +387,17 @@ watch(
   () => workspace.displayed.value,
   () => rebuild(false),
 );
+// Rotation sensitivity is a persisted presentation setting: taking it from
+// the workspace keeps the control and the camera in sync across view switches.
+watch(
+  () => workspace.state.config.rotateSensitivity,
+  (speed) => scene.value?.setRotateSensitivity(speed),
+);
+// The same holds for the light, flow, physics and revolution settings: the
+// scene applies them live, so the panel needs no view switch to be felt.
+watch(orbitSettings, (settings) => scene.value?.setSettings(settings));
+// Switching the UI theme repaints the whole palette, overlay included.
+watch(theme, (next) => scene.value?.setTheme(next));
 watch(
   () => [workspace.state.selection, workspace.state.hoveredId] as const,
   ([selection, hovered]) =>
@@ -397,7 +431,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="hostEl" class="orbit">
+  <div ref="hostEl" class="orbit" :style="{ background: theme.backgroundCss }">
     <canvas
       ref="canvasEl"
       class="orbit-canvas"
@@ -409,7 +443,14 @@ onBeforeUnmount(() => {
       @contextmenu="onContextMenu"
       @dblclick="onDoubleClick"
     />
-    <OrbitCallout v-if="scene !== null" :scene="scene" :node="focusedNode" :summaries="summaries" />
+    <OrbitCallout
+      v-if="scene !== null"
+      :scene="scene"
+      :node="focusedNode"
+      :summaries="summaries"
+      :text-scale="workspace.state.config.orbitTextScale"
+      :theme="theme"
+    />
     <CanvasContextMenu
       v-if="menu.open"
       :x="menu.x"
@@ -428,8 +469,8 @@ onBeforeUnmount(() => {
   height: 100%;
   overflow: hidden;
   user-select: none;
-  /* The orbit view is a small planetarium: a fixed deep-space backdrop
-   * keeps stars readable in both UI themes. */
+  /* The pane keeps the palette's own backdrop behind the canvas, so the
+   * canvas can stay transparent over deep space or opaque paper. */
   background: #05070f;
   background:
     radial-gradient(ellipse at 50% 42%, rgba(36, 58, 110, 0.45), transparent 55%),

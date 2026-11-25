@@ -232,6 +232,17 @@ describe("summary labels", () => {
     expect(label.ruleOffset).toBeGreaterThan(18);
   });
 
+  it("carries the star so the view can re-aim the leader at the measured rule", () => {
+    const label = placeSummaryLabels({ viewport: VIEWPORT, candidates, focus, summaries })[0]!;
+    // Text wrapping decides the rule's real height; the estimate can be a
+    // line too low, so the view measures the DOM and redraws from this anchor.
+    expect(label.anchor).toEqual({
+      x: candidates[0]!.x,
+      y: candidates[0]!.y,
+      radius: candidates[0]!.radius,
+    });
+  });
+
   it("shrinks a distant summary and its box together", () => {
     const labels = placeSummaryLabels({ viewport: VIEWPORT, candidates, focus, summaries });
     const near = labels[0]!;
@@ -251,6 +262,30 @@ describe("summary labels", () => {
     expect(
       placeSummaryLabels({ viewport: VIEWPORT, candidates: capped, focus, summaries: s })[0]!.scale,
     ).toBe(1);
+  });
+
+  it("scales every label with the settings text size", () => {
+    const normal = placeSummaryLabels({ viewport: VIEWPORT, candidates, focus, summaries })[0]!;
+    const large = placeSummaryLabels({
+      viewport: VIEWPORT,
+      candidates,
+      focus,
+      summaries,
+      textScale: 1.5,
+    })[0]!;
+    expect(normal.scale).toBe(1);
+    expect(large.scale).toBeCloseTo(1.5, 5);
+    expect(large.width).toBeGreaterThan(normal.width);
+    expect(large.ruleOffset).toBeGreaterThan(normal.ruleOffset);
+    // A distant label stays proportionally smaller than a near one.
+    const far = placeSummaryLabels({
+      viewport: VIEWPORT,
+      candidates,
+      focus,
+      summaries,
+      textScale: 1.5,
+    })[2]!;
+    expect(far.scale).toBeCloseTo(0.9, 5);
   });
 
   it("keeps every label on the page and clear of the others", () => {

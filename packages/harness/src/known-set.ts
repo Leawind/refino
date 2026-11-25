@@ -2,13 +2,12 @@ import { createHash } from "node:crypto";
 import type { Graph, RefinoNode } from "refino";
 
 /**
- * The session known set (docs/design.md, 增量更新与缓存友好): what node
- * information has actually reached the model's context. The initial
- * injection seeds it and every tool result harvests into it; external-change
- * notifications are field-level diffs computed against it — nodes never seen
- * stay silent. Pure in-memory session state, fail-soft by design: it only
- * shapes notification quality, never read correctness (queries always hit
- * the store's current state).
+ * The session known set: what node information has actually reached the model's
+ * context. The initial injection seeds it and every tool result harvests into it;
+ * external-change notifications are field-level diffs computed against it — nodes
+ * never seen stay silent. Pure in-memory session state, fail-soft by design: it
+ * only shapes notification quality, never read correctness (queries always hit the
+ * store's current state).
  *
  * Host subpath only: the content hash needs node:crypto, so this module must
  * not leak into the browser-safe main entry (type-only imports are fine).

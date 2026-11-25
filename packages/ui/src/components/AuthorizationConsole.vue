@@ -1,11 +1,10 @@
 <script setup lang="ts">
-// Authorization console (docs/design.md, "用户侧：授权上下文的签发"): one
-// interaction for signing the task's authorization context — anchors plus
-// the frozen-zone declarations — with the frozen-zone propagation, the
-// injection preview and its size estimate visible before signing. The same
-// component serves signing, mid-task adjustment and escalation adjudication.
-// The host provides the ConsoleClient; the canvas pick-mode overlay remains
-// the host's integration surface.
+// Authorization console: one interaction for signing the task's authorization
+// context — anchors plus the frozen-zone declarations — with the frozen-zone
+// propagation, the injection preview and its size estimate visible before signing.
+// The same component serves signing, mid-task adjustment and escalation
+// adjudication. The host provides the ConsoleClient; the canvas pick-mode overlay
+// remains the host's integration surface.
 import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { NAlert, NButton, NInput, NSelect, NTag } from "naive-ui";
@@ -141,7 +140,7 @@ async function sign(): Promise<void> {
   error.value = null;
   try {
     // The engine/harness validation is the console's own feedback; the host
-    // revalidates before deriving the delta (docs/design.md).
+    // revalidates before deriving the delta.
     validateContext(graph.value, draft.value);
   } catch (e) {
     error.value = e instanceof HarnessError ? e.message : String(e);

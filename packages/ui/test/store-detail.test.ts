@@ -9,11 +9,11 @@ let store: Store;
 let workspace: Workspace;
 
 /**
- * Detail editor conflict flow (docs/design.md, "编辑冲突处理") against the
- * store: silent update without edits, silent field-level merge, collision
- * conflict with both resolutions, optimistic-concurrency save and the
- * recreate-after-external-deletion flow. The fetch mock mirrors the
- * server contract pinned by packages/cli/test/web-api.test.ts.
+ * Detail editor conflict flow against the store: silent update without edits,
+ * silent field-level merge, collision conflict with both resolutions,
+ * optimistic-concurrency save and the recreate-after-external-deletion flow. The
+ * fetch mock mirrors the server contract pinned by
+ * packages/cli/test/web-api.test.ts.
  */
 
 const ID = "A1B2C3D4";

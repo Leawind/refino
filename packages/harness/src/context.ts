@@ -41,11 +41,10 @@ export function contextBlocks(graph: Graph, context: AuthorizationContext): Cont
 }
 
 /**
- * Render the full context as markdown, grouped into anchors and premises;
- * the protocol statement closes the render. The frozen zone is not listed:
- * frozen nodes are marked `[冻结]` on their line (docs/design.md, 上下文注入
- * 协议). Summaries only; the model expands relevant nodes via tools
- * (two-level injection).
+ * Render the full context as markdown, grouped into anchors and premises; the
+ * protocol statement closes the render. The frozen zone is not listed: frozen nodes
+ * are marked `[冻结]` on their line. Summaries only; the model expands relevant nodes
+ * via tools (two-level injection).
  */
 export function renderContext(graph: Graph, context: AuthorizationContext): string {
   const blocks = contextBlocks(graph, context);

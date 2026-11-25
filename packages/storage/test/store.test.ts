@@ -8,9 +8,9 @@ import { IssueCode } from "refino";
 import { StorageIssueCode } from "../src/codes.js";
 
 /**
- * Resident projection behavior of the store (docs/design.md, "存储层
- * Store"): incremental updates through the single applyChange entry, no-op
- * suppression, parse-issue tracking and stale-file eviction.
+ * Resident projection behavior of the store: incremental updates through the single
+ * applyChange entry, no-op suppression, parse-issue tracking and stale-file
+ * eviction.
  */
 
 let root: string;

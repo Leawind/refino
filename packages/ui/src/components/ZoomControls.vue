@@ -77,9 +77,9 @@ function reset(): void {
   padding: 3px 6px;
   font-size: 12px;
   border-radius: var(--refino-radius);
-  background: var(--refino-surface);
+  background: var(--refino-control-bg);
   border: 1px solid var(--refino-border);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--refino-shadow-1);
 }
 
 /* Inert until a canvas registers its commands. Dim the glyphs instead of the

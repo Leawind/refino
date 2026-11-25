@@ -1,8 +1,7 @@
 /**
- * Field-level conflict resolution for the detail editor (docs/design.md,
- * "编辑冲突处理"). The editor keeps a base snapshot (the fields as loaded or
- * last merged) alongside the user's current form values; when an external
- * change arrives, each field is classified independently:
+ * Field-level conflict resolution for the detail editor. The editor keeps a base
+ * snapshot (the fields as loaded or last merged) alongside the user's current form
+ * values; when an external change arrives, each field is classified independently:
  *
  * - unchanged externally: the user's value (if any) stays;
  * - changed externally, untouched by the user: the external value is taken

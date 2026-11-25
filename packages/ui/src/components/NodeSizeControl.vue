@@ -172,7 +172,7 @@ useDismissable(open, root, onResizeUp);
   border: 1.2px solid var(--refino-border);
   border-radius: 8px;
   background: var(--refino-surface);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--refino-shadow-2);
   transform-origin: bottom right;
   animation: node-size-expand 0.15s ease-out;
   transition:

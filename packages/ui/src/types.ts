@@ -1,5 +1,5 @@
-/** Shared front-end types mirroring the JSON API contract (docs/design.md,
- * "后端 API 契约" and "画布按需查询"). Shapes the engine already owns are
+/** Shared front-end types mirroring the JSON API contract. Shapes the engine
+ * already owns are
  * imported from `refino` instead of redeclared here, so the wire contract
  * cannot drift from the engine.
  *

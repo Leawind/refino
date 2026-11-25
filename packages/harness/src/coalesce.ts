@@ -4,13 +4,11 @@ import type { RefinoNode } from "refino";
 import type { SyncOutcome } from "./workspace.js";
 
 /**
- * Trailing-edge throttle over external sync outcomes (docs/design.md, dsh
- * 插件落地形态“delta 注入降噪”): watcher batches arriving within the
- * interval merge into one injection instead of waking the model per batch.
- * The known-set diff is not buffered per outcome — it is taken at fire time
- * against the live graph, so tool results that interleaved with the window
- * have already refreshed the snapshots and collapse out of the notification
- * (docs/design.md, 会话已知集).
+ * Trailing-edge throttle over external sync outcomes: watcher batches arriving
+ * within the interval merge into one injection instead of waking the model per
+ * batch. The known-set diff is not buffered per outcome — it is taken at fire time
+ * against the live graph, so tool results that interleaved with the window have
+ * already refreshed the snapshots and collapse out of the notification.
  */
 export interface CoalescerDeps {
   /** Field-level known-set diff (draining) against the live workspace. */

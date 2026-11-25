@@ -1,6 +1,6 @@
 //! Ports of packages/cli/test/web-query.test.ts: the canvas on-demand query
-//! contract (docs/design.md, "画布按需查询") over the resident store, driven
-//! in-process via tower oneshot (the counterpart of Hono's app.request).
+//! contract over the resident store, driven in-process via tower oneshot (the
+//! counterpart of Hono's app.request).
 //!
 //! Fixture shape:
 //!   P1 1A2B3C4D   P2 1A2B3C4E   P3 1A2B3C4F

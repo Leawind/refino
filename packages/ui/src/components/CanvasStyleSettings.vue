@@ -73,10 +73,10 @@ const textScale = computed<number>({
   gap: 8px;
   width: 200px;
   padding: 12px;
-  border-radius: var(--refino-radius);
+  border-radius: var(--refino-radius-lg);
   background: var(--refino-surface);
   border: 1px solid var(--refino-border);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--refino-shadow-2);
 }
 
 .row {

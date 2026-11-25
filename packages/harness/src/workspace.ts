@@ -13,16 +13,15 @@ import { effectiveExploring } from "refino";
 import type { Graph, RefinoNode } from "refino";
 
 /**
- * One agent's DLG state over a `.refino/` directory: the storage Store's
- * resident projection under the current authorization context, plus
- * external-change syncing (docs/design.md, 存储层 Store / dsh 插件落地形态).
+ * One agent's DLG state over a `.refino/` directory: the storage Store's resident
+ * projection under the current authorization context, plus external-change syncing.
  * The context starts at the defaults; once a host signs an explicit one
  * (`signContext` — authorization console, user commands, model-initiated
  * confirmation), it is session state: store changes converge it instead of
  * resetting — ids removed by a change drop out, surviving declarations are
- * untouched. The projection and its consistency with the disk live in the
- * store; every applied change (own writes and external file events alike)
- * rebuilds the session here, so reads never see a stale graph.
+ * untouched. The projection and its consistency with the disk live in the store;
+ * every applied change (own writes and external file events alike) rebuilds the
+ * session here, so reads never see a stale graph.
  *
  * Node-only by necessity (the Store); exported through the
  * `@refino/harness/host` subpath so the platform-agnostic main entry stays
@@ -56,10 +55,9 @@ export interface ResolvedAuthorization {
 }
 
 /**
- * Resolve the authorization a session starts under (docs/design.md, dsh 插件
- * 落地形态): an orchestrator credential when the environment provides one,
- * the derived defaults otherwise. Hosts adopt the resolved context on their
- * workspace (signContext) when it is not the defaults.
+ * Resolve the authorization a session starts under: an orchestrator credential when
+ * the environment provides one, the derived defaults otherwise. Hosts adopt the
+ * resolved context on their workspace (signContext) when it is not the defaults.
  */
 export async function resolveAuthorization(
   graph: Graph,
@@ -91,7 +89,7 @@ export class RefinoWorkspace {
   #complete: boolean;
   /** Decision ids of the frozen zone under the current context — the delta basis. */
   #zoneIds: Set<string>;
-  /** What node information has reached the model (docs/design.md, 会话已知集). */
+  /** What node information has reached the model. */
   #known: SessionKnownSet;
   /** False until the first signContext; the first signing re-seeds the known set. */
   #signedOnce = false;
@@ -316,9 +314,8 @@ export class RefinoWorkspace {
   /**
    * Seed the known set to match the baseline injection: under the auto-anchor
    * budget the anchor block covers every node; above it, the orientation's
-   * root-decision set. Runs once at open, over the then-current graph — a
-   * change between the host's baseline render and this point is fail-soft
-   * miss territory (docs/design.md, 增量更新与缓存友好).
+   * root-decision set. Runs once at open, over the then-current graph — a change
+   * between the host's baseline render and this point is fail-soft miss territory.
    */
   #seedKnown(): void {
     const graph = this.#store.graph;

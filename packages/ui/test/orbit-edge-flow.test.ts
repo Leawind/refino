@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { OneFactor, ZeroFactor } from "three";
-import { ADDITIVE_OVER_PAGE } from "../src/graph/orbit/blending";
+import { OneFactor, OneMinusSrcAlphaFactor, ZeroFactor } from "three";
+import { ADDITIVE_OVER_PAGE, applyOrbitBlending } from "../src/graph/orbit/blending";
 import {
   createEdgeFlowMaterial,
   EDGE_FLOW_BASE,
@@ -31,6 +31,18 @@ describe("orbit edge flow", () => {
     expect(ADDITIVE_OVER_PAGE.blendDstAlpha).toBe(OneFactor);
   });
 
+  it("switches between additive light and alpha ink with the palette", () => {
+    const material = createEdgeFlowMaterial();
+    applyOrbitBlending(material, false);
+    expect(material.blendSrcAlpha).toBe(ZeroFactor);
+    applyOrbitBlending(material, true);
+    // Ink must write alpha: the paper background is opaque, so the marks
+    // composite normally instead of adding light.
+    expect(material.blendSrcAlpha).toBe(OneFactor);
+    expect(material.blendDstAlpha).toBe(OneMinusSrcAlphaFactor);
+    material.dispose();
+  });
+
   it("carries the clock and the pulse spacing", () => {
     const material = createEdgeFlowMaterial();
     expect(material.uniforms.uTime).toBeDefined();
@@ -40,6 +52,8 @@ describe("orbit edge flow", () => {
     // 0 is the documented "no glow" value, so the uniform must track it.
     expect(material.uniforms.uGlow!.value).toBe(EDGE_FLOW_GLOW);
     expect(material.uniforms.uBase!.value).toBe(EDGE_FLOW_BASE);
+    // Light adds its color; the paper palette reads the same uniforms as alpha.
+    expect(material.uniforms.uInk!.value).toBe(0);
     material.dispose();
   });
 });

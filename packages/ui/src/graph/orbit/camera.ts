@@ -25,6 +25,18 @@ export function zoomDistance(distance: number, factor: number, min: number, max:
   return Math.min(max, Math.max(min, distance / factor));
 }
 
+/** Trackball rotation sensitivity: 1 means one canvas-width drag turns roughly
+ * a third of a turn. A slow default keeps the star map easy to read while
+ * orbiting; the range leaves room for both precise and fast turning. */
+export const DEFAULT_ROTATE_SENSITIVITY = 2;
+export const ROTATE_SENSITIVITY_MIN = 0.25;
+export const ROTATE_SENSITIVITY_MAX = 6;
+
+export function clampRotateSensitivity(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_ROTATE_SENSITIVITY;
+  return Math.min(ROTATE_SENSITIVITY_MAX, Math.max(ROTATE_SENSITIVITY_MIN, value));
+}
+
 /** Wheel sensitivity: a 100px notch multiplies the camera distance by
  * about 0.8, a deliberately coarse step. */
 export const WHEEL_ZOOM_SENSITIVITY = 0.0022;
@@ -45,8 +57,9 @@ export function wheelTargetDistance(
  * fits, so the limits belong to it rather than to the vertical one alone. */
 export const MIN_FOV = 40;
 export const MAX_FOV = 120;
-/** Narrower viewing angle the orbit scene starts at and resets to. */
-export const DEFAULT_FOV = 45;
+/** Narrower viewing angle the orbit scene starts at and resets to. Wide
+ * enough to see the whole constellation around the core at a glance. */
+export const DEFAULT_FOV = 100;
 
 const DEGREES = Math.PI / 180;
 

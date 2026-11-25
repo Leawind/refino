@@ -2,9 +2,7 @@
 "use strict";
 
 /**
- * Distribution shell for the native refino binary (docs/design.md,
- * "命令行工具": the npm channel is a shell that resolves the platform
- * binary; the command surface itself lives in the Rust crate).
+ * Distribution shell for the native refino binary.
  *
  * The platform package (@refino/cli-<platform>-<arch>) is installed as an
  * optional dependency pinned to the shell's exact version — the esbuild /

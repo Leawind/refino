@@ -16,10 +16,9 @@ import { searchNodes, type SearchPage, type SearchParams } from "./search.js";
 import type { AuthorizationContext, ContextBlock, DeltaEvent, ModificationCheck } from "./types.js";
 
 /**
- * Host adapter interface (docs/design.md, "harness 与工具插件的分工"). Tool
- * plugins (e.g. `@refino/cordis-plugin-refino`) register the session's capabilities
- * with their host and deliver context updates through it; the host decides
- * how context blocks and delta events reach the model.
+ * Host adapter interface. Tool plugins (e.g. `@refino/cordis-plugin-refino`)
+ * register the session's capabilities with their host and deliver context updates
+ * through it; the host decides how context blocks and delta events reach the model.
  */
 export interface HarnessHost {
   /** Deliver context blocks and delta events to the model-facing channel. */
@@ -94,7 +93,7 @@ export class HarnessSession {
     return queryGroups(this.graph, ids, getDependents);
   }
 
-  /** Keyset-paginated id/summary search over the graph (docs/design.md, "模型侧：DLG 访问工具"). */
+  /** Keyset-paginated id/summary search over the graph. */
   search(params: SearchParams = {}): SearchPage {
     return searchNodes(this.graph, params);
   }

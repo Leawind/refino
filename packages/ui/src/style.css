@@ -4,7 +4,9 @@
   --refino-accent-soft: rgba(24, 160, 88, 0.12);
   --refino-accent-line: rgba(24, 160, 88, 0.55);
   --refino-danger: #d03050;
+  --refino-danger-soft: rgba(208, 48, 80, 0.09);
   --refino-warn: #b9790b;
+  --refino-warn-soft: rgba(185, 121, 11, 0.12);
 
   --refino-radius-sm: 6px;
   --refino-radius: 8px;
@@ -50,7 +52,9 @@
   --refino-accent-soft: rgba(54, 173, 120, 0.16);
   --refino-accent-line: rgba(54, 173, 120, 0.6);
   --refino-danger: #e0607a;
+  --refino-danger-soft: rgba(224, 96, 122, 0.14);
   --refino-warn: #d5a03a;
+  --refino-warn-soft: rgba(213, 160, 58, 0.16);
 
   --refino-border: rgba(255, 255, 255, 0.1);
   --refino-border-strong: rgba(255, 255, 255, 0.18);

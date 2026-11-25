@@ -65,8 +65,7 @@ export interface ContextBlock {
 
 /**
  * The frozen zone has no block kind of its own: a frozen node stays in its
- * anchor/premise block with a `[冻结]` mark on the line (docs/design.md,
- * 上下文注入协议).
+ * anchor/premise block with a `[冻结]` mark on the line.
  */
 export type ContextBlockKind = "anchor" | "premise";
 

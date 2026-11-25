@@ -2,14 +2,20 @@ import { computed, reactive, readonly, shallowRef, type InjectionKey } from "vue
 import type { RefinoClient } from "./api";
 import { readNumberPreference, readPreference, writePreference } from "./preferences";
 import { TEXT_SCALE_MAX, TEXT_SCALE_MIN } from "./graph/render/renderer";
+import { clampRotateSensitivity, DEFAULT_ROTATE_SENSITIVITY } from "./graph/orbit/camera";
+import {
+  clampOrbitSetting,
+  clampOrbitTextScale,
+  ORBIT_SETTINGS_DEFAULT,
+  ORBIT_TEXT_SCALE_DEFAULT,
+} from "./graph/orbit/settings";
 import { LAYER_GAP, LAYER_GAP_MAX, LAYER_GAP_MIN } from "./graph/layout/engine";
 import { FORCE_TUNING_DEFAULT, FORCE_TUNING_MAX, FORCE_TUNING_MIN } from "./graph/layout/force";
 import type { LayoutMode } from "./graph/layout/types";
 import type { CanvasView, ChangeEvent, IssueRecord, LayoutDirection, NodeLite } from "./types";
 
 /**
- * Accumulated working-set state (docs/design.md, "画布按需查询"; @refino/ui
- * DESIGN.md, "数据：按需工作集").
+ * Accumulated working-set state (@refino/ui DESIGN.md, "数据：按需工作集").
  *
  * The full graph is never loaded. Each selection change expands one block
  * per selected node (full upstream closure, bounded descendants, strong
@@ -68,6 +74,19 @@ export interface CanvasConfig {
   showVirtualRoot: boolean;
   /** Canvas presentation: the planar graph or the 3D orbit view. */
   canvasView: CanvasView;
+  /** Right-drag trackball sensitivity in the 3D view. */
+  rotateSensitivity: number;
+  /** 3D view presentation: star light, lineage flow, force balance and ring
+   * speed, each a multiplier around the tuned baseline. */
+  orbitStarBrightness: number;
+  orbitFlowSpeed: number;
+  orbitFlowGlow: number;
+  orbitSpring: number;
+  orbitRepulsion: number;
+  /** Multiplier on the premise satellites' angular speed; 0 holds them. */
+  orbitRevolutionSpeed: number;
+  /** Text scale of the 3D view's focused content and its summaries. */
+  orbitTextScale: number;
   /** Whether the canvas minimap overview floats in the top-left corner. */
   showMinimap: boolean;
 }
@@ -101,6 +120,14 @@ const DEFAULT_CONFIG: CanvasConfig = {
   forceSpring: FORCE_TUNING_DEFAULT.spring,
   showVirtualRoot: true,
   canvasView: "planar",
+  rotateSensitivity: DEFAULT_ROTATE_SENSITIVITY,
+  orbitStarBrightness: ORBIT_SETTINGS_DEFAULT.starBrightness,
+  orbitFlowSpeed: ORBIT_SETTINGS_DEFAULT.flowSpeed,
+  orbitFlowGlow: ORBIT_SETTINGS_DEFAULT.flowGlow,
+  orbitSpring: ORBIT_SETTINGS_DEFAULT.spring,
+  orbitRepulsion: ORBIT_SETTINGS_DEFAULT.repulsion,
+  orbitRevolutionSpeed: ORBIT_SETTINGS_DEFAULT.revolutionSpeed,
+  orbitTextScale: ORBIT_TEXT_SCALE_DEFAULT,
   showMinimap: true,
 };
 
@@ -126,6 +153,14 @@ const CONFIG_KEYS: Record<keyof CanvasConfig, string> = {
   forceSpring: "refino.canvas.forceSpring",
   showVirtualRoot: "refino.canvas.showVirtualRoot",
   canvasView: "refino.canvas.canvasView",
+  rotateSensitivity: "refino.canvas.rotateSensitivity",
+  orbitStarBrightness: "refino.canvas.orbitStarBrightness",
+  orbitFlowSpeed: "refino.canvas.orbitFlowSpeed",
+  orbitFlowGlow: "refino.canvas.orbitFlowGlow",
+  orbitSpring: "refino.canvas.orbitSpring",
+  orbitRepulsion: "refino.canvas.orbitRepulsion",
+  orbitRevolutionSpeed: "refino.canvas.orbitRevolutionSpeed",
+  orbitTextScale: "refino.canvas.orbitTextScale",
   showMinimap: "refino.canvas.showMinimap",
 };
 
@@ -235,6 +270,36 @@ function loadConfig(): CanvasConfig {
       readPreference(CONFIG_KEYS.canvasView, DEFAULT_CONFIG.canvasView) === "orbit"
         ? "orbit"
         : "planar",
+    rotateSensitivity: clampRotateSensitivity(
+      readNumberPreference(CONFIG_KEYS.rotateSensitivity, DEFAULT_CONFIG.rotateSensitivity),
+    ),
+    orbitStarBrightness: clampOrbitSetting(
+      "starBrightness",
+      readNumberPreference(CONFIG_KEYS.orbitStarBrightness, DEFAULT_CONFIG.orbitStarBrightness),
+    ),
+    orbitFlowSpeed: clampOrbitSetting(
+      "flowSpeed",
+      readNumberPreference(CONFIG_KEYS.orbitFlowSpeed, DEFAULT_CONFIG.orbitFlowSpeed),
+    ),
+    orbitFlowGlow: clampOrbitSetting(
+      "flowGlow",
+      readNumberPreference(CONFIG_KEYS.orbitFlowGlow, DEFAULT_CONFIG.orbitFlowGlow),
+    ),
+    orbitSpring: clampOrbitSetting(
+      "spring",
+      readNumberPreference(CONFIG_KEYS.orbitSpring, DEFAULT_CONFIG.orbitSpring),
+    ),
+    orbitRepulsion: clampOrbitSetting(
+      "repulsion",
+      readNumberPreference(CONFIG_KEYS.orbitRepulsion, DEFAULT_CONFIG.orbitRepulsion),
+    ),
+    orbitRevolutionSpeed: clampOrbitSetting(
+      "revolutionSpeed",
+      readNumberPreference(CONFIG_KEYS.orbitRevolutionSpeed, DEFAULT_CONFIG.orbitRevolutionSpeed),
+    ),
+    orbitTextScale: clampOrbitTextScale(
+      readNumberPreference(CONFIG_KEYS.orbitTextScale, DEFAULT_CONFIG.orbitTextScale),
+    ),
     showMinimap:
       readPreference(CONFIG_KEYS.showMinimap, String(DEFAULT_CONFIG.showMinimap)) === "true",
   };
@@ -250,7 +315,7 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 /** One workspace instance: working-set state, selection and change
- * subscription over one injected client (docs/design.md, "前端技术栈"). */
+ * subscription over one injected client. */
 export function createWorkspace(client: RefinoClient) {
   const state = reactive<WorkspaceState>({
     ready: false,
@@ -656,6 +721,14 @@ export function createWorkspace(client: RefinoClient) {
     "zoomAnchor",
     "zoomMax",
     "canvasView",
+    "rotateSensitivity",
+    "orbitStarBrightness",
+    "orbitFlowSpeed",
+    "orbitFlowGlow",
+    "orbitSpring",
+    "orbitRepulsion",
+    "orbitRevolutionSpeed",
+    "orbitTextScale",
     "showMinimap",
   ]);
 

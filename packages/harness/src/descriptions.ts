@@ -1,10 +1,10 @@
 import type { ToolRefs } from "./types.js";
 
 /**
- * Shared model-facing descriptions for the DLG tools (docs/design.md, 模型侧：
- * DLG 访问工具). Host adapters assemble their own tool schemas (each host has
- * its schema DSL) but cite these texts so the semantics stay single-sourced.
- * Texts that name another tool are parameterized by the host's tool-name refs.
+ * Shared model-facing descriptions for the DLG tools. Host adapters assemble their
+ * own tool schemas (each host has its schema DSL) but cite these texts so the
+ * semantics stay single-sourced. Texts that name another tool are parameterized by
+ * the host's tool-name refs.
  */
 
 export interface ToolText {

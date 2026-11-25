@@ -4,11 +4,10 @@ import { join } from "node:path";
 import { ID_CHARSET } from "refino";
 
 /**
- * Watches the sharded node directory for external changes (docs/design.md,
- * "外部变更同步"). Non-recursive on purpose: recursive watching is
- * unavailable on Linux, so there is one watch on `nodes/` plus one per shard
- * directory — the watch count stays bounded by the shard count, and shard
- * directories are created lazily as ids are generated.
+ * Watches the sharded node directory for external changes. Non-recursive on
+ * purpose: recursive watching is unavailable on Linux, so there is one watch on
+ * `nodes/` plus one per shard directory — the watch count stays bounded by the
+ * shard count, and shard directories are created lazily as ids are generated.
  *
  * File events report the affected node id (shard name + the id segment of
  * the file name) plus the shard directory itself. Ids cover everything that

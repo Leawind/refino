@@ -4,10 +4,10 @@
  * Lineage depth is distance from the core and branches run radially
  * outwards, so upstream and downstream are read from position. Every premise
  * is a satellite copy orbiting a decision that grounds on it (or the root
- * when no displayed decision does); a focused system keeps revolving and
- * shows a barely visible orbit track. Grounds edges only connect decisions;
- * extra grounds join the picture around an interacted node, so the resting
- * view stays a tree.
+ * when no displayed decision does); a focused system holds still and shows a
+ * barely visible orbit track, while the other rings keep revolving. Grounds
+ * edges only connect decisions; extra grounds join the picture around an
+ * interacted node, so the resting view stays a tree.
  *
  * The satellite revolution is the one persistent animation, so the frame
  * loop keeps running while a scene is mounted.
@@ -45,6 +45,8 @@ import {
   fovForLimiting,
   glideCenter,
   limitingFov,
+  clampRotateSensitivity,
+  DEFAULT_ROTATE_SENSITIVITY,
   logGlowScale,
   MAX_FOV,
   MIN_FOV,
@@ -56,10 +58,20 @@ import {
   wheelTargetDistance,
   zoomDistance,
 } from "./camera";
-import { ADDITIVE_OVER_PAGE } from "./blending";
-import { createEdgeFlowMaterial, fillFlowDirections } from "./edgeFlow";
+import { ADDITIVE_OVER_PAGE, applyOrbitBlending } from "./blending";
+import {
+  createEdgeFlowMaterial,
+  EDGE_FLOW_BASE,
+  EDGE_FLOW_GLOW,
+  EDGE_FLOW_SPEED,
+  EDGE_INK_BASE,
+  EDGE_INK_GLOW,
+  fillFlowDirections,
+} from "./edgeFlow";
 import { OrbitForceSession } from "./force";
 import { ORBIT_ROOT_STAR_RADIUS, ORBIT_STAR_RADIUS } from "./layout";
+import { clampOrbitSetting, ORBIT_SETTINGS_DEFAULT } from "./settings";
+import type { OrbitSettings } from "./settings";
 import { ORBIT_THEME } from "./theme";
 import type { OrbitTheme } from "./theme";
 
@@ -191,8 +203,6 @@ const ZOOM_TAU_MS = 70;
  * read as a quiet drift, not draw the eye away from the decisions. */
 const SATELLITE_PERIOD_MS = 50000;
 const SATELLITE_SPEED = (Math.PI * 2) / SATELLITE_PERIOD_MS;
-/** The focused system's ring is only a hint, never a highlight. */
-const TRACK_OPACITY = 0.12;
 /** Halo radius multipliers; the selection glow is the larger one. Satellite
  * copies use a much smaller halo than decisions, in keeping with their size. */
 const HALO_SCALE = {
@@ -298,7 +308,7 @@ function haloTexture(): CanvasTexture {
 
 /** A fixed, very faint star field behind the constellation. It gives the
  * empty canvas a sky without competing with the actual nodes. */
-function buildSky(material: PointsMaterial): Points {
+function buildSky(material: PointsMaterial, tint: RGBA): Points {
   let seed = 0x9e3779b9;
   const random = (): number => {
     seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
@@ -307,6 +317,7 @@ function buildSky(material: PointsMaterial): Points {
   const count = 1900;
   const positions = new Float32Array(count * 3);
   const colors = new Float32Array(count * 3);
+  const levels = new Float32Array(count);
   for (let index = 0; index < count; index++) {
     const z = random() * 2 - 1;
     const radius = Math.sqrt(Math.max(0, 1 - z * z));
@@ -315,15 +326,19 @@ function buildSky(material: PointsMaterial): Points {
     positions[index * 3] = Math.cos(angle) * radius * distance;
     positions[index * 3 + 1] = z * distance;
     positions[index * 3 + 2] = Math.sin(angle) * radius * distance;
-    const brightness = 0.22 + random() * 0.6;
-    colors[index * 3] = brightness * 0.72;
-    colors[index * 3 + 1] = brightness * 0.84;
-    colors[index * 3 + 2] = brightness;
+    const level = 0.22 + random() * 0.6;
+    levels[index] = level;
+    colors[index * 3] = level * tint[0];
+    colors[index * 3 + 1] = level * tint[1];
+    colors[index * 3 + 2] = level * tint[2];
   }
   const geometry = new BufferGeometry();
   geometry.setAttribute("position", new BufferAttribute(positions, 3));
   geometry.setAttribute("color", new BufferAttribute(colors, 3));
   const sky = new Points(geometry, material);
+  // The per-star level stays with the object so a palette switch only
+  // recolors the dust instead of rebuilding it.
+  sky.userData.levels = levels;
   sky.frustumCulled = false;
   sky.renderOrder = -1;
   return sky;
@@ -342,6 +357,7 @@ export class OrbitScene {
     size: STAR_SIZE,
     transparent: true,
     depthWrite: false,
+    opacity: ORBIT_THEME.opacity.star,
     ...ADDITIVE_OVER_PAGE,
     vertexColors: true,
     sizeAttenuation: true,
@@ -350,7 +366,7 @@ export class OrbitScene {
     map: this.#haloCanvas,
     size: STAR_GLOW_SIZE,
     transparent: true,
-    opacity: 0.12,
+    opacity: ORBIT_THEME.opacity.glow,
     depthWrite: false,
     ...ADDITIVE_OVER_PAGE,
     vertexColors: true,
@@ -363,7 +379,7 @@ export class OrbitScene {
     map: this.#haloCanvas,
     size: SATELLITE_SIZE,
     transparent: true,
-    opacity: 0.92,
+    opacity: ORBIT_THEME.opacity.satellite,
     depthWrite: false,
     ...ADDITIVE_OVER_PAGE,
     vertexColors: true,
@@ -374,7 +390,7 @@ export class OrbitScene {
   readonly #trackMaterial = new LineBasicMaterial({
     color: colorOf(ORBIT_THEME.edge),
     transparent: true,
-    opacity: TRACK_OPACITY,
+    opacity: ORBIT_THEME.opacity.track,
     depthWrite: false,
     ...ADDITIVE_OVER_PAGE,
   });
@@ -391,7 +407,7 @@ export class OrbitScene {
     depthWrite: false,
     depthTest: false,
     ...ADDITIVE_OVER_PAGE,
-    opacity: 0.7,
+    opacity: ORBIT_THEME.opacity.selection,
   });
   readonly #hoverMaterial = new SpriteMaterial({
     map: this.#haloCanvas,
@@ -399,10 +415,10 @@ export class OrbitScene {
     depthWrite: false,
     depthTest: false,
     ...ADDITIVE_OVER_PAGE,
-    opacity: 0.45,
+    opacity: ORBIT_THEME.opacity.hover,
   });
   readonly #root: Sprite;
-  readonly #theme: OrbitTheme = ORBIT_THEME;
+  #theme: OrbitTheme = ORBIT_THEME;
 
   #decisions: OrbitSceneNode[] = [];
   #satellites: OrbitSceneSatellite[] = [];
@@ -464,12 +480,14 @@ export class OrbitScene {
     size: 1.6,
     sizeAttenuation: false,
     transparent: true,
-    opacity: 0.6,
+    opacity: ORBIT_THEME.opacity.sky,
     depthWrite: false,
     ...ADDITIVE_OVER_PAGE,
     vertexColors: true,
     fog: false,
   });
+  /** Persisted presentation settings; the defaults change nothing. */
+  #settings: OrbitSettings = ORBIT_SETTINGS_DEFAULT;
   #boundsRadius = ORBIT_ROOT_STAR_RADIUS;
   #fitReference = 20;
   #width = 1;
@@ -522,9 +540,10 @@ export class OrbitScene {
     this.#controls = new TrackballControls(this.#camera, canvas);
     this.#controls.staticMoving = false;
     this.#controls.dynamicDampingFactor = 0.15;
-    // The trackball measures drags in half-canvas widths; this brings a drag
-    // across most of the canvas to roughly two thirds of a turn.
-    this.#controls.rotateSpeed = 2;
+    // The trackball measures drags in half-canvas widths; the persisted
+    // sensitivity comes from the workspace and can be tuned from the edge
+    // control (ui DESIGN.md, "三维视图").
+    this.#controls.rotateSpeed = DEFAULT_ROTATE_SENSITIVITY;
     this.#controls.minDistance = MIN_DISTANCE;
     this.#controls.maxDistance = 4000;
     // Panning would drag the orbit center off the graph; the root star and
@@ -593,17 +612,15 @@ export class OrbitScene {
     });
     this.#controls.addEventListener("start", () => this.#queue());
 
-    this.#sky = buildSky(this.#skyMaterial);
+    this.#sky = buildSky(this.#skyMaterial, this.#theme.sky);
     this.#scene.add(this.#sky);
     this.#root = new Sprite(this.#rootMaterial);
     this.#root.scale.setScalar(ORBIT_ROOT_STAR_RADIUS * ROOT_GLOW_BASE);
     this.#rootMaterial.opacity = ROOT_OPACITY_BASE;
     this.#scene.add(this.#root);
-    this.#selectionMaterial.color.copy(colorOf(this.#theme.highlight));
-    this.#edgeMaterial.uniforms.uHighlight!.value.copy(colorOf(this.#theme.highlight));
-    this.#hoverMaterial.color.copy(colorOf(this.#theme.highlight));
     this.#scene.fog = new Fog(colorOf(this.#theme.background), 1, 1000);
     this.#scene.background = null;
+    this.#applyTheme();
   }
 
   static create(canvas: HTMLCanvasElement): OrbitScene | null {
@@ -647,6 +664,7 @@ export class OrbitScene {
       })),
       this.#edges,
       seed,
+      { spring: this.#settings.spring, repulsion: this.#settings.repulsion },
     );
     this.#current = new Map(
       ordered.map((node) => {
@@ -966,6 +984,110 @@ export class OrbitScene {
       this.#controls.maxDistance,
     );
     this.#queue();
+  }
+
+  /** Rotation sensitivity of a right drag, as the orbit control reads it. */
+  get rotateSensitivity(): number {
+    return this.#controls.rotateSpeed;
+  }
+
+  /** Set the rotation sensitivity immediately; no reframe is needed. */
+  setRotateSensitivity(value: number): void {
+    const speed = clampRotateSensitivity(value);
+    if (speed === this.#controls.rotateSpeed) return;
+    this.#controls.rotateSpeed = speed;
+  }
+
+  /** Apply the persisted presentation settings. Each one lands on the live
+   * scene at once: the flow uniforms, the light layers, the simulation's
+   * balance and the ring speed all read from the stored settings per frame or
+   * per use. */
+  setSettings(settings: OrbitSettings): void {
+    const clamped: OrbitSettings = {
+      starBrightness: clampOrbitSetting("starBrightness", settings.starBrightness),
+      flowSpeed: clampOrbitSetting("flowSpeed", settings.flowSpeed),
+      flowGlow: clampOrbitSetting("flowGlow", settings.flowGlow),
+      spring: clampOrbitSetting("spring", settings.spring),
+      repulsion: clampOrbitSetting("repulsion", settings.repulsion),
+      revolutionSpeed: clampOrbitSetting("revolutionSpeed", settings.revolutionSpeed),
+    };
+    this.#settings = clamped;
+    this.#applyLighting();
+    this.#applyFlowUniforms();
+    this.#force?.setTuning({ spring: clamped.spring, repulsion: clamped.repulsion });
+    this.#queue();
+  }
+
+  /** Switch the palette with the UI theme (ui DESIGN.md, "三维视图"). */
+  setTheme(theme: OrbitTheme): void {
+    if (theme === this.#theme) return;
+    this.#theme = theme;
+    this.#applyTheme();
+    this.#queue();
+  }
+
+  /** Everything the palette drives: what the canvas composites onto, how the
+   * marks blend, how much light or ink each layer leaves, and every cached
+   * color derived from it. */
+  #applyTheme(): void {
+    const theme = this.#theme;
+    this.#renderer.setClearColor(colorOf(theme.background), theme.ink ? 1 : 0);
+    const fog = this.#scene.fog;
+    if (fog instanceof Fog) fog.color.copy(colorOf(theme.background));
+    this.#applyBlending();
+    this.#applyLighting();
+    this.#rootMaterial.color.copy(colorOf(theme.root));
+    this.#selectionMaterial.color.copy(colorOf(theme.highlight));
+    this.#hoverMaterial.color.copy(colorOf(theme.highlight));
+    this.#trackMaterial.color.copy(colorOf(theme.edge));
+    this.#edgeMaterial.uniforms.uHighlight!.value.copy(colorOf(theme.highlight));
+    this.#applyFlowUniforms();
+    this.#applySkyColors();
+    this.#applyPointColors();
+    this.#applyEdgeColors();
+    this.#rebuildRootRays();
+  }
+
+  #applyBlending(): void {
+    for (const material of [
+      this.#starMaterial,
+      this.#glowMaterial,
+      this.#satelliteMaterial,
+      this.#rootMaterial,
+      this.#selectionMaterial,
+      this.#hoverMaterial,
+      this.#skyMaterial,
+      this.#trackMaterial,
+      this.#edgeMaterial,
+    ]) {
+      applyOrbitBlending(material, this.#theme.ink);
+    }
+  }
+
+  /** The pulse is light over the dark page and ink over paper, so its strength
+   * comes from two different sets of baselines. */
+  #applyFlowUniforms(): void {
+    const ink = this.#theme.ink;
+    this.#edgeMaterial.uniforms.uSpeed!.value = EDGE_FLOW_SPEED * this.#settings.flowSpeed;
+    this.#edgeMaterial.uniforms.uBase!.value = ink ? EDGE_INK_BASE : EDGE_FLOW_BASE;
+    this.#edgeMaterial.uniforms.uGlow!.value =
+      (ink ? EDGE_INK_GLOW : EDGE_FLOW_GLOW) * this.#settings.flowGlow;
+    this.#edgeMaterial.uniforms.uInk!.value = ink ? 1 : 0;
+  }
+
+  /** Each layer keeps its palette's baseline strength; the star brightness
+   * setting scales the light of the stars alone. */
+  #applyLighting(): void {
+    const brightness = this.#settings.starBrightness;
+    const opacity = this.#theme.opacity;
+    this.#starMaterial.opacity = opacity.star * brightness;
+    this.#glowMaterial.opacity = opacity.glow * brightness;
+    this.#satelliteMaterial.opacity = opacity.satellite * brightness;
+    this.#skyMaterial.opacity = opacity.sky * brightness;
+    this.#selectionMaterial.opacity = opacity.selection;
+    this.#hoverMaterial.opacity = opacity.hover;
+    this.#trackMaterial.opacity = opacity.track;
+    this.#rootMaterial.opacity = this.#rootOpacity * brightness;
   }
 
   /** Narrower viewing angle and its limits, as the FOV control reads them. */
@@ -1349,6 +1471,17 @@ export class OrbitScene {
     this.#applyPointColors();
   }
 
+  #applySkyColors(): void {
+    const attribute = this.#sky.geometry.getAttribute("color");
+    const levels = this.#sky.userData.levels;
+    if (attribute === undefined || !(levels instanceof Float32Array)) return;
+    const sky = colorOf(this.#theme.sky);
+    levels.forEach((level, index) => {
+      attribute.setXYZ(index, level * sky.r, level * sky.g, level * sky.b);
+    });
+    attribute.needsUpdate = true;
+  }
+
   #applyPointColors(): void {
     const shallow = colorOf(this.#theme.star);
     const deep = colorOf(this.#theme.deepStar);
@@ -1391,8 +1524,14 @@ export class OrbitScene {
     if (this.#rootIds.length === 0) return;
     const positions = new Float32Array(this.#rootIds.length * 6);
     const colors = new Float32Array(this.#rootIds.length * 6);
-    const start = colorOf(this.#theme.edge).multiplyScalar(0.12);
-    const end = colorOf(this.#theme.edge).multiplyScalar(0.55);
+    const edge = colorOf(this.#theme.edge);
+    const paper = colorOf(this.#theme.background);
+    const start = this.#theme.ink
+      ? paper.clone().lerp(edge, 0.12)
+      : edge.clone().multiplyScalar(0.12);
+    const end = this.#theme.ink
+      ? paper.clone().lerp(edge, 0.55)
+      : edge.clone().multiplyScalar(0.55);
     this.#rootIds.forEach((_, index) => {
       colors[index * 6] = start.r;
       colors[index * 6 + 1] = start.g;
@@ -1480,6 +1619,8 @@ export class OrbitScene {
     if (attribute === undefined) return;
     const base = colorOf(this.#theme.edge);
     const highlight = colorOf(this.#theme.highlight);
+    const paper = colorOf(this.#theme.background);
+    const ink = this.#theme.ink;
     this.#visibleEdges.forEach((edge, index) => {
       const active =
         edge.from === this.#hovered ||
@@ -1489,8 +1630,14 @@ export class OrbitScene {
       // root, so it reads brighter than the rest of the lineage.
       const parentOfFocus = edge.primary && edge.to === this.#focusKey;
       const weight = parentOfFocus ? 1.7 : edge.primary ? 1 : 0.45;
-      const upstream = base.clone().multiplyScalar(weight * 0.3);
-      const downstream = base.clone().multiplyScalar(weight);
+      // Over paper the weight says how much ink is mixed into the page: the
+      // upstream end stays paler, the downstream end darker.
+      const upstream = ink
+        ? paper.clone().lerp(base, Math.min(1, weight * 0.45))
+        : base.clone().multiplyScalar(weight * 0.3);
+      const downstream = ink
+        ? paper.clone().lerp(base, Math.min(1, weight))
+        : base.clone().multiplyScalar(weight);
       if (parentOfFocus) {
         upstream.lerp(highlight, 0.4);
         downstream.lerp(highlight, 0.65);
@@ -1701,13 +1848,20 @@ export class OrbitScene {
   }
 
   /** Advance every satellite ring and recompute the satellite positions;
-   * returns whether the rings are revolving. */
+   * returns whether any ring is revolving. The focused system holds still —
+   * the ring of the focused decision, of the focused premise's host decision,
+   * or the root ring while the root is focused — because those premises carry
+   * the labels beside the focus, and a label that slowly slides under the
+   * reading eye is a distraction, not life. Every other ring keeps revolving. */
   #updateSatellitePositions(delta: number): boolean {
     let moving = false;
+    const speed = SATELLITE_SPEED * this.#settings.revolutionSpeed;
+    const holdingHost = this.#focusHost();
     for (const satellite of this.#satellites) {
       let angle = this.#satelliteAngles.get(satellite.key) ?? satellite.phase;
-      if (delta > 0) {
-        angle += SATELLITE_SPEED * delta;
+      const holdsStill = holdingHost !== undefined && satellite.host === holdingHost;
+      if (delta > 0 && !holdsStill && speed > 0) {
+        angle += speed * delta;
         moving = true;
       }
       angle %= Math.PI * 2;
@@ -1843,7 +1997,7 @@ export class OrbitScene {
     this.#root.scale.setScalar(
       ORBIT_ROOT_STAR_RADIUS * this.#rootScale * this.#glowScaleAt(this.#origin),
     );
-    this.#rootMaterial.opacity = this.#rootOpacity;
+    this.#rootMaterial.opacity = this.#rootOpacity * this.#settings.starBrightness;
     return moving;
   }
 

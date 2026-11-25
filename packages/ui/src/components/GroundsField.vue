@@ -193,6 +193,6 @@ function append(id: string | null): void {
 
 .remove:hover {
   opacity: 1;
-  color: #d03050;
+  color: var(--refino-danger);
 }
 </style>

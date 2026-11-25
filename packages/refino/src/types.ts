@@ -10,11 +10,10 @@
  * like any unknown frontmatter field: producers silently ignore it. Edges
  * only ever come from decision `grounds`.
  *
- * These types are the engine's resident memory model (docs/design.md,
- * "渐进披露与常驻集"): id, type, summary and the graph relations always
- * stay in memory. Body and rationale are paged content supplied by the
- * storage layer by id — they are not part of engine types, and no topology
- * operation needs them.
+ * These types are the engine's resident memory model: id, type, summary and the
+ * graph relations always stay in memory. Body and rationale are paged content
+ * supplied by the storage layer by id — they are not part of engine types, and no
+ * topology operation needs them.
  */
 
 export type NodeType = "premise" | "decision";
@@ -49,10 +48,9 @@ export interface DecisionNode {
 export type RefinoNode = PremiseNode | DecisionNode;
 
 /**
- * Light node shape carried by batch query results (docs/design.md, "画布按
- * 需查询"): id, type, summary and grounds — the resident fields without
- * premise `confirmed`. Premises and not-yet-loaded decisions omit
- * `grounds`.
+ * Light node shape carried by batch query results: id, type, summary and grounds —
+ * the resident fields without premise `confirmed`. Premises and not-yet-loaded
+ * decisions omit `grounds`.
  */
 export interface NodeLite {
   id: string;

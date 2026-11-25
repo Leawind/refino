@@ -1,11 +1,10 @@
-//! Stateful resident projection of a `.refino/` directory (docs/design.md,
-//! "存储层 Store"): the authoritative data lives in the files, the store
-//! mirrors it in memory (resident graph + paged content LRU + issue caches)
-//! and keeps the projection consistent with the disk by construction — every
-//! write method validates, persists atomically, re-reads the file and applies
-//! the parsed result through the engine's mutation primitives in one call,
-//! then broadcasts the change. External file events enter through the same
-//! `apply_change`, so forgetting to sync the projection is impossible.
+//! Stateful resident projection of a `.refino/` directory: the authoritative data
+//! lives in the files, the store mirrors it in memory (resident graph + paged
+//! content LRU + issue caches) and keeps the projection consistent with the disk by
+//! construction — every write method validates, persists atomically, re-reads the
+//! file and applies the parsed result through the engine's mutation primitives in
+//! one call, then broadcasts the change. External file events enter through the
+//! same `apply_change`, so forgetting to sync the projection is impossible.
 //!
 //! The TypeScript implementation serializes mutations through a promise
 //! queue; here every method is synchronous, so calls are serialized by the

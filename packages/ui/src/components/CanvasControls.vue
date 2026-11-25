@@ -9,7 +9,7 @@ import { computed } from "vue";
 import { injectRequired } from "../context";
 import { workspaceKey } from "../workspace";
 import CanvasStyleSettings from "./CanvasStyleSettings.vue";
-import FovControl from "./FovControl.vue";
+import OrbitControl from "./OrbitControl.vue";
 import LayoutControls from "./LayoutControls.vue";
 import NodeSizeControl from "./NodeSizeControl.vue";
 import ViewToggle from "./ViewToggle.vue";
@@ -26,7 +26,7 @@ const orbit = computed(() => workspace.state.config.canvasView === "orbit");
     <div class="stack">
       <NodeSizeControl v-if="!orbit" />
       <CanvasStyleSettings v-if="!orbit" />
-      <FovControl v-if="orbit" />
+      <OrbitControl v-if="orbit" />
     </div>
     <!-- Wide controls run left along the bottom edge, nearest the corner last. -->
     <div class="strip">

@@ -280,8 +280,8 @@ onBeforeUnmount(() => {
   flex-direction: column;
   background: var(--refino-surface);
   border: 1px solid var(--refino-border);
-  border-radius: var(--refino-radius);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+  border-radius: var(--refino-radius-lg);
+  box-shadow: var(--refino-shadow-2);
   overflow: hidden;
 }
 
@@ -325,7 +325,7 @@ onBeforeUnmount(() => {
 }
 
 .item.active {
-  background: rgba(24, 160, 88, 0.14);
+  background: var(--refino-accent-soft);
 }
 
 /* Every row reserves the icon's width, so labels align whether or not the

@@ -1,11 +1,10 @@
 //! The agent-facing usage guide, printed by `refino guide`: concepts, usage
-//! conventions and caveats, complete enough for an agent that has no other
-//! context (docs/design.md, "命令行工具"). The text is the single source of
-//! its own content — it lives in code next to the commands it describes, so
-//! it evolves with the CLI instead of rotting in a separate manual. Keep it
-//! terse: agents read it into their context. Commands and their options are
-//! deliberately not listed here — `refino --help` covers them; only
-//! conventions that no single command's help can state are kept.
+//! conventions and caveats, complete enough for an agent that has no other context.
+//! The text is the single source of its own content — it lives in code next to the
+//! commands it describes, so it evolves with the CLI instead of rotting in a
+//! separate manual. Keep it terse: agents read it into their context. Commands and
+//! their options are deliberately not listed here — `refino --help` covers them;
+//! only conventions that no single command's help can state are kept.
 //!
 //! Self-documentation only: the command never touches the graph and does not
 //! require an adopted repository, so it is exempt from the adoption contract

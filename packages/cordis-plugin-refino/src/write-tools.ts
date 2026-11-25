@@ -16,10 +16,9 @@ import {
 import { requireWorkspace, writeResultSchema } from "./internal.js";
 
 /**
- * DLG write tools as dsh native tools: schema declarations over the shared
- * write cores (docs/design.md, dsh 插件落地形态). The write chain — engine
- * grounds validation, harness boundary check, structured escalation reports
- * — lives in the cores, shared with every other host.
+ * DLG write tools as dsh native tools: schema declarations over the shared write
+ * cores. The write chain — engine grounds validation, harness boundary check,
+ * structured escalation reports — lives in the cores, shared with every other host.
  */
 
 const TOOL_PREFIX = "refino_";

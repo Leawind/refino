@@ -13,11 +13,10 @@ import type {
 } from "./types";
 
 /**
- * The data channel of the embeddable editor shell (docs/design.md, "前端技
- * 术栈": hosts provide the container and the data channel). `createWorkspace`
- * and `createStore` take a client; the default HTTP implementation below
- * speaks the `refino web` API, and hosts (tool plugins, VSCode webview,
- * desktop) can supply their own transport-backed implementation.
+ * The data channel of the embeddable editor shell. `createWorkspace` and
+ * `createStore` take a client; the default HTTP implementation below speaks the
+ * `refino web` API, and hosts (tool plugins, VSCode webview, desktop) can supply
+ * their own transport-backed implementation.
  */
 export interface RefinoClient {
   /** POST /api/query/neighbors — per-id bounded neighborhoods, nearest-first. */
@@ -69,7 +68,7 @@ export interface RefinoClient {
   createNode(type: "premise" | "decision", payload: NodePayload): Promise<{ id: string }>;
 
   /** PUT /api/nodes/:id — `revision` turns the save into an optimistic
-   * concurrency check (409 on mismatch); see docs/design.md, "编辑冲突处理". */
+   * concurrency check (409 on mismatch). */
   updateNode(id: string, payload: NodePayload, revision?: number): Promise<{ id: string }>;
 
   /** DELETE /api/nodes/:id. */

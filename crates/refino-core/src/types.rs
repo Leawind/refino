@@ -9,11 +9,10 @@
 //! like any unknown frontmatter field: producers silently ignore it. Edges
 //! only ever come from decision `grounds`.
 //!
-//! These types are the engine's resident memory model (docs/design.md,
-//! "渐进披露与常驻集"): id, type, summary and the graph relations always
-//! stay in memory. Body and rationale are paged content supplied by the
-//! storage layer by id — they are not part of engine types, and no topology
-//! operation needs them.
+//! These types are the engine's resident memory model: id, type, summary and the
+//! graph relations always stay in memory. Body and rationale are paged content
+//! supplied by the storage layer by id — they are not part of engine types, and no
+//! topology operation needs them.
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -109,10 +108,9 @@ impl RefinoNode {
     }
 }
 
-/// Light node shape carried by batch query results (docs/design.md, "画布按
-/// 需查询"): id, type, summary and grounds — the resident fields without
-/// premise `confirmed`. Premises and not-yet-loaded decisions omit
-/// `grounds`.
+/// Light node shape carried by batch query results: id, type, summary and grounds —
+/// the resident fields without premise `confirmed`. Premises and not-yet-loaded
+/// decisions omit `grounds`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NodeLite {
     pub id: String,
@@ -271,10 +269,9 @@ impl std::fmt::Display for RefinoError {
 
 impl std::error::Error for RefinoError {}
 
-/// Injected random source (docs/design.md, "引擎纯净性"): the engine itself
-/// has no entropy dependency. Native hosts provide an OS-backed
-/// implementation, wasm hosts inject one from the JS side (Web Crypto in
-/// browsers).
+/// Injected random source: the engine itself has no entropy dependency. Native
+/// hosts provide an OS-backed implementation, wasm hosts inject one from the JS
+/// side (Web Crypto in browsers).
 pub trait RandomSource {
     fn fill_bytes(&self, buf: &mut [u8]);
 }

@@ -262,7 +262,7 @@ const style = computed(() => {
   border-radius: var(--refino-radius);
   background: var(--refino-surface);
   border: 1px solid var(--refino-border);
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.22);
+  box-shadow: var(--refino-shadow-2);
   pointer-events: none;
   user-select: none;
 }

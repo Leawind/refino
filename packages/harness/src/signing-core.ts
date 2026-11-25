@@ -13,14 +13,12 @@ import type { AuthorizationOrigin } from "./inject-text.js";
 import type { RefinoWorkspace } from "./workspace.js";
 
 /**
- * Dialogue signing core (docs/design.md, “冻结区签发（对话签发）”): the model
- * drafts a frozen-zone split, presents it in conversation, and the host asks
- * its approval surface for an explicit human allow before anything takes
- * effect — fail-closed, and refused outright while an orchestrator
- * credential is active. An approved signing applies to the session and goes
- * out as one delta injection; it lives in process memory only — the plugin
- * forms write no state files anywhere (docs/design.md, "dsh 插件落地形态":
- * the signed context is session state).
+ * Dialogue signing core: the model drafts a frozen-zone split, presents it in
+ * conversation, and the host asks its approval surface for an explicit human allow
+ * before anything takes effect — fail-closed, and refused outright while an
+ * orchestrator credential is active. An approved signing applies to the session and
+ * goes out as one delta injection; it lives in process memory only — the plugin
+ * forms write no state files anywhere.
  *
  * Host adapters provide the approval surface (dsh: the native approval
  * service; MCP-only hosts: the dialogue-approval protocol, where the

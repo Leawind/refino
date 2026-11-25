@@ -82,6 +82,44 @@ const SETTLE_DAMPING = 0.95;
 /** Anti-hang guard; normal episodes end through the stability criterion. */
 const MAX_TICKS = 8000;
 
+/** User tuning of the simulation, each a multiplier on the tuned balance:
+ * 1 is the shape the layout was designed around. */
+export interface OrbitForceTuning {
+  /** Multiplier on every spring, the virtual root's anchors included. */
+  spring: number;
+  /** Multiplier on pair repulsion. */
+  repulsion: number;
+}
+
+export const ORBIT_FORCE_TUNING_DEFAULT: OrbitForceTuning = { spring: 1, repulsion: 1 };
+export const ORBIT_FORCE_TUNING_MIN: OrbitForceTuning = { spring: 0.3, repulsion: 0.3 };
+export const ORBIT_FORCE_TUNING_MAX: OrbitForceTuning = { spring: 3, repulsion: 3 };
+
+function clampTuning(value: number, min: number, max: number, fallback: number): number {
+  if (!Number.isFinite(value)) return fallback;
+  return Math.min(max, Math.max(min, value));
+}
+
+/** Clamp one tuning pair into its safe range; a non-finite half falls back to
+ * the baseline so a corrupted preference never destabilises a running
+ * episode. */
+export function clampOrbitForceTuning(tuning: OrbitForceTuning): OrbitForceTuning {
+  return {
+    spring: clampTuning(
+      tuning.spring,
+      ORBIT_FORCE_TUNING_MIN.spring,
+      ORBIT_FORCE_TUNING_MAX.spring,
+      ORBIT_FORCE_TUNING_DEFAULT.spring,
+    ),
+    repulsion: clampTuning(
+      tuning.repulsion,
+      ORBIT_FORCE_TUNING_MIN.repulsion,
+      ORBIT_FORCE_TUNING_MAX.repulsion,
+      ORBIT_FORCE_TUNING_DEFAULT.repulsion,
+    ),
+  };
+}
+
 interface Body extends OrbitForcePoint {
   id: string;
   depth: number;
@@ -117,12 +155,15 @@ export class OrbitForceSession {
   #ticks = 0;
   #quiet = 0;
   #settled = false;
+  #tuning: OrbitForceTuning = ORBIT_FORCE_TUNING_DEFAULT;
 
   constructor(
     nodes: readonly OrbitForceNodeInput[],
     edges: readonly OrbitForceEdgeInput[],
     seed?: ReadonlyMap<string, OrbitForcePoint>,
+    tuning: OrbitForceTuning = ORBIT_FORCE_TUNING_DEFAULT,
   ) {
+    this.#tuning = clampOrbitForceTuning(tuning);
     const ordered = [...nodes].sort((left, right) => left.id.localeCompare(right.id));
     this.#ax = new Float64Array(ordered.length);
     this.#ay = new Float64Array(ordered.length);
@@ -182,6 +223,20 @@ export class OrbitForceSession {
 
   get ticks(): number {
     return this.#ticks;
+  }
+
+  get tuning(): OrbitForceTuning {
+    return this.#tuning;
+  }
+
+  /** Re-balance a running, or already stable, episode: the shape has to relax
+   * again to the new balance. */
+  setTuning(tuning: OrbitForceTuning): void {
+    const next = clampOrbitForceTuning(tuning);
+    if (next.spring === this.#tuning.spring && next.repulsion === this.#tuning.repulsion) return;
+    this.#tuning = next;
+    this.#settled = false;
+    this.#quiet = 0;
   }
 
   /** Hold a body at `point` (dragging), or release it with null. */
@@ -279,7 +334,7 @@ export class OrbitForceSession {
       const dy = spring.to.y - spring.from.y;
       const dz = spring.to.z - spring.from.z;
       const length = Math.hypot(dx, dy, dz) || 1e-6;
-      const magnitude = spring.stiffness * (length - spring.rest);
+      const magnitude = spring.stiffness * this.#tuning.spring * (length - spring.rest);
       const fx = (dx / length) * magnitude;
       const fy = (dy / length) * magnitude;
       const fz = (dz / length) * magnitude;
@@ -292,7 +347,7 @@ export class OrbitForceSession {
   #applyAnchors(): void {
     for (const body of this.#anchored) {
       const length = Math.hypot(body.x, body.y, body.z) || 1e-6;
-      const magnitude = ANCHOR_SPRING * (length - ROOT_REST);
+      const magnitude = ANCHOR_SPRING * this.#tuning.spring * (length - ROOT_REST);
       this.#push(
         body,
         (-body.x / length) * magnitude,
@@ -339,7 +394,8 @@ export class OrbitForceSession {
               const distance = Math.hypot(dx, dy, dz);
               if (distance >= REPULSION_RANGE) continue;
               const soft = Math.max(distance, REPULSION_FLOOR);
-              const magnitude = REPULSION * (1 / (soft * soft) - 1 / range2);
+              const magnitude =
+                REPULSION * this.#tuning.repulsion * (1 / (soft * soft) - 1 / range2);
               if (distance < 1e-6) {
                 // Coincident bodies have no direction; nudge them apart on a
                 // deterministic axis.

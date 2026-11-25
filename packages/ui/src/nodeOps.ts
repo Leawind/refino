@@ -65,8 +65,8 @@ export function createNodeOps(
         summary: node.summary,
         grounds: [...grounds, groundId],
         rationale: node.rationale,
-        // The exploring boolean is always stated: an omitted field would
-        // settle a trial decision (docs/design.md, "编辑冲突处理").
+        // The exploring boolean is always stated: an omitted field would settle a
+        // trial decision.
         exploring: node.exploring === true,
         ...(node.confirmed !== undefined && {
           confirmed: new Date(node.confirmed).toISOString(),

@@ -3,11 +3,11 @@ import { parseSignedAuthorization } from "./authorization.js";
 import type { SignedAuthorization } from "./authorization.js";
 
 /**
- * The orchestrator credential lane of the plugin form (docs/design.md,
- * "dsh 插件落地形态"): an orchestrator hands each task a signed authorization
- * document by path via the `REFINO_AUTHORIZATION` environment variable, and
- * the plugin resolves it at its session boundary. The conversation lane —
- * the plugin's in-session signings — lives with the plugin, not here.
+ * The orchestrator credential lane of the plugin form: an orchestrator hands each
+ * task a signed authorization document by path via the `REFINO_AUTHORIZATION`
+ * environment variable, and the plugin resolves it at its session boundary. The
+ * conversation lane — the plugin's in-session signings — lives with the plugin, not
+ * here.
  *
  * Node-only by necessity (fs) and exported as the `@refino/harness/state`
  * subpath so the platform-agnostic main entry stays browser-safe.

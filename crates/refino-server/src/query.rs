@@ -1,5 +1,5 @@
-//! Canvas on-demand query logic over the resident graph (docs/design.md,
-//! "画布按需查询"). Pure graph functions: HTTP shaping lives in the server.
+//! Canvas on-demand query logic over the resident graph. Pure graph functions: HTTP
+//! shaping lives in the server.
 
 use refino_core::{
     Graph, NodeLite, NodeType, QueryGroup, RefinoNode, TraversalOptions, get_ancestors,

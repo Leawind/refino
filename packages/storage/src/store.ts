@@ -109,15 +109,13 @@ export interface RefinoStoreOptions {
 }
 
 /**
- * Stateful resident projection of a `.refino/` directory (docs/design.md,
- * "存储层 Store"): the authoritative data lives in the files, the store
- * mirrors it in memory (resident graph + paged content LRU + issue caches)
- * and keeps the projection consistent with the disk by construction — every
- * write method validates, persists atomically, re-reads the file and applies
- * the parsed result through the engine's mutation primitives in one call,
- * then broadcasts the change. API writes and external file events share the
- * single incremental entry, so forgetting to sync the projection is
- * impossible.
+ * Stateful resident projection of a `.refino/` directory: the authoritative data
+ * lives in the files, the store mirrors it in memory (resident graph + paged
+ * content LRU + issue caches) and keeps the projection consistent with the disk by
+ * construction — every write method validates, persists atomically, re-reads the
+ * file and applies the parsed result through the engine's mutation primitives in
+ * one call, then broadcasts the change. API writes and external file events share
+ * the single incremental entry, so forgetting to sync the projection is impossible.
  */
 export class RefinoStore {
   readonly refinoDir: string;

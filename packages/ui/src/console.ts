@@ -1,11 +1,10 @@
 import type { AuthorizationContext } from "@refino/harness";
 
 /**
- * Data channel of the authorization console (docs/design.md, "用户侧：授权
- * 上下文的签发"): a light graph snapshot plus the host's context operations.
- * Hosts (tool plugins) implement it over their in-process harness session;
- * the console itself stays graph-free by rebuilding a light engine graph
- * from the snapshot.
+ * Data channel of the authorization console: a light graph snapshot plus the host's
+ * context operations. Hosts (tool plugins) implement it over their in-process
+ * harness session; the console itself stays graph-free by rebuilding a light engine
+ * graph from the snapshot.
  */
 
 /** Light node shape the console rebuilds its graph view from. */

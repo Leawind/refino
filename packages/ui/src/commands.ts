@@ -90,6 +90,19 @@ function createCommands(): Command[] {
       run: ({ store }) => store.startCreate("premise"),
     },
     {
+      // The node pane is the only read/write surface, so the focused node
+      // needs a keyboard route into the editor (double click is the pointer
+      // one).
+      id: "edit-focus",
+      labelKey: "node.editCurrent",
+      keys: "E",
+      bindings: [{ key: "e" }],
+      run: ({ store, workspace }) => {
+        const id = workspace.state.focusId;
+        if (id !== null) store.openEditor(id);
+      },
+    },
+    {
       id: "theme",
       labelKey: (ctx) => (ctx.store.state.theme === "dark" ? "app.themeLight" : "app.themeDark"),
       run: ({ store }) => store.setTheme(store.state.theme === "dark" ? "light" : "dark"),

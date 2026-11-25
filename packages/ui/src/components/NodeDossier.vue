@@ -197,6 +197,9 @@ function onRowMove(event: MouseEvent, id: string): void {
           <kbd>Alt</kbd><span>{{ t("dossier.peekHint") }}</span>
         </li>
         <li>
+          <kbd>E</kbd><span>{{ t("dossier.editHint") }}</span>
+        </li>
+        <li>
           <kbd>Esc</kbd><span>{{ t("dossier.escHint") }}</span>
         </li>
       </ul>
@@ -350,7 +353,7 @@ function onRowMove(event: MouseEvent, id: string): void {
 }
 
 .kind.trial {
-  background: rgba(185, 121, 11, 0.12);
+  background: var(--refino-warn-soft);
   color: var(--refino-warn);
 }
 
@@ -528,7 +531,7 @@ function onRowMove(event: MouseEvent, id: string): void {
   margin: 0 0 14px;
   padding: 8px 10px;
   border-radius: var(--refino-radius);
-  background: rgba(208, 48, 80, 0.08);
+  background: var(--refino-danger-soft);
 }
 
 .issues-head {

@@ -10,11 +10,11 @@ import { paletteState } from "./palette";
  * - text entry surfaces are skipped (shared with the Alt-peek tracking);
  * - the open palette owns the keyboard (its own document handler navigates
  *   and closes it);
- * - the open detail editor owns the keyboard (its fields and its Esc chain
+ * - the open editor sheet owns the keyboard (its fields and its Esc chain
  *   must not race a global command).
  *
- * Esc is deliberately not a command: its layering (modal → palette → float
- * panels → clear selection) is handled by the surfaces' own listeners.
+ * Esc is deliberately not a command: its layering (editor sheet → palette →
+ * float panels → clear selection) is handled by the surfaces' own listeners.
  */
 export function installShortcuts(ctx: CommandContext): () => void {
   const onKeydown = (event: KeyboardEvent): void => {

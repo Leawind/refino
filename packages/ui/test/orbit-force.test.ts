@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { OrbitForceSession } from "../src/graph/orbit/force";
+import {
+  ORBIT_FORCE_TUNING_DEFAULT,
+  ORBIT_FORCE_TUNING_MAX,
+  OrbitForceSession,
+} from "../src/graph/orbit/force";
 import type { OrbitForceEdgeInput, OrbitForceNodeInput } from "../src/graph/orbit/force";
 
 /**
@@ -116,6 +120,45 @@ describe("orbit force layout", () => {
       expect(point.y).toBeCloseTo(other.y, 9);
       expect(point.z).toBeCloseTo(other.z, 9);
     }
+  });
+
+  it("re-balances a settled episode when the tuning changes", () => {
+    const { nodes, edges } = tree(2, 2);
+    const session = new OrbitForceSession(nodes, edges, undefined, {
+      spring: 1,
+      repulsion: 1,
+    });
+    session.settle(2000);
+    expect(session.settled).toBe(true);
+    const before = new Map(
+      [...session.positions].map(([id, point]) => [id, { ...point }] as const),
+    );
+    session.setTuning({ spring: 1.6, repulsion: 1 });
+    expect(session.settled).toBe(false);
+    session.settle(2000);
+    expect(session.settled).toBe(true);
+    // Stiffer springs pull the branches back against the repulsion, so the
+    // shape relaxes to a new balance.
+    const moved = [...session.positions].some(([id, point]) => {
+      const was = before.get(id)!;
+      return Math.hypot(point.x - was.x, point.y - was.y, point.z - was.z) > 0.01;
+    });
+    expect(moved).toBe(true);
+  });
+
+  it("clamps the tuning and falls back on a non-finite half", () => {
+    const { nodes, edges } = tree(1, 1);
+    const session = new OrbitForceSession(nodes, edges, undefined, {
+      spring: 99,
+      repulsion: Number.NaN,
+    });
+    expect(session.tuning.spring).toBe(ORBIT_FORCE_TUNING_MAX.spring);
+    expect(session.tuning.repulsion).toBe(ORBIT_FORCE_TUNING_DEFAULT.repulsion);
+    // The same tuning is a no-op rather than a second wake.
+    session.settle(2000);
+    expect(session.settled).toBe(true);
+    session.setTuning(session.tuning);
+    expect(session.settled).toBe(true);
   });
 
   it("starts carried-over bodies where they were", () => {

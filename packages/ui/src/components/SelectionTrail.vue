@@ -43,7 +43,7 @@ function remove(node: NodeLite): void {
       >
         <button
           class="chip"
-          :title="t('selection.locate')"
+          :title="labelOf(node)"
           @click="workspace.setFocus(node.id)"
           @mousemove="onMove($event, node)"
           @mouseleave="peekHide(node.id)"

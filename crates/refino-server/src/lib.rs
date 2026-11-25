@@ -1,8 +1,7 @@
-//! Local HTTP service over the storage Store (docs/design.md, "存储层
-//! Store" + "Web 界面"). All endpoints return JSON; errors are
-//! `{ error: string, issues?: [...] }` with a mapped status code. Grounds
-//! validity and cycles are enforced inside the store's write methods, so the
-//! stored files never become invalid through the API.
+//! Local HTTP service over the storage Store. All endpoints return JSON; errors are
+//! `{ error: string, issues?: [...] }` with a mapped status code. Grounds validity
+//! and cycles are enforced inside the store's write methods, so the stored files
+//! never become invalid through the API.
 
 pub mod query;
 pub mod watch;
@@ -30,7 +29,7 @@ pub const INVALID_REQUEST: &str = "INVALID_REQUEST";
 /// channel.
 pub struct AppState {
     pub store: Arc<Mutex<RefinoStore<FsIo>>>,
-    /// SSE change feed receivers (docs/design.md, "外部变更同步").
+    /// SSE change feed receivers.
     pub changes: tokio::sync::broadcast::Sender<ChangeFeed>,
     /// Directory holding the built `@refino/ui` assets; `None` disables
     /// static hosting (placeholder only).
@@ -772,8 +771,8 @@ async fn get_stats(State(state): State<Arc<AppState>>) -> Response {
     finish(result)
 }
 
-/// SSE change feed: an initial snapshot event, then one event per applied
-/// change batch (docs/design.md, "外部变更同步").
+/// SSE change feed: an initial snapshot event, then one event per applied change
+/// batch.
 async fn get_events(State(state): State<Arc<AppState>>) -> Response {
     use axum::response::sse::{Event, KeepAlive, Sse};
 
@@ -992,9 +991,9 @@ pub fn change_feed_json(change: &refino_storage::StoreChange) -> Value {
 /// Options of `refino web`.
 pub struct WebServerOptions {
     pub host: String,
-    /// Port to listen on. When None the server auto-picks from
-    /// [`DEFAULT_WEB_PORT`] upward, skipping occupied ports. An explicit port
-    /// fails on address-in-use instead (docs/design.md, "服务启动与端口").
+    /// Port to listen on. When None the server auto-picks from [`DEFAULT_WEB_PORT`]
+    /// upward, skipping occupied ports. An explicit port fails on address-in-use
+    /// instead.
     pub port: Option<u16>,
     pub refino_dir: PathBuf,
     /// Directory holding the built `@refino/ui` assets; `None` disables
@@ -1037,7 +1036,7 @@ pub async fn start_web_server(options: WebServerOptions) -> std::io::Result<Runn
     });
 
     // Arm the external-change watcher; a permanent failure degrades to manual
-    // reload (docs/design.md, "外部变更同步").
+    // reload.
     let watch_target = Arc::new(watch::WatchTarget {
         store: state.store.clone(),
         changes,

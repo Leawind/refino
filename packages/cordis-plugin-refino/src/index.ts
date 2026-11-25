@@ -19,22 +19,21 @@ import { findRefinoDir } from "@refino/storage";
 import { createTools } from "./tools.js";
 
 /**
- * refino plugin for the DeepSeek Harness (docs/design.md, dsh 插件落地形态):
- * at session start it locates the `.refino` directory for the session cwd,
- * loads the DLG under the effective authorization context — an orchestrator
- * credential when the environment provides one, the derived defaults
- * otherwise — registers the model-facing DLG tools on the agent scope, and
- * injects the initial task context as a durable plugin-sourced message.
- * Graphs above the auto-anchor budget get a minimal orientation instead of
- * silence. External `.refino` changes are watched and delivered as coalesced
- * delta updates; dialogue signing lives in session memory only — the plugin
- * writes no state files anywhere.
+ * refino plugin for the DeepSeek Harness: at session start it locates the `.refino`
+ * directory for the session cwd, loads the DLG under the effective authorization
+ * context — an orchestrator credential when the environment provides one, the
+ * derived defaults otherwise — registers the model-facing DLG tools on the agent
+ * scope, and injects the initial task context as a durable plugin-sourced message.
+ * Graphs above the auto-anchor budget get a minimal orientation instead of silence.
+ * External `.refino` changes are watched and delivered as coalesced delta updates;
+ * dialogue signing lives in session memory only — the plugin writes no state files
+ * anywhere.
  */
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = "refino";
 
-/** Minimum spacing between external-change injections (docs/design.md, delta 注入降噪). */
+/** Minimum spacing between external-change injections. */
 const EXTERNAL_SYNC_INTERVAL_MS = 2000;
 
 /** dsh tool names (`refino_show`); injected texts cite the same names. */
@@ -88,11 +87,11 @@ async function startSession(
   const refinoDir = await findRefinoDir(cwd);
   if (refinoDir === undefined) return;
 
-  // Identical-text guard over injected updates (docs/design.md, delta 注入
-  // 降噪): the rendered update is a pure function of known changes/delta/
-  // pending, so an identical text carries zero new information (e.g. an
-  // mtime-only rewrite re-firing the same batch) and is dropped. Shared by
-  // the external-sync and signing lanes so the two cannot duplicate either.
+  // Identical-text guard over injected updates: the rendered update is a pure
+  // function of known changes/delta/pending, so an identical text carries zero new
+  // information (e.g. an mtime-only rewrite re-firing the same batch) and is
+  // dropped. Shared by the external-sync and signing lanes so the two cannot
+  // duplicate either.
   let lastUpdateText: string | undefined;
   const injectUpdate = (text: string | undefined): void => {
     if (text === undefined || text === lastUpdateText) return;

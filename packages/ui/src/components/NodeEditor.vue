@@ -3,7 +3,7 @@
 // (or one new node). It replaces the former full-screen modal — the canvas
 // stays visible while a claim and its grounds are written, and the pinned
 // session never switches nodes under the user's edits (ui DESIGN.md, "布局").
-// External changes merge per docs/design.md, "编辑冲突处理".
+// External changes merge per the conflict rules in conflict.ts.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import {

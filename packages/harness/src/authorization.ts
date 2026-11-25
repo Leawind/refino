@@ -7,15 +7,13 @@ import { byId } from "./types.js";
 import type { AuthorizationContext } from "./types.js";
 
 /**
- * A signed authorization document: the persistable form of a task's frozen
- * zone (docs/design.md, "harness 与工具插件功能设计"). One schema serves three
- * origins with decreasing precedence — an orchestrator credential (env var
- * or explicit path), a plugin's in-session signing, and the materialized
- * default. Whatever the
- * origin, the effective context is re-derived against the current graph at
- * read time: zone closure follows the live `grounds` edges, so ancestors
- * that grow after signing join the zone without re-signing, and entries
- * whose nodes were deleted are silently dropped (`convergeAuthorization`).
+ * A signed authorization document: the persistable form of a task's frozen zone.
+ * One schema serves three origins with decreasing precedence — an orchestrator
+ * credential (env var or explicit path), a plugin's in-session signing, and the
+ * materialized default. Whatever the origin, the effective context is re-derived
+ * against the current graph at read time: zone closure follows the live `grounds`
+ * edges, so ancestors that grow after signing join the zone without re-signing, and
+ * entries whose nodes were deleted are silently dropped (`convergeAuthorization`).
  *
  * Anchors are deliberately absent: they are an injection-policy parameter
  * derived at runtime (`defaultAuthorizationContext`), not a signed fact —
@@ -90,9 +88,8 @@ function rfc3339(date: Date): string {
 }
 
 /**
- * Materialize the unsigned default as a document (docs/design.md, "dsh 插件
- * 落地形态"): the frontier names all root decisions. Revision 0; the
- * default is derived live and never persisted.
+ * Materialize the unsigned default as a document: the frontier names all root
+ * decisions. Revision 0; the default is derived live and never persisted.
  */
 export function materializeDefaultAuthorization(
   graph: Graph,

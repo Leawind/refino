@@ -79,9 +79,9 @@ pub fn cmd_list(
         if let Some(filter) = type_filter {
             nodes.retain(|n| n.node_type() == filter);
         }
-        // Top-level decisions in the canvas sense (docs/design.md, "画布按需
-        // 查询"): no direct ground is a decision, so decisions grounded only
-        // on premises still count — every graph has at least one entry point.
+        // Top-level decisions in the canvas sense: no direct ground is a decision,
+        // so decisions grounded only on premises still count — every graph has at
+        // least one entry point.
         if roots {
             nodes.retain(|n| match n.as_decision() {
                 Some(d) => !d.grounds.iter().any(|g| {

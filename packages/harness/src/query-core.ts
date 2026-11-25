@@ -29,12 +29,11 @@ import {
 import type { RefinoWorkspace } from "./workspace.js";
 
 /**
- * Read-only DLG tool cores (docs/design.md, 模型侧：DLG 访问工具): batch,
- * partial-success semantics over one workspace. Host adapters (dsh native
- * tools, MCP servers) declare their schemas and delegate here, so query
- * semantics stay single-sourced across integration forms. Every core also
- * harvests its delivered nodes into the workspace's known set — the session
- * tracks exactly what the model has seen (docs/design.md, 会话已知集).
+ * Read-only DLG tool cores: batch, partial-success semantics over one workspace.
+ * Host adapters (dsh native tools, MCP servers) declare their schemas and delegate
+ * here, so query semantics stay single-sourced across integration forms. Every core
+ * also harvests its delivered nodes into the workspace's known set — the session
+ * tracks exactly what the model has seen.
  */
 
 export function runList(ws: RefinoWorkspace, type?: RefinoNode["type"]): ListResult {
@@ -210,9 +209,8 @@ function typeOf(ws: RefinoWorkspace, id: string): RefinoNode["type"] {
 
 /**
  * Derived effective exploring status for a delivered node (decisions only):
- * read-side annotations never use the stored mark alone, so unmarked
- * downstream of an exploring decision annotates too (docs/design.md,
- * 上下文注入协议).
+ * read-side annotations never use the stored mark alone, so unmarked downstream of
+ * an exploring decision annotates too.
  */
 function effectiveOf(ws: RefinoWorkspace, node: RefinoNode): boolean {
   return node.type === "decision" && effectiveExploring(ws.graph, node.id);

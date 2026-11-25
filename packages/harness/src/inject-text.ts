@@ -4,11 +4,10 @@ import type { Graph, RefinoNode } from "refino";
 import type { AuthorizationContext, DeltaEvent, ToolRefs } from "./types.js";
 
 /**
- * Model-facing message texts shared by the tool plugins (docs/design.md,
- * dsh 插件落地形态). Pure rendering: hosts frame these as durable
- * plugin-sourced messages. Texts that name tools cite them through the
- * host's tool-name refs — host-owned names (`refino_*`) or bare short names
- * when the host injects full names itself (MCP hosts); never a hard-coded
+ * Model-facing message texts shared by the tool plugins. Pure rendering: hosts
+ * frame these as durable plugin-sourced messages. Texts that name tools cite them
+ * through the host's tool-name refs — host-owned names (`refino_*`) or bare short
+ * names when the host injects full names itself (MCP hosts); never a hard-coded
  * host prefix.
  */
 
@@ -42,12 +41,11 @@ function sanitize(text: string): string {
 }
 
 /**
- * The initial task context: anchors (frozen ones marked `[冻结]`) and all
- * premises as summaries, closed by the frozen-marking protocol statement
- * (docs/design.md, 上下文注入协议). The frozen zone is not enumerated —
- * frozen status is annotated wherever a node is rendered. Summaries only
- * (two-level injection) — full bodies are fetched via tools. The trailing
- * origin line carries the signing-ownership check for sequential tasks.
+ * The initial task context: anchors (frozen ones marked `[冻结]`) and all premises as
+ * summaries, closed by the frozen-marking protocol statement. The frozen zone is
+ * not enumerated — frozen status is annotated wherever a node is rendered.
+ * Summaries only (two-level injection) — full bodies are fetched via tools. The
+ * trailing origin line carries the signing-ownership check for sequential tasks.
  */
 export function initialContextText(
   graph: Graph,
@@ -92,9 +90,9 @@ export function authorizationStatusText(origin: AuthorizationOrigin, tools: Tool
 const ORIENTATION_ROOTS = 8;
 
 /**
- * Root decisions shown in the over-budget orientation (docs/design.md,
- * "上下文注入协议"). Shared with the known-set seeding so the
- * session's tracked baseline matches what the orientation actually injected.
+ * Root decisions shown in the over-budget orientation. Shared with the known-set
+ * seeding so the session's tracked baseline matches what the orientation actually
+ * injected.
  */
 export function orientationRoots(graph: Graph): RefinoNode[] {
   return [...graph.nodes.values()]
@@ -104,9 +102,8 @@ export function orientationRoots(graph: Graph): RefinoNode[] {
 }
 
 /**
- * Minimal orientation for graphs above the auto-anchor budget (docs/design.md,
- * "上下文注入协议") — enough for the model to locate nodes by
- * search instead of working without any project context.
+ * Minimal orientation for graphs above the auto-anchor budget — enough for the
+ * model to locate nodes by search instead of working without any project context.
  */
 export function orientationText(graph: Graph, tools: ToolRefs): string {
   const roots = orientationRoots(graph);
@@ -132,7 +129,7 @@ export function orientationText(graph: Graph, tools: ToolRefs): string {
  * delta events and the pending-review set. Known changes carry old→new and
  * added/removed values because they are the only place the model learns what
  * shifted since it last looked; nodes never seen stay silent (the known set
- * is the notification's reference frame, docs/design.md 增量更新与缓存友好).
+ * is the notification's reference frame).
  * Pending review stays change-source-derived and unfiltered: it is write
  * safety (re-check upstream before modifying), independent of what the
  * model has read. The rendered text is a pure function of its inputs, which

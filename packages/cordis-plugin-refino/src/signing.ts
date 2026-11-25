@@ -11,12 +11,11 @@ import {
 import { createSigningCore, type RefinoWorkspace } from "@refino/harness/host";
 
 /**
- * Dialogue signing tools as dsh native tools (docs/design.md, “冻结区签发
- * （对话签发）”): the model drafts a frozen-zone split, presents it in
- * conversation, and the tool asks dsh's native approval service for an
- * explicit human allow — fail-closed, and refused outright while an
- * orchestrator credential is active. The signing chain lives in the shared
- * core (`createSigningCore`); this file only declares the dsh tool schemas.
+ * Dialogue signing tools as dsh native tools: the model drafts a frozen-zone split,
+ * presents it in conversation, and the tool asks dsh's native approval service for
+ * an explicit human allow — fail-closed, and refused outright while an orchestrator
+ * credential is active. The signing chain lives in the shared core
+ * (`createSigningCore`); this file only declares the dsh tool schemas.
  */
 
 export type { ApprovalOutcome, AuthorizationOrigin };

@@ -8,11 +8,10 @@ import type { IssueRecord, NodeLite, NodePayload, NodeRecord } from "./types";
 import type { Locale, Theme } from "./types";
 
 /**
- * Global application UI state: theme, language, the detail editor and the
- * node create/edit flows. Graph data is not held here — the on-demand
- * working set lives in `workspace.ts`; the detail editor fetches the full
- * node it shows via GET /api/nodes/:id and resolves external changes
- * against the user's edits (docs/design.md, "编辑冲突处理").
+ * Global application UI state: theme, language, the detail editor and the node
+ * create/edit flows. Graph data is not held here — the on-demand working set lives
+ * in `workspace.ts`; the detail editor fetches the full node it shows via GET
+ * /api/nodes/:id and resolves external changes against the user's edits.
  */
 
 export type { Theme, Locale } from "./types";
@@ -86,9 +85,8 @@ interface State {
 }
 
 /**
- * One editor store over one workspace: the detail editor and create/edit
- * flows, including the external-change merge flow (docs/design.md,
- * "编辑冲突处理").
+ * One editor store over one workspace: the detail editor and create/edit flows,
+ * including the external-change merge flow.
  */
 export function createStore(client: RefinoClient, workspace: Workspace) {
   /** The writable editor form; the component binds its inputs to this. */
@@ -197,11 +195,10 @@ export function createStore(client: RefinoClient, workspace: Workspace) {
   }
 
   /**
-   * External change affecting the open detail node: silently adopt the
-   * external version when the user has no edits, merge it field-by-field when
-   * the edits do not collide, and surface a conflict decision otherwise
-   * (docs/design.md, "编辑冲突处理"). A deletion with unsaved edits offers
-   * recreating the same id.
+   * External change affecting the open detail node: silently adopt the external
+   * version when the user has no edits, merge it field-by-field when the edits do
+   * not collide, and surface a conflict decision otherwise. A deletion with unsaved
+   * edits offers recreating the same id.
    */
   async function refreshExternalDetail(): Promise<void> {
     const id = state.detail.id;

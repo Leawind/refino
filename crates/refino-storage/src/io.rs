@@ -1,10 +1,8 @@
-//! The injected synchronous I/O surface (docs/design.md, "技术形态与边界":
-//! Io 注入). The storage core contains no filesystem implementation — hosts
-//! provide one: `refino-fs` natively (std::fs), Node via a node:fs adapter,
-//! tests via an in-memory fake. Everything is synchronous on purpose: the
-//! wasm boundary has no async runtime, and Node hosts call through with
-//! synchronous fs calls exactly as often as the TypeScript implementation
-//! did.
+//! The injected synchronous I/O surface. The storage core contains no filesystem
+//! implementation — hosts provide one: `refino-fs` natively (std::fs), Node via a
+//! node:fs adapter, tests via an in-memory fake. Everything is synchronous on
+//! purpose: the wasm boundary has no async runtime, and Node hosts call through
+//! with synchronous fs calls exactly as often as the TypeScript implementation did.
 
 use std::path::{Path, PathBuf};
 

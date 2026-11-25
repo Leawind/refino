@@ -7,10 +7,9 @@ import type { ChangeEvent, NodeLite } from "../src/types";
 let workspace: Workspace;
 
 /**
- * Workspace store behavior against the canvas query contract
- * (docs/design.md, "画布按需查询"). The fetch mock answers with hard-coded
- * fixtures mirroring packages/cli/test/web-query.test.ts — that suite pins
- * the server; here the same payloads pin the client.
+ * Workspace store behavior against the canvas query contract. The fetch mock
+ * answers with hard-coded fixtures mirroring packages/cli/test/web-query.test.ts —
+ * that suite pins the server; here the same payloads pin the client.
  *
  *   P1 1A2B3C4D   P2 1A2B3C4E   P3 1A2B3C4F
  *   C1 A1B2C3D4 grounds [P1]

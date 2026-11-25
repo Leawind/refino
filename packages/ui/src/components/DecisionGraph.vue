@@ -687,7 +687,7 @@ function onMouseLeave(): void {
 .marquee {
   position: absolute;
   border: 1px solid var(--refino-primary, #18a058);
-  background: rgba(24, 160, 88, 0.12);
+  background: var(--refino-accent-soft);
   pointer-events: none;
 }
 

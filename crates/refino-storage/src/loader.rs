@@ -272,11 +272,9 @@ fn parse_file_name(name: &str) -> Option<(String, NodeType)> {
     Some((name[..dash].to_string(), node_type))
 }
 
-/// Locate the `.refino` directory for a working directory: the nearest
-/// ancestor (the directory itself included) containing a `.refino` directory.
-/// None when no ancestor has one, in which case the caller leaves the host
-/// untouched (docs/design.md, 采用契约: locating `.refino` is the activation
-/// precondition of an integration).
+/// Locate the `.refino` directory for a working directory: the nearest ancestor
+/// (the directory itself included) containing a `.refino` directory. None when no
+/// ancestor has one, in which case the caller leaves the host untouched.
 pub fn find_refino_dir<I: Io>(io: &I, cwd: &Path) -> Option<std::path::PathBuf> {
     let mut current = cwd.to_path_buf();
     loop {

@@ -8,6 +8,7 @@ import { setViewportCommands, viewportBridge } from "../src/viewportBridge";
 import { clientKey } from "../src/api";
 import { peekState } from "../src/peek";
 import { storeKey } from "../src/store";
+import { ORBIT_PAPER_THEME, ORBIT_THEME } from "../src/graph/orbit/theme";
 import { workspaceKey } from "../src/workspace";
 
 /**
@@ -31,6 +32,9 @@ const orbit = vi.hoisted(() => ({
     return true;
   }),
   rootHover: vi.fn(),
+  setRotateSensitivity: vi.fn(),
+  setSettings: vi.fn(),
+  setTheme: vi.fn(),
   beginDrag: vi.fn(() => true),
   dragTo: vi.fn(),
   endDrag: vi.fn(),
@@ -59,6 +63,15 @@ vi.mock("../src/graph/orbit/scene", () => {
       return new FakeScene();
     }
     resize(): void {}
+    setRotateSensitivity(speed: number): void {
+      orbit.setRotateSensitivity(speed);
+    }
+    setSettings(settings: unknown): void {
+      orbit.setSettings(settings);
+    }
+    setTheme(theme: unknown): void {
+      orbit.setTheme(theme);
+    }
     setData(): void {}
     setState(): void {}
     pick(): FakePick | null {
@@ -166,6 +179,16 @@ function fakeWorkspace(nodes?: FakeNode[]) {
     selection: [] as string[],
     focusId: null as string | null,
     hoveredId: null as string | null,
+    config: {
+      rotateSensitivity: 2,
+      orbitStarBrightness: 1,
+      orbitFlowSpeed: 1,
+      orbitFlowGlow: 1,
+      orbitSpring: 1,
+      orbitRepulsion: 1,
+      orbitRevolutionSpeed: 1,
+      orbitTextScale: 1,
+    },
   });
   function setSelection(ids: string[]): void {
     state.selection = ids;
@@ -194,9 +217,20 @@ function fakeWorkspace(nodes?: FakeNode[]) {
 }
 
 let wrapper: ReturnType<typeof mount> | null = null;
+/** Fake UI store of the mounted view, for theme switches. */
+let fakeStore: {
+  state: { theme: "dark" | "light" };
+  openEditor: () => void;
+  startCreate: () => void;
+} | null = null;
 
 function mountOrbit(workspace: ReturnType<typeof fakeWorkspace>) {
-  const store = { openEditor: vi.fn(), startCreate: vi.fn() };
+  const store = reactive({
+    state: { theme: "dark" as "dark" | "light" },
+    openEditor: vi.fn(),
+    startCreate: vi.fn(),
+  });
+  fakeStore = store as never;
   const client = {
     fetchNode: vi.fn(async (id: string) => ({
       revision: 1,
@@ -230,6 +264,9 @@ beforeEach(() => {
   orbit.fitSelection.mockClear();
   orbit.focusOnNode.mockClear();
   orbit.rootHover.mockClear();
+  orbit.setRotateSensitivity.mockClear();
+  orbit.setSettings.mockClear();
+  orbit.setTheme.mockClear();
   orbit.beginDrag.mockClear();
   orbit.dragTo.mockClear();
   orbit.endDrag.mockClear();
@@ -259,6 +296,37 @@ afterEach(() => {
 });
 
 describe("orbit view focus", () => {
+  it("paints the palette of the UI theme and repaints it when the theme changes", async () => {
+    const workspace = fakeWorkspace();
+    mountOrbit(workspace);
+    expect(orbit.setTheme).toHaveBeenCalledWith(ORBIT_THEME);
+    fakeStore!.state.theme = "light";
+    await nextTick();
+    expect(orbit.setTheme).toHaveBeenLastCalledWith(ORBIT_PAPER_THEME);
+  });
+
+  it("applies the persisted presentation settings on mount and on change", async () => {
+    const workspace = fakeWorkspace();
+    workspace.state.config.orbitStarBrightness = 0.6;
+    mountOrbit(workspace);
+    expect(orbit.setSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ starBrightness: 0.6, flowSpeed: 1 }),
+    );
+    workspace.state.config.orbitSpring = 1.4;
+    await nextTick();
+    expect(orbit.setSettings).toHaveBeenLastCalledWith(expect.objectContaining({ spring: 1.4 }));
+  });
+
+  it("applies the persisted rotation speed on mount and on change", async () => {
+    const workspace = fakeWorkspace();
+    workspace.state.config.rotateSensitivity = 3.5;
+    mountOrbit(workspace);
+    expect(orbit.setRotateSensitivity).toHaveBeenCalledWith(3.5);
+    workspace.state.config.rotateSensitivity = 0.75;
+    await nextTick();
+    expect(orbit.setRotateSensitivity).toHaveBeenLastCalledWith(0.75);
+  });
+
   it("centers the orbit on the clicked star", () => {
     const workspace = fakeWorkspace();
     mountOrbit(workspace);
@@ -523,14 +591,14 @@ describe("orbit callout", () => {
     clickOnStar();
     await flushPromises();
     orbit.frameHandler?.();
-    const leader = wrapper!.find(".callout-leader line").element as SVGLineElement;
+    const leader = wrapper!.find(".callout-leader polyline").element as SVGPolylineElement;
     expect(leader.style.display).not.toBe("none");
     orbit.setFocus({ key: "__root__", id: null });
     await nextTick();
     orbit.frameHandler?.();
-    expect((wrapper!.find(".callout-leader line").element as SVGLineElement).style.display).toBe(
-      "none",
-    );
+    expect(
+      (wrapper!.find(".callout-leader polyline").element as SVGPolylineElement).style.display,
+    ).toBe("none");
   });
 
   it("labels only the focus's relatives, and nothing when focus leaves", async () => {
