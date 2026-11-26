@@ -1,6 +1,6 @@
 {
   "name": "@refino/cli",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "private": false,
   "description": "refino command: query, validate and edit Decision Lineage Graphs (DLG); ships the native binary via platform packages.",
   "bin": {

@@ -1,6 +1,6 @@
 {
   "name": "@refino/harness",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "private": false,
   "description": "Task context, tool-plugin cores and incremental updates for Decision Lineage Graphs (DLG): anchors, context rendering, review debt, query and write cores.",
   "type": "module",
