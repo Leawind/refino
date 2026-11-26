@@ -24,9 +24,6 @@
     "@refino/cli-linux-x64": "workspace:*",
     "@refino/cli-win32-x64": "workspace:*"
   },
-  "dependencies": {
-    "@refino/ui": "workspace:^"
-  },
   "publishConfig": {
     "access": "public"
   }

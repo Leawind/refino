@@ -16,8 +16,6 @@
  */
 
 const { spawnSync } = require("node:child_process");
-const { existsSync } = require("node:fs");
-const { dirname, join } = require("node:path");
 const os = require("node:os");
 
 const shellVersion = require("../package.json").version;
@@ -109,22 +107,6 @@ function warnVersionMismatch(packageName, resolve, log = process.stderr) {
   }
 }
 
-/**
- * The native server finds the UI under the project tree or in REFINO_UI_DIR;
- * a global npm install keeps @refino/ui outside that tree, so resolve the
- * dependency here (Node resolution, which every package manager supports) and
- * hand the path to the child. An explicit REFINO_UI_DIR always wins.
- */
-function withUiDir(env = process.env, resolve = require.resolve, exists = existsSync) {
-  if (env.REFINO_UI_DIR) return env;
-  try {
-    const dist = join(dirname(resolve("@refino/ui/package.json")), "dist");
-    return exists(dist) ? { ...env, REFINO_UI_DIR: dist } : env;
-  } catch {
-    return env;
-  }
-}
-
 /** Spawn the native binary with inherited stdio; return the exit code. */
 function runBinary(binaryPath, argv, env = process.env) {
   const result = spawnSync(binaryPath, argv, { stdio: "inherit", env });
@@ -160,9 +142,8 @@ function missingBinaryError(candidates) {
 }
 
 function main(argv = process.argv.slice(2), env = process.env) {
-  const childEnv = withUiDir(env);
   const override = env.REFINO_BINARY_PATH;
-  if (override) return runBinary(override, argv, childEnv);
+  if (override) return runBinary(override, argv, env);
 
   const found = resolveBinaryPath();
   if (!found) {
@@ -170,7 +151,7 @@ function main(argv = process.argv.slice(2), env = process.env) {
     return 1;
   }
   warnVersionMismatch(found.packageName, require.resolve);
-  return runBinary(found.path, argv, childEnv);
+  return runBinary(found.path, argv, env);
 }
 
 module.exports = {
@@ -179,7 +160,6 @@ module.exports = {
   resolveBinaryPath,
   runBinary,
   missingBinaryError,
-  withUiDir,
   main,
 };
 

@@ -695,10 +695,16 @@ fn cmd_web(
             }
         },
     };
-    let static_root = refino_server::resolve_ui_static_root(&opts.root);
-    if static_root.is_none() {
+    // Precedence: an explicit development directory, then the UI embedded in
+    // this binary, then a `@refino/ui` build next to the project.
+    let static_root = match refino_server::ui_dir_override() {
+        Some(dir) => Some(dir),
+        None if refino_server::has_embedded_ui() => None,
+        None => refino_server::ui_dir_in_tree(&opts.root),
+    };
+    if !refino_server::has_embedded_ui() && static_root.is_none() {
         io.err(
-            "warning: @refino/ui build not found; serving a placeholder page (set REFINO_UI_DIR to the built UI directory)\n",
+            "warning: this build carries no web UI; set REFINO_UI_DIR to a built @refino/ui directory\n",
         );
     }
     let options = refino_server::WebServerOptions {

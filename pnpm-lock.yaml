@@ -46,10 +46,6 @@ importers:
         version: 3.5.42(typescript@5.9.3)
 
   packages/cli:
-    dependencies:
-      '@refino/ui':
-        specifier: workspace:^
-        version: link:../ui
     optionalDependencies:
       '@refino/cli-darwin-arm64':
         specifier: workspace:*

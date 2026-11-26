@@ -15,9 +15,9 @@
 - **`REFINO_BINARY_PATH`**：显式覆盖解析（开发与 CI），同 esbuild 的 `ESBUILD_BINARY_PATH`。
 - **退出码与信号**：stdio 继承、退出码透传；二进制被信号终止时按 128+n 约定映射，保证脚本可区分 SIGINT 等中断与普通失败。
 
-## `refino web` 的界面资产
+## `refino web` 的界面
 
-原生 `refino web` 从运行根向上查找 `node_modules/@refino/ui/dist`，或读取 `REFINO_UI_DIR`。npm 渠道由壳负责：壳声明 `@refino/ui` 运行时依赖，启动时经 Node 解析把构建目录写入子进程的 `REFINO_UI_DIR`，使本地与全局安装都开箱可用（显式设置的 `REFINO_UI_DIR` 优先）。两者皆无时，终端打印警告，浏览器得到一页说明如何补齐资产。
+前端构建产物在编译期嵌入原生二进制（`crates/refino-server/build.rs` 读取 `packages/ui/dist` 生成资产表），因此任何安装渠道都自带界面，壳不需要也不应该再传资产路径——本包因此不依赖 `@refino/ui`。开发时可以两条路覆盖：`REFINO_UI_DIR` 指向任意构建目录（最高优先），或当二进制未内嵌时回落到运行根向上的 `node_modules/@refino/ui/dist`；两者皆无时终端打印警告，浏览器得到一页说明。
 
 ## 职责边界
 

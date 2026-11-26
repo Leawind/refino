@@ -3,8 +3,11 @@
 //! and cycles are enforced inside the store's write methods, so the stored files
 //! never become invalid through the API.
 
+pub mod embed;
 pub mod query;
 pub mod watch;
+
+pub use embed::has_ui as has_embedded_ui;
 
 use axum::Router;
 use axum::extract::rejection::JsonRejection;
@@ -34,8 +37,9 @@ pub struct AppState {
     pub store: Arc<Mutex<RefinoStore<FsIo>>>,
     /// SSE change feed receivers.
     pub changes: tokio::sync::broadcast::Sender<ChangeFeed>,
-    /// Directory holding the built `@refino/ui` assets; `None` disables
-    /// static hosting (placeholder only).
+    /// Directory holding a UI build to serve from disk (development override);
+    /// `None` serves the build embedded in this binary, or the placeholder page
+    /// when the binary carries none.
     pub static_root: Option<PathBuf>,
 }
 
@@ -94,21 +98,40 @@ pub fn router(state: Arc<AppState>) -> Router {
 }
 
 async fn static_fallback(req: axum::extract::Request, static_root: Option<PathBuf>) -> Response {
-    use tower::ServiceExt as _;
-    if req.method() == axum::http::Method::GET
-        && let Some(root) = static_root
-    {
-        let service = tower_http::services::ServeDir::new(&root);
-        if let Ok(response) = service.oneshot(req).await
-            && response.status() != StatusCode::NOT_FOUND
-        {
-            return response.into_response();
-        }
-        // SPA fallback: unmatched GET requests get the app shell.
-        if let Ok(index) = std::fs::read_to_string(root.join("index.html")) {
-            return (StatusCode::OK, [("content-type", "text/html")], index).into_response();
-        }
+    if !matches!(
+        *req.method(),
+        axum::http::Method::GET | axum::http::Method::HEAD
+    ) {
+        return (StatusCode::NOT_FOUND, "not found").into_response();
     }
+    if let Some(root) = static_root {
+        return serve_dir(req, &root).await;
+    }
+    if embed::has_ui() {
+        return embed::serve(req.uri().path());
+    }
+    placeholder_page()
+}
+
+/// Serve a UI build from disk (the development override): files first, then the
+/// SPA shell for unmatched routes.
+async fn serve_dir(req: axum::extract::Request, root: &std::path::Path) -> Response {
+    use tower::ServiceExt as _;
+    let service = tower_http::services::ServeDir::new(root);
+    if let Ok(response) = service.oneshot(req).await
+        && response.status() != StatusCode::NOT_FOUND
+    {
+        return response.into_response();
+    }
+    if let Ok(index) = std::fs::read_to_string(root.join("index.html")) {
+        return (StatusCode::OK, [("content-type", "text/html")], index).into_response();
+    }
+    (StatusCode::NOT_FOUND, "not found").into_response()
+}
+
+/// The shell served when the binary carries no UI and no directory was resolved:
+/// the API works, the interface does not.
+fn placeholder_page() -> Response {
     (
         StatusCode::OK,
         [("content-type", "text/html")],
@@ -117,7 +140,7 @@ async fn static_fallback(req: axum::extract::Request, static_root: Option<PathBu
   <head><meta charset="utf-8"><title>refino web</title></head>
   <body>
     <h1>refino web</h1>
-    <p>The user interface assets were not found. Install <code>@refino/ui</code> or point <code>REFINO_UI_DIR</code> at the built <code>dist</code> directory.</p>
+    <p>This build of refino carries no web UI. Install a released build, or point <code>REFINO_UI_DIR</code> at a built <code>@refino/ui</code> dist directory.</p>
   </body>
 </html>"#,
     )
@@ -1102,17 +1125,18 @@ pub async fn start_web_server(options: WebServerOptions) -> std::io::Result<Runn
     })
 }
 
-/// Resolve the built `@refino/ui` assets: `REFINO_UI_DIR` overrides, then the
-/// nearest `node_modules/@refino/ui/dist` walking up from `from`. None when
-/// absent — the server serves the placeholder shell.
-pub fn resolve_ui_static_root(from: &std::path::Path) -> Option<PathBuf> {
-    if let Ok(override_dir) = std::env::var("REFINO_UI_DIR") {
-        let dir = PathBuf::from(override_dir);
-        if dir.is_dir() {
-            return Some(dir);
-        }
-        return None;
-    }
+/// Explicit UI build directory for development (`REFINO_UI_DIR`), when it names
+/// an existing directory. Takes precedence over the embedded build.
+pub fn ui_dir_override() -> Option<PathBuf> {
+    std::env::var_os("REFINO_UI_DIR")
+        .map(PathBuf::from)
+        .filter(|dir| dir.is_dir())
+}
+
+/// The nearest `node_modules/@refino/ui/dist` walking up from `from` — a project
+/// that depends on `@refino/ui` carries a build next to its sources. Consulted
+/// only when the binary embeds no UI.
+pub fn ui_dir_in_tree(from: &std::path::Path) -> Option<PathBuf> {
     let mut current = from.to_path_buf();
     loop {
         let candidate = current

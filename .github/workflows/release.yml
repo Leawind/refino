@@ -10,10 +10,35 @@ permissions:
   id-token: write
 
 jobs:
+  # One UI build feeds every platform binary: the server embeds it at compile
+  # time (crates/refino-server/build.rs), so the published binary carries the
+  # interface and needs no node_modules at runtime.
+  build-ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm --filter @refino/ui build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ui-dist
+          path: packages/ui/dist
+
   # Build the native refino binary per platform. Artifacts feed the publish
   # job, which assembles them into the npm platform packages
   # (@refino/cli-<platform>-<arch>, packages/cli-*/).
   build-binaries:
+    needs: build-ui
     runs-on: ${{ matrix.runs-on }}
     strategy:
       fail-fast: false
@@ -36,6 +61,13 @@ jobs:
             target: aarch64-unknown-linux-gnu
     steps:
       - uses: actions/checkout@v4
+
+      # The UI build is embedded by build.rs; without it the binary would
+      # only serve the placeholder page.
+      - uses: actions/download-artifact@v4
+        with:
+          name: ui-dist
+          path: packages/ui/dist
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -86,6 +118,23 @@ jobs:
         with:
           pattern: cli-*
           path: dist-binaries
+
+      # A binary published without its embedded UI would ship a placeholder
+      # page; check the one artifact that runs on this runner before publishing.
+      - name: Smoke-test the embedded web UI
+        run: |
+          set -euo pipefail
+          bin=dist-binaries/cli-linux-x64/refino-linux-x64
+          chmod +x "$bin"
+          tmp=$(mktemp -d)
+          "$bin" init --root "$tmp" >/dev/null
+          "$bin" web --root "$tmp" --port 5711 >"$tmp/web.log" 2>&1 &
+          pid=$!
+          trap 'kill $pid 2>/dev/null || true' EXIT
+          for _ in $(seq 1 50); do curl -sf http://127.0.0.1:5711/ >/dev/null && break; sleep 0.2; done
+          curl -sf http://127.0.0.1:5711/ | grep -q '<div id="app">'
+          ! grep -q 'carries no web UI' "$tmp/web.log"
+          curl -sf http://127.0.0.1:5711/api/stats >/dev/null
 
       - run: pnpm install --frozen-lockfile
 

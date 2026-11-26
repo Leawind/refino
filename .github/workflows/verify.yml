@@ -48,3 +48,42 @@ jobs:
 
       # wasm-clean gate: pure crates must compile for the browser target.
       - run: cargo check -p refino-core --target wasm32-unknown-unknown
+
+  # The published binary serves the web UI from assets embedded at build time;
+  # this job is the one place where a UI build and a Rust build meet, so a
+  # broken embed (path, generator, serving order) fails here instead of at
+  # release time.
+  web-embed:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm --filter @refino/ui build
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: cargo build -p refino
+
+      - name: Assert the binary serves its embedded UI
+        run: |
+          set -euo pipefail
+          tmp=$(mktemp -d)
+          target/debug/refino init --root "$tmp" >/dev/null
+          target/debug/refino web --root "$tmp" --port 5711 >"$tmp/web.log" 2>&1 &
+          pid=$!
+          trap 'kill $pid 2>/dev/null || true' EXIT
+          for _ in $(seq 1 50); do curl -sf http://127.0.0.1:5711/ >/dev/null && break; sleep 0.2; done
+          curl -sf http://127.0.0.1:5711/ | grep -q '<div id="app">'
+          ! grep -q 'carries no web UI' "$tmp/web.log"
+          curl -sf http://127.0.0.1:5711/api/stats >/dev/null

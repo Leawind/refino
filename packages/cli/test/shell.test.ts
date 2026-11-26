@@ -16,7 +16,7 @@ import { describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
 
-const { candidateNames, isMusl, resolveBinaryPath, runBinary, missingBinaryError, withUiDir } =
+const { candidateNames, isMusl, resolveBinaryPath, runBinary, missingBinaryError } =
   require("../bin/refino.js") as {
     candidateNames: (platform?: string, arch?: string, musl?: boolean) => string[];
     isMusl: (platform: string, report?: unknown) => boolean;
@@ -28,11 +28,6 @@ const { candidateNames, isMusl, resolveBinaryPath, runBinary, missingBinaryError
     }) => { path: string; packageName: string } | undefined;
     runBinary: (binaryPath: string, argv: string[], env?: NodeJS.ProcessEnv) => number;
     missingBinaryError: (candidates: string[]) => string;
-    withUiDir: (
-      env?: NodeJS.ProcessEnv,
-      resolve?: (id: string) => string,
-      exists?: (path: string) => boolean,
-    ) => NodeJS.ProcessEnv;
   };
 
 const shellManifest = require("../package.json") as {
@@ -177,45 +172,6 @@ describe("manifest contract", () => {
   });
 });
 
-describe("withUiDir", () => {
-  it("hands the installed @refino/ui build to the child", () => {
-    const env = withUiDir(
-      { PATH: "/bin" },
-      () => "/fake/node_modules/@refino/ui/package.json",
-      (path) => path === join("/fake/node_modules/@refino/ui", "dist"),
-    );
-    expect(env.REFINO_UI_DIR).toBe(join("/fake/node_modules/@refino/ui", "dist"));
-    expect(env.PATH).toBe("/bin");
-  });
-
-  it("keeps an explicit REFINO_UI_DIR and leaves the env alone when the build is absent", () => {
-    const explicit = { REFINO_UI_DIR: "/custom/ui" };
-    expect(
-      withUiDir(
-        explicit,
-        () => "/fake/package.json",
-        () => true,
-      ),
-    ).toBe(explicit);
-    expect(
-      withUiDir(
-        {},
-        () => "/fake/package.json",
-        () => false,
-      ).REFINO_UI_DIR,
-    ).toBeUndefined();
-    expect(
-      withUiDir(
-        {},
-        () => {
-          throw new Error("not installed");
-        },
-        () => true,
-      ).REFINO_UI_DIR,
-    ).toBeUndefined();
-  });
-});
-
 describe("runBinary", () => {
   it(
     "propagates the exit code of the spawned binary",
@@ -236,11 +192,11 @@ describe("runBinary", () => {
   it("spawns with the environment it is given", { skip: process.platform === "win32" }, () => {
     const dir = mkdtempSync(join(tmpdir(), "refino-shell-"));
     const fake = join(dir, "fake-refino.sh");
-    // Exits 9 when the UI directory did not reach the child.
-    writeFileSync(fake, '#!/bin/sh\n[ "$REFINO_UI_DIR" = "/fake/ui" ] || exit 9\nexit 0\n');
+    // Exits 9 when the sentinel did not reach the child.
+    writeFileSync(fake, '#!/bin/sh\n[ "$REFINO_SHELL_TEST_ENV" = "passed" ] || exit 9\nexit 0\n');
     chmodSync(fake, 0o755);
     try {
-      expect(runBinary(fake, [], { ...process.env, REFINO_UI_DIR: "/fake/ui" })).toBe(0);
+      expect(runBinary(fake, [], { ...process.env, REFINO_SHELL_TEST_ENV: "passed" })).toBe(0);
       expect(runBinary(fake, [], { ...process.env })).toBe(9);
     } finally {
       rmSync(dir, { recursive: true, force: true });

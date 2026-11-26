@@ -1,6 +1,6 @@
 [package]
 name = "refino-server"
-description = "Local HTTP service for Decision Lineage Graphs (DLG): the Web API, SSE change feed and static hosting of the @refino/ui build."
+description = "Local HTTP service for Decision Lineage Graphs (DLG): the Web API, SSE change feed and the @refino/ui build embedded at compile time."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

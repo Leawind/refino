@@ -24,9 +24,9 @@ refino --help
 运行时，`bin/refino.js` 解析已安装的平台包并以其身份执行二进制：stdio 原样继承、退出码原样透传。平台包与壳的版本严格一致。
 
 - **没有装上二进制？** 常见于 `--omit=optional` / `--no-optional` 安装，或 `node_modules` 被跨机器复制。重新安装即可；错误信息会列出期望的平台包。
-- **musl 系统（Alpine 等）**：暂未发布 musl 构建，请 `cargo install refino`（crates.io 渠道）或自行编译。
+- **musl 系统（Alpine 等）**：暂未发布 musl 构建，可从源码构建——先 `pnpm --filter @refino/ui build` 再 `cargo build --release -p refino`，否则二进制不含界面。
 - **`REFINO_BINARY_PATH`**：设为二进制路径可跳过解析（开发与 CI 场景），同 esbuild 的 `ESBUILD_BINARY_PATH`。
-- **`refino web` 的界面资产**：壳依赖 `@refino/ui`，启动时把构建产物目录经 `REFINO_UI_DIR` 传给原生二进制，本地与全局安装都可直接使用；显式设置 `REFINO_UI_DIR` 可覆盖。
+- **`refino web` 的界面**：前端构建产物在编译期嵌入二进制，安装完即可用，无需额外安装 `@refino/ui`；开发时可用 `REFINO_UI_DIR` 指向一个构建目录覆盖。
 
 ## 了解更多
 
