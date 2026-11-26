@@ -67,7 +67,7 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - run: pnpm --filter @refino/ui build
+      - run: pnpm -r build
 
       - uses: dtolnay/rust-toolchain@stable
 
