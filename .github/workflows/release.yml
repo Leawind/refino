@@ -158,13 +158,17 @@ jobs:
             fi
           done
 
-      # Publish via npm trusted publishing (OIDC): no NPM_TOKEN needed.
-      # Requires each package — the platform packages included — to have a
-      # "Trusted Publisher" configured on npmjs.com pointing to this repo
-      # and this workflow file. pnpm -r publish walks the workspace in
-      # topological (dependency) order, skips private packages and versions
-      # already on npm, and replaces workspace:^ / workspace:* deps with
-      # real version ranges, so the platform packages ship before the shell
-      # that pins them.
+      # Publish via npm trusted publishing (OIDC). pnpm -r publish walks the
+      # workspace in topological (dependency) order, skips private packages and
+      # versions already on npm, and replaces workspace:^ / workspace:* deps with
+      # real version ranges, so the platform packages ship before the shell that
+      # pins them.
+      #
+      # NODE_AUTH_TOKEN is only the bootstrap: npm cannot configure a trusted
+      # publisher for a package that does not exist yet, so a new package's first
+      # version needs a token. Remove the secret once every package is published
+      # and configured, and this falls back to OIDC alone.
       - name: Publish packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: pnpm -r publish --access public --provenance --no-git-checks
