@@ -12,7 +12,9 @@ pub use embed::has_ui as has_embedded_ui;
 use axum::Router;
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path, Query, State};
+use axum::http::HeaderValue;
 use axum::http::StatusCode;
+use axum::http::header::{CACHE_CONTROL, CONTENT_TYPE};
 use axum::response::{IntoResponse, Json, Response};
 use axum::routing::{get, post};
 use refino_core::{
@@ -104,6 +106,11 @@ async fn static_fallback(req: axum::extract::Request, static_root: Option<PathBu
     ) {
         return (StatusCode::NOT_FOUND, "not found").into_response();
     }
+    // Resolved per request: a UI build that lands after the process started is
+    // picked up without a restart, and one that disappears falls back cleanly.
+    if let Some(dir) = ui_dir_override() {
+        return serve_dir(req, &dir).await;
+    }
     if let Some(root) = static_root {
         return serve_dir(req, &root).await;
     }
@@ -118,13 +125,23 @@ async fn static_fallback(req: axum::extract::Request, static_root: Option<PathBu
 async fn serve_dir(req: axum::extract::Request, root: &std::path::Path) -> Response {
     use tower::ServiceExt as _;
     let service = tower_http::services::ServeDir::new(root);
-    if let Ok(response) = service.oneshot(req).await
+    if let Ok(mut response) = service.oneshot(req).await
         && response.status() != StatusCode::NOT_FOUND
     {
+        // A development build is rewritten on every save; the browser must not
+        // answer from its cache while the server keeps running.
+        response
+            .headers_mut()
+            .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
         return response.into_response();
     }
     if let Ok(index) = std::fs::read_to_string(root.join("index.html")) {
-        return (StatusCode::OK, [("content-type", "text/html")], index).into_response();
+        return (
+            StatusCode::OK,
+            [(CONTENT_TYPE, "text/html"), (CACHE_CONTROL, "no-store")],
+            index,
+        )
+            .into_response();
     }
     (StatusCode::NOT_FOUND, "not found").into_response()
 }
@@ -1128,9 +1145,21 @@ pub async fn start_web_server(options: WebServerOptions) -> std::io::Result<Runn
 /// Explicit UI build directory for development (`REFINO_UI_DIR`), when it names
 /// an existing directory. Takes precedence over the embedded build.
 pub fn ui_dir_override() -> Option<PathBuf> {
-    std::env::var_os("REFINO_UI_DIR")
+    ui_dir_env().filter(|dir| dir.is_dir())
+}
+
+/// The `REFINO_UI_DIR` value as given, whether or not the directory exists yet;
+/// the CLI uses it to report where a development build will be picked up from.
+pub fn ui_dir_env() -> Option<PathBuf> {
+    ui_dir_from(std::env::var_os("REFINO_UI_DIR"), false)
+}
+
+/// The value half of `ui_dir_override`, split out so tests can exercise it
+/// without mutating the process environment.
+fn ui_dir_from(value: Option<std::ffi::OsString>, must_exist: bool) -> Option<PathBuf> {
+    value
         .map(PathBuf::from)
-        .filter(|dir| dir.is_dir())
+        .filter(|dir| !must_exist || dir.is_dir())
 }
 
 /// The nearest `node_modules/@refino/ui/dist` walking up from `from` — a project
@@ -1150,5 +1179,69 @@ pub fn ui_dir_in_tree(from: &std::path::Path) -> Option<PathBuf> {
         if !current.pop() {
             return None;
         }
+    }
+}
+
+#[cfg(test)]
+mod ui_dir_tests {
+    use super::*;
+    use axum::body::Body;
+
+    #[test]
+    fn ui_dir_from_accepts_an_existing_directory_only() {
+        let dir = std::env::temp_dir().join("refino-ui-dir-rule");
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(
+            ui_dir_from(Some(dir.clone().into_os_string()), true),
+            Some(dir)
+        );
+        assert_eq!(
+            ui_dir_from(
+                Some(std::ffi::OsString::from("/definitely/missing/refino-ui")),
+                true
+            ),
+            None
+        );
+        assert_eq!(ui_dir_from(None, true), None);
+    }
+
+    #[tokio::test]
+    async fn a_disk_build_is_served_without_caching() {
+        let dir = std::env::temp_dir().join("refino-ui-serve-live");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("index.html"), "<div id=\"app\"></div>").unwrap();
+        let request = axum::http::Request::builder()
+            .uri("/")
+            .body(Body::empty())
+            .unwrap();
+        let response = serve_dir(request, &dir).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get(CACHE_CONTROL)
+                .map(|value| value.to_str().unwrap_or_default()),
+            Some("no-store")
+        );
+    }
+
+    #[tokio::test]
+    async fn an_unknown_route_falls_back_to_the_spa_shell() {
+        let dir = std::env::temp_dir().join("refino-ui-serve-spa");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("index.html"), "<div id=\"app\"></div>").unwrap();
+        let request = axum::http::Request::builder()
+            .uri("/nodes/ABCD1234")
+            .body(Body::empty())
+            .unwrap();
+        let response = serve_dir(request, &dir).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get(CACHE_CONTROL)
+                .map(|value| value.to_str().unwrap_or_default()),
+            Some("no-store")
+        );
     }
 }

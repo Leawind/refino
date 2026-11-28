@@ -695,14 +695,20 @@ fn cmd_web(
             }
         },
     };
-    // Precedence: an explicit development directory, then the UI embedded in
-    // this binary, then a `@refino/ui` build next to the project.
-    let static_root = match refino_server::ui_dir_override() {
-        Some(dir) => Some(dir),
-        None if refino_server::has_embedded_ui() => None,
-        None => refino_server::ui_dir_in_tree(&opts.root),
+    // Precedence: an explicit development directory (resolved per request, so a
+    // build that lands later is served without a restart), then the UI embedded
+    // in this binary, then a `@refino/ui` build next to the project.
+    let static_root = if refino_server::has_embedded_ui() {
+        None
+    } else {
+        refino_server::ui_dir_in_tree(&opts.root)
     };
-    if !refino_server::has_embedded_ui() && static_root.is_none() {
+    if let Some(dir) = refino_server::ui_dir_env() {
+        io.out(&format!(
+            "serving the UI from {} (rebuilt files are served live)\n",
+            dir.display()
+        ));
+    } else if !refino_server::has_embedded_ui() && static_root.is_none() {
         io.err(
             "warning: this build carries no web UI; set REFINO_UI_DIR to a built @refino/ui directory\n",
         );

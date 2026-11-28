@@ -87,7 +87,7 @@ describe("ResourceExplorer collapse", () => {
     localStorage.removeItem("refino.finder.collapsed");
     mountExplorer();
     await nextTick();
-    expect(wrapper!.find("input[placeholder*=\"按 id\"]").exists()).toBe(false);
+    expect(wrapper!.find('input[placeholder*="按 id"]').exists()).toBe(false);
     expect(wrapper!.find(".rail").exists()).toBe(true);
   });
 });

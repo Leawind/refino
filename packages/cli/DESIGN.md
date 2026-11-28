@@ -17,7 +17,7 @@
 
 ## `refino web` 的界面
 
-前端构建产物在编译期嵌入原生二进制（`crates/refino-server/build.rs` 读取 `packages/ui/dist` 生成资产表），因此任何安装渠道都自带界面，壳不需要也不应该再传资产路径——本包因此不依赖 `@refino/ui`。开发时可以两条路覆盖：`REFINO_UI_DIR` 指向任意构建目录（最高优先），或当二进制未内嵌时回落到运行根向上的 `node_modules/@refino/ui/dist`；两者皆无时终端打印警告，浏览器得到一页说明。
+前端构建产物在编译期嵌入原生二进制（`crates/refino-server/build.rs` 读取 `packages/ui/dist` 生成资产表），因此任何安装渠道都自带界面，壳不需要也不应该再传资产路径——本包因此不依赖 `@refino/ui`。开发时可以两条路覆盖：`REFINO_UI_DIR` 指向任意构建目录（最高优先，按请求解析——先起服务、后构建界面也能生效，且响应带 `no-store`，重建后刷新即可看到），或当二进制未内嵌时回落到运行根向上的 `node_modules/@refino/ui/dist`；两者皆无时终端打印警告，浏览器得到一页说明。
 
 ## 职责边界
 
