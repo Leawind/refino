@@ -5,6 +5,8 @@ import {
   calloutWidths,
   chooseCalloutPlacement,
   placeSummaryLabels,
+  SUMMARY_SCALE_MAX,
+  summaryScale,
 } from "../src/graph/orbit/callout";
 import type { CalloutCandidate, CalloutStar } from "../src/graph/orbit/callout";
 
@@ -261,7 +263,7 @@ describe("summary labels", () => {
     ).toBe(0.06);
     expect(
       placeSummaryLabels({ viewport: VIEWPORT, candidates: capped, focus, summaries: s })[0]!.scale,
-    ).toBe(1);
+    ).toBe(SUMMARY_SCALE_MAX);
   });
 
   it("scales every label with the settings text size", () => {
@@ -357,5 +359,18 @@ describe("summary labels", () => {
       summaries: new Map([["P1", "Only one"]]),
     });
     expect(labels.map((label) => label.key)).toEqual(["P1@A"]);
+  });
+});
+
+describe("summaryScale", () => {
+  it("reads 1 at the fitted distance and shrinks without a floor", () => {
+    expect(summaryScale(100, 100)).toBeCloseTo(1, 5);
+    expect(summaryScale(200, 100)).toBeCloseTo(0.5, 5);
+    expect(summaryScale(400, 100)).toBeCloseTo(0.25, 5);
+  });
+
+  it("caps the too-close case only", () => {
+    expect(summaryScale(50, 100)).toBeCloseTo(1.5, 5);
+    expect(summaryScale(1, 100)).toBe(SUMMARY_SCALE_MAX);
   });
 });

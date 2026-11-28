@@ -71,12 +71,25 @@ function mountExplorer(nodes?: SearchNode[], searchFor?: (query: string) => Sear
 
 beforeEach(() => {
   localStorage.clear();
+  // The finder now starts collapsed; the row tests read its content, so they
+  // open it the way a returning user would.
+  localStorage.setItem("refino.finder.collapsed", "false");
 });
 
 afterEach(() => {
   wrapper?.unmount();
   wrapper = null;
   workspace?.stop();
+});
+
+describe("ResourceExplorer collapse", () => {
+  it("starts collapsed on a first visit", async () => {
+    localStorage.removeItem("refino.finder.collapsed");
+    mountExplorer();
+    await nextTick();
+    expect(wrapper!.find("input[placeholder*=\"按 id\"]").exists()).toBe(false);
+    expect(wrapper!.find(".rail").exists()).toBe(true);
+  });
 });
 
 describe("ResourceExplorer rows", () => {

@@ -27,6 +27,8 @@ export default {
     orbitCamera: "相机",
     orbitLight: "星光",
     orbitStarBrightness: "星星亮度",
+    orbitDamping: "阻尼",
+    orbitHalo: "光晕大小",
     orbitFlow: "流光",
     orbitFlowSpeed: "流速",
     orbitFlowGlow: "亮度",

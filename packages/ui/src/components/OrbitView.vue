@@ -75,6 +75,8 @@ const orbitSettings = computed<OrbitSettings>(() => {
     spring: config.orbitSpring,
     repulsion: config.orbitRepulsion,
     revolutionSpeed: config.orbitRevolutionSpeed,
+    damping: config.orbitDamping,
+    halo: config.orbitHalo,
   };
 });
 

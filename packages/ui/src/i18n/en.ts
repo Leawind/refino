@@ -27,6 +27,8 @@ export default {
     orbitCamera: "Camera",
     orbitLight: "Starlight",
     orbitStarBrightness: "Star brightness",
+    orbitDamping: "Damping",
+    orbitHalo: "Halo size",
     orbitFlow: "Flow",
     orbitFlowSpeed: "Speed",
     orbitFlowGlow: "Brightness",

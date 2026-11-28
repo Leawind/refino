@@ -30,7 +30,7 @@ const WIDTH_MIN = 220;
 const WIDTH_MAX = 460;
 
 const rootEl = ref<HTMLElement | null>(null);
-const collapsed = ref(readPreference<string>(COLLAPSED_KEY, "false") === "true");
+const collapsed = ref(readPreference<string>(COLLAPSED_KEY, "true") === "true");
 const width = ref(clampWidth(readNumberPreference(WIDTH_KEY, 288)));
 const searchEl = ref<InstanceType<typeof NInput> | null>(null);
 
@@ -43,8 +43,13 @@ const style = computed(() => (collapsed.value ? undefined : { width: `${width.va
 const query = ref("");
 
 /** "all" lists both types; the unreferenced view implies premises. */
-const typeFilter = ref<"all" | NodeType>("all");
-const unreferencedOnly = ref(false);
+const TYPE_KEY = "refino.finder.type";
+const UNREFERENCED_KEY = "refino.finder.unreferenced";
+const storedType = readPreference<string>(TYPE_KEY, "all");
+const typeFilter = ref<"all" | NodeType>(
+  storedType === "decision" || storedType === "premise" ? storedType : "all",
+);
+const unreferencedOnly = ref(readPreference<string>(UNREFERENCED_KEY, "false") === "true");
 
 const items = ref<SearchNode[]>([]);
 const nextCursor = ref<string | undefined>(undefined);
@@ -132,13 +137,19 @@ function onScroll(event: Event): void {
 function setScope(value: "all" | NodeType): void {
   typeFilter.value = value;
   unreferencedOnly.value = false;
+  writePreference(TYPE_KEY, value);
+  writePreference(UNREFERENCED_KEY, "false");
 }
 
 /** The quick view fixes the type to premises, so it clears any narrower
  * filter at the same time; otherwise the chips would disagree. */
 function toggleUnreferenced(): void {
   unreferencedOnly.value = !unreferencedOnly.value;
-  if (unreferencedOnly.value) typeFilter.value = "premise";
+  if (unreferencedOnly.value) {
+    typeFilter.value = "premise";
+    writePreference(TYPE_KEY, "premise");
+  }
+  writePreference(UNREFERENCED_KEY, String(unreferencedOnly.value));
 }
 
 function select(node: SearchNode): void {

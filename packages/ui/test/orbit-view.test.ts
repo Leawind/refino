@@ -133,7 +133,7 @@ vi.mock("../src/graph/orbit/scene", () => {
             relative: orbit.focus?.key === "A",
           },
         ],
-        referenceDistance: 20,
+        fitDistance: 20,
       };
     }
     focusScreen() {

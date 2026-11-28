@@ -113,7 +113,7 @@ describe("OrbitControl panel", () => {
       "物理模拟",
       "行星公转",
     ]);
-    expect(wrapper.findAllComponents(NSlider)).toHaveLength(9);
+    expect(wrapper.findAllComponents(NSlider)).toHaveLength(11);
   });
 
   it("stays usable for the persisted rows without registered camera commands", async () => {

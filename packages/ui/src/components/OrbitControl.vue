@@ -107,6 +107,8 @@ const ORBIT_FIELD: Record<
   | "orbitSpring"
   | "orbitRepulsion"
   | "orbitRevolutionSpeed"
+  | "orbitDamping"
+  | "orbitHalo"
 > = {
   starBrightness: "orbitStarBrightness",
   flowSpeed: "orbitFlowSpeed",
@@ -114,6 +116,8 @@ const ORBIT_FIELD: Record<
   spring: "orbitSpring",
   repulsion: "orbitRepulsion",
   revolutionSpeed: "orbitRevolutionSpeed",
+  damping: "orbitDamping",
+  halo: "orbitHalo",
 };
 
 function orbitRow(
@@ -165,6 +169,7 @@ const groups = computed<SettingGroup[]>(() => {
           format: times,
           set: (value) => workspace.setConfig({ rotateSensitivity: value }),
         },
+        orbitRow("damping", t("app.orbitDamping"), ORBIT_SETTING_LIMITS.damping, times),
       ],
     },
     {
@@ -177,6 +182,7 @@ const groups = computed<SettingGroup[]>(() => {
           ORBIT_SETTING_LIMITS.starBrightness,
           percent,
         ),
+        orbitRow("halo", t("app.orbitHalo"), ORBIT_SETTING_LIMITS.halo, percent),
       ],
     },
     {

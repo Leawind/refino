@@ -332,6 +332,22 @@ export const SUMMARY_LABEL_WIDTH = 168;
 export const SUMMARY_LABEL_LINE = 19;
 /** Font size of a summary at full scale. */
 export const SUMMARY_FONT_SIZE = 13;
+/** Closest the text may grow: the world-fixed size only caps when the camera
+ * comes nearer than the fitted view. */
+export const SUMMARY_SCALE_MAX = 1.5;
+/** Smallest text worth drawing, in CSS pixels; a smaller label is dropped. */
+export const SUMMARY_MIN_PX = 4;
+
+/** Text scale of a summary seen from `distance`, with the fitted view at 1:
+ * a world-fixed size, so pulling back shrinks it without a floor and only a
+ * closer-than-fit camera hits the cap. */
+export function summaryScale(
+  distance: number,
+  referenceDistance: number,
+  max = SUMMARY_SCALE_MAX,
+): number {
+  return Math.min(max, referenceDistance / Math.max(distance, 1e-3));
+}
 const SUMMARY_LABEL_LINES = 2;
 /** Rule under a summary, with the same gap as the main block. */
 export const SUMMARY_RULE_GAP = 6;
@@ -401,7 +417,8 @@ export function placeSummaryLabels(input: SummaryLabelInput): SummaryLabelPlacem
     if (text === undefined || text === "") continue;
     // Upper bound only: distance decides how small a label gets, the settings
     // text scale multiplies that size.
-    const scale = Math.min(1, candidate.scale) * Math.max(0.1, input.textScale ?? 1);
+    const scale =
+      Math.min(SUMMARY_SCALE_MAX, candidate.scale) * Math.max(0.1, input.textScale ?? 1);
     const width = Math.min(SUMMARY_LABEL_WIDTH * scale, viewport.width - 2 * CALLOUT_PAD);
     if (width <= 0) continue;
     const lines = Math.min(SUMMARY_LABEL_LINES, Math.max(1, Math.ceil(text.length / 12)));

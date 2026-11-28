@@ -85,6 +85,10 @@ export interface CanvasConfig {
   orbitRepulsion: number;
   /** Multiplier on the premise satellites' angular speed; 0 holds them. */
   orbitRevolutionSpeed: number;
+  /** Easing time multiplier of the 3D camera, its zoom and its halos. */
+  orbitDamping: number;
+  /** Size multiplier of the 3D view's interaction halos. */
+  orbitHalo: number;
   /** Text scale of the 3D view's focused content and its summaries. */
   orbitTextScale: number;
   /** Whether the canvas minimap overview floats in the top-left corner. */
@@ -127,6 +131,8 @@ const DEFAULT_CONFIG: CanvasConfig = {
   orbitSpring: ORBIT_SETTINGS_DEFAULT.spring,
   orbitRepulsion: ORBIT_SETTINGS_DEFAULT.repulsion,
   orbitRevolutionSpeed: ORBIT_SETTINGS_DEFAULT.revolutionSpeed,
+  orbitDamping: ORBIT_SETTINGS_DEFAULT.damping,
+  orbitHalo: ORBIT_SETTINGS_DEFAULT.halo,
   orbitTextScale: ORBIT_TEXT_SCALE_DEFAULT,
   showMinimap: true,
 };
@@ -160,6 +166,8 @@ const CONFIG_KEYS: Record<keyof CanvasConfig, string> = {
   orbitSpring: "refino.canvas.orbitSpring",
   orbitRepulsion: "refino.canvas.orbitRepulsion",
   orbitRevolutionSpeed: "refino.canvas.orbitRevolutionSpeed",
+  orbitDamping: "refino.canvas.orbitDamping",
+  orbitHalo: "refino.canvas.orbitHalo",
   orbitTextScale: "refino.canvas.orbitTextScale",
   showMinimap: "refino.canvas.showMinimap",
 };
@@ -296,6 +304,14 @@ function loadConfig(): CanvasConfig {
     orbitRevolutionSpeed: clampOrbitSetting(
       "revolutionSpeed",
       readNumberPreference(CONFIG_KEYS.orbitRevolutionSpeed, DEFAULT_CONFIG.orbitRevolutionSpeed),
+    ),
+    orbitDamping: clampOrbitSetting(
+      "damping",
+      readNumberPreference(CONFIG_KEYS.orbitDamping, DEFAULT_CONFIG.orbitDamping),
+    ),
+    orbitHalo: clampOrbitSetting(
+      "halo",
+      readNumberPreference(CONFIG_KEYS.orbitHalo, DEFAULT_CONFIG.orbitHalo),
     ),
     orbitTextScale: clampOrbitTextScale(
       readNumberPreference(CONFIG_KEYS.orbitTextScale, DEFAULT_CONFIG.orbitTextScale),

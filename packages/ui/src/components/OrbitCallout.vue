@@ -22,6 +22,8 @@ import {
   placeSummaryLabels,
   SUMMARY_FONT_SIZE,
   SUMMARY_LABEL_LINE,
+  SUMMARY_MIN_PX,
+  summaryScale,
   SUMMARY_RULE_GAP,
 } from "../graph/orbit/callout";
 import type {
@@ -336,15 +338,15 @@ function solve(layout: OrbitScreenLayout, controls: CalloutRect[]): void {
  * premises it grounds on speak — the picture's other stars stay quiet. */
 function selectSummaryCandidates(layout: OrbitScreenLayout): SummaryLabelCandidate[] {
   const focusId = props.node?.id ?? null;
-  // The camera distance to the orbit centre is the full-size reference: a
-  // star at that depth reads normal, closer ones cap at normal, farther ones
-  // shrink without a floor.
-  const reference = Math.max(layout.referenceDistance, 1);
+  // The fitted view reads at full size; the reference is a world distance, so
+  // pulling back shrinks the text like a 3D object in the scene, with no floor.
+  // Only the too-close case caps growth, so a label never outgrows the page.
+  const reference = Math.max(layout.fitDistance, 1);
   const kept = layout.nodes.filter(
     (node) =>
       node.id !== focusId && props.summaries.has(node.id) && (node.hovered || node.relative),
   );
-  return kept.map((node) => ({
+  const scaled: SummaryLabelCandidate[] = kept.map((node) => ({
     key: node.key,
     id: node.id,
     x: node.x,
@@ -352,9 +354,12 @@ function selectSummaryCandidates(layout: OrbitScreenLayout): SummaryLabelCandida
     radius: node.radius,
     // The pointer already singles out the hovered star: it reads at normal
     // size whatever its depth. Relatives follow distance alone.
-    scale: node.hovered ? 1 : Math.min(1, reference / Math.max(node.distance, 1e-3)),
+    scale: node.hovered ? 1 : summaryScale(node.distance, reference),
     hovered: node.hovered,
   }));
+  // Sub-pixel text is noise on the page: at that distance the star keeps its
+  // light and the label is simply not drawn.
+  return scaled.filter((label) => SUMMARY_FONT_SIZE * label.scale >= SUMMARY_MIN_PX);
 }
 
 /** Place and follow the summaries around the picture's prominent stars. */

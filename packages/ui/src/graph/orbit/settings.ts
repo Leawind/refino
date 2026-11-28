@@ -27,6 +27,12 @@ export interface OrbitSettings {
   repulsion: number;
   /** Angular speed of the premise satellites; 0 holds every ring still. */
   revolutionSpeed: number;
+  /** Easing time multiplier of the camera glide, the wheel zoom and the halo
+   * growth: higher values settle more slowly. */
+  damping: number;
+  /** Size multiplier of the interaction halos around hovered and selected
+   * stars. */
+  halo: number;
 }
 
 export interface OrbitSettingLimit {
@@ -42,6 +48,8 @@ export const ORBIT_SETTINGS_DEFAULT: OrbitSettings = {
   spring: ORBIT_FORCE_TUNING_DEFAULT.spring,
   repulsion: ORBIT_FORCE_TUNING_DEFAULT.repulsion,
   revolutionSpeed: 1,
+  damping: 1,
+  halo: 1,
 };
 
 export const ORBIT_SETTING_LIMITS: Record<keyof OrbitSettings, OrbitSettingLimit> = {
@@ -55,6 +63,8 @@ export const ORBIT_SETTING_LIMITS: Record<keyof OrbitSettings, OrbitSettingLimit
     step: 0.1,
   },
   revolutionSpeed: { min: 0, max: 3, step: 0.1 },
+  damping: { min: 0.2, max: 3, step: 0.05 },
+  halo: { min: 0.3, max: 2.5, step: 0.05 },
 };
 
 /** Font scale of the focused content and the summaries around it. */

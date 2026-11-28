@@ -163,8 +163,9 @@ export interface OrbitScreenLayout {
   anchor: OrbitScreenStar | null;
   /** Every drawn star, decisions and premise copies alike. */
   nodes: OrbitScreenNode[];
-  /** Camera distance to the orbit centre: the unscaled-text reference. */
-  referenceDistance: number;
+  /** World distance the labels read at full size: the camera distance of the
+   * fitted view, fixed per graph so zooming out shrinks the text. */
+  fitDistance: number;
 }
 
 /** One rendered star: a decision, or one satellite copy of a premise. */
@@ -221,6 +222,8 @@ const ROOT_OPACITY_FOCUS = 0.9;
 /** Fraction of a glow sprite that reads as the star's mark: the halo texture
  * is mostly a soft falloff, so only its centre looks like a disc. */
 const GLOW_VISIBLE = 0.32;
+/** Largest world multiplier the perspective compensation may reach, so a
+ * close-up cannot inflate one glow until it swallows the picture. */
 /** Screen radii of the marks, in CSS pixels: what a DOM overlay must keep
  * clear of even when the camera pulls back. */
 const DECISION_MARK_RADIUS = 12;
@@ -952,7 +955,7 @@ export class OrbitScene {
       stars,
       anchor,
       nodes,
-      referenceDistance: this.#distance(),
+      fitDistance: this.#fitReference,
     };
   }
 
@@ -1010,6 +1013,8 @@ export class OrbitScene {
       spring: clampOrbitSetting("spring", settings.spring),
       repulsion: clampOrbitSetting("repulsion", settings.repulsion),
       revolutionSpeed: clampOrbitSetting("revolutionSpeed", settings.revolutionSpeed),
+      damping: clampOrbitSetting("damping", settings.damping),
+      halo: clampOrbitSetting("halo", settings.halo),
     };
     this.#settings = clamped;
     this.#applyLighting();
@@ -1379,7 +1384,7 @@ export class OrbitScene {
       this.#notifyCamera();
       return false;
     }
-    const next = current + difference * easeBlend(delta, ZOOM_TAU_MS);
+    const next = current + difference * easeBlend(delta, ZOOM_TAU_MS * this.#settings.damping);
     this.#camera.fov = fovForLimiting(next, this.#camera.aspect);
     this.#camera.updateProjectionMatrix();
     this.#notifyCamera();
@@ -1741,7 +1746,7 @@ export class OrbitScene {
    * visibility and is then removed. */
   #applySmoothHalos(delta: number): boolean {
     if (this.#halos.size === 0) return false;
-    const blend = easeBlend(delta, HALO_TAU_MS);
+    const blend = easeBlend(delta, HALO_TAU_MS * this.#settings.damping);
     let moving = false;
     for (const [key, halo] of [...this.#halos]) {
       const difference = halo.target - halo.scale;
@@ -1759,6 +1764,7 @@ export class OrbitScene {
       const scale =
         ORBIT_STAR_RADIUS *
         Math.max(halo.scale, HALO_MIN_SCALE) *
+        this.#settings.halo *
         this.#glowScaleAt(halo.sprite.position);
       halo.sprite.scale.setScalar(scale);
     }
@@ -1841,7 +1847,7 @@ export class OrbitScene {
       this.#controls.target,
       this.#camera.position,
       point,
-      easeBlend(delta, CENTER_TAU_MS),
+      easeBlend(delta, CENTER_TAU_MS * this.#settings.damping),
     );
     if (moving) this.#notifyCamera();
     return moving;
@@ -2004,9 +2010,13 @@ export class OrbitScene {
   #syncFog(): void {
     const fog = this.#scene.fog;
     if (!(fog instanceof Fog)) return;
+    // Depth cueing follows the camera, but never gets tighter than the cloud:
+    // with the fog keyed to the camera alone, moving close to one star pushed
+    // the stars behind it past the far plane and they read as vanished.
     const distance = this.#camera.position.distanceTo(this.#controls.target);
-    fog.near = distance * 0.95;
-    fog.far = distance * 1.9;
+    const radius = Math.max(this.#boundsRadius, 1);
+    fog.near = Math.max(distance * 0.95, radius * 0.4);
+    fog.far = Math.max(distance * 1.9, radius * 2.4);
   }
 
   #notifyCamera(): void {
